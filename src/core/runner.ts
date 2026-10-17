@@ -9,17 +9,24 @@ import { isTerminal } from './state.ts';
 import type { Target } from './types.ts';
 
 export const MAX_ATTEMPTS = 4;
-/** Long enough for a large upload; a crashed holder on this machine is detected sooner (see isStaleOwner). */
-const LEASE_MS = 2 * 3600_000;
+/** Renewed every RENEW_MS while a step runs, so it only matters when the holder died or stalled. */
+const LEASE_MS = 15 * 60_000;
+const RENEW_MS = 5 * 60_000;
+/** A platform that hasn't finished processing after this long is not going to. */
+export const PROCESSING_MAX_MS = 24 * 3600_000;
 
 /** Identifies this process in target leases: host, pid and a random suffix. */
 export const PROCESS_OWNER = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
 
-/** A lease held by a process on this machine that no longer exists can be taken over at once. */
+/**
+ * A lease held by a process on this machine that no longer exists can be taken over at once. That
+ * includes an earlier run with our own pid (a restarted container where node is always pid 1).
+ */
 export function isStaleOwner(holder: string): boolean {
   const [host, pidText] = holder.split(':');
   const pid = Number(pidText);
   if (host !== hostname() || !Number.isInteger(pid) || pid <= 0) return false;
+  if (pid === process.pid) return holder !== PROCESS_OWNER;
   try {
     process.kill(pid, 0);
     return false;
@@ -58,12 +65,26 @@ export async function step(deps: RunnerDeps, targetId: string): Promise<Target> 
   // Another process (dashboard, CLI, watch, MCP) or another loop here may be on it: leave it alone.
   if (inFlight.has(targetId) || !store.claim(targetId, owner, LEASE_MS, isStaleOwner)) return target;
   inFlight.add(targetId);
+  // Keep the lease alive through long uploads; if another process took it (we were suspended past
+  // the lease), stop writing this target's state.
+  const renew = setInterval(() => store.claim(targetId, owner, LEASE_MS), RENEW_MS);
+  renew.unref();
   try {
     return await stepClaimed(deps, targetId);
   } finally {
+    clearInterval(renew);
     inFlight.delete(targetId);
     store.release(targetId, owner);
   }
+}
+
+/** False when our lease was lost mid-step: the new holder owns the target's state now. */
+function stillOwner(deps: RunnerDeps, targetId: string): boolean {
+  const holder = deps.ctx.store.leaseHolder(targetId);
+  const owner = deps.owner ?? PROCESS_OWNER;
+  if (holder === undefined || holder === owner) return true;
+  deps.ctx.log.warn(`작업 잠금을 잃었습니다 (${holder}). 이 대상의 상태는 그 프로세스가 기록합니다`);
+  return false;
 }
 
 async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> {
@@ -87,6 +108,10 @@ async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> 
   try {
     if (target.state === 'processing') {
       if (!target.remoteId) throw new ProviderError('rejected', 'missing_remote_id', 'processing target has no remote id');
+      const since = store.stateSince(target.id, 'processing');
+      if (since && ctx.now().getTime() - since.getTime() > PROCESSING_MAX_MS) {
+        throw new ProviderError('rejected', 'processing_timeout', `플랫폼 처리가 ${PROCESSING_MAX_MS / 3600_000}시간 넘게 끝나지 않았습니다. 플랫폼에서 직접 확인하세요`);
+      }
       account = await provider.refresh(ctx, account);
       const outcome = await provider.poll({ ctx, post, target: { ...target, remoteId: target.remoteId }, account });
       return applyOutcome(deps, target, outcome);
@@ -146,6 +171,7 @@ async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> 
 
 function applyOutcome(deps: RunnerDeps, target: Target, outcome: PublishOutcome): Target {
   const { store } = deps.ctx;
+  if (!stillOwner(deps, target.id)) return store.getTarget(target.id)!;
   const warnings = [...target.warnings, ...(outcome.warnings ?? []).filter((w) => !target.warnings.includes(w))];
   const patch = { remoteId: outcome.remoteId, remoteUrl: outcome.remoteUrl ?? target.remoteUrl, warnings, errorCode: undefined, errorMessage: undefined };
   if (outcome.state === target.state) return store.updateTarget(target.id, patch);
@@ -155,6 +181,7 @@ function applyOutcome(deps: RunnerDeps, target: Target, outcome: PublishOutcome)
 function handleError(deps: RunnerDeps, targetId: string, err: unknown): Target {
   const { store, log } = deps.ctx;
   const target = store.getTarget(targetId)!;
+  if (!stillOwner(deps, targetId)) return target;
   const pe =
     err instanceof ProviderError ? err : new ProviderError('retryable', 'unexpected', err instanceof Error ? err.message : String(err));
   const fields = { errorCode: pe.platformCode ? `${pe.code} (${pe.platformCode})` : pe.code, errorMessage: pe.message };

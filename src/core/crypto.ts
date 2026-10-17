@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const ALGORITHM = 'aes-256-gcm';
@@ -43,7 +43,17 @@ export function loadSecretKey(home: string): Buffer {
   if (fromEnv) return Buffer.from(fromEnv, 'base64');
   const path = join(home, 'secret.key');
   if (!existsSync(path)) {
-    writeFileSync(path, randomBytes(32).toString('base64'), { mode: 0o600 });
+    // Write the whole key to a private temp file, then link it into place: link fails if another
+    // process got there first, and nobody can ever read a half-written key.
+    const tmp = `${path}.${process.pid}.${randomBytes(4).toString('hex')}.tmp`;
+    writeFileSync(tmp, randomBytes(32).toString('base64'), { mode: 0o600 });
+    try {
+      linkSync(tmp, path);
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
+    } finally {
+      rmSync(tmp, { force: true });
+    }
   }
   return Buffer.from(readFileSync(path, 'utf8').trim(), 'base64');
 }

@@ -113,7 +113,9 @@ export class Store {
   readonly #now: () => Date;
 
   constructor(path: string, box: SecretBox, now: () => Date = () => new Date()) {
-    this.#db = new DatabaseSync(path);
+    // Other fanout processes (dashboard, CLI, watch, MCP) write to the same file: wait for their
+    // write transactions instead of failing right after a platform side effect.
+    this.#db = new DatabaseSync(path, { timeout: 10_000 });
     this.#db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     this.#db.exec(SCHEMA);
     this.#migrate();
@@ -229,7 +231,7 @@ export class Store {
     );
     const insertEvent = this.#db.prepare('INSERT INTO events (target_id, at, from_state, to_state) VALUES (?, ?, NULL, ?)');
     const created: Target[] = [];
-    this.#db.exec('BEGIN');
+    this.#db.exec('BEGIN IMMEDIATE');
     try {
       insertPost.run(post.id, JSON.stringify(post), now);
       for (const t of targets) {
@@ -316,7 +318,7 @@ export class Store {
     if (!current) throw new Error(`no target ${id}`);
     assertTransition(current.state, to);
     const now = this.#now().toISOString();
-    this.#db.exec('BEGIN');
+    this.#db.exec('BEGIN IMMEDIATE');
     try {
       this.#db.prepare('UPDATE targets SET state = ?, updated_at = ? WHERE id = ?').run(to, now, id);
       this.#db
@@ -328,6 +330,14 @@ export class Store {
       throw err;
     }
     return Object.keys(patch).length ? this.updateTarget(id, patch) : this.getTarget(id)!;
+  }
+
+  /** When the target last entered `state`, from its event log. */
+  stateSince(targetId: string, state: TargetState): Date | undefined {
+    const row = this.#db.prepare('SELECT at FROM events WHERE target_id = ? AND to_state = ? ORDER BY id DESC LIMIT 1').get(targetId, state) as
+      | { at: string }
+      | undefined;
+    return row ? new Date(row.at) : undefined;
   }
 
   events(targetId: string): TargetEvent[] {

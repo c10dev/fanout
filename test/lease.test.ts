@@ -7,7 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { describe, it } from 'node:test';
 import { SecretBox } from '../src/core/crypto.ts';
 import type { Provider } from '../src/core/provider.ts';
-import { isStaleOwner, settle, step, type RunnerDeps } from '../src/core/runner.ts';
+import { isStaleOwner, PROCESS_OWNER, settle, step, type RunnerDeps } from '../src/core/runner.ts';
 import { Store } from '../src/core/store.ts';
 import type { PostInput } from '../src/core/types.ts';
 import { fakeMedia, makeCtx } from './helpers.ts';
@@ -58,7 +58,8 @@ describe('target leases', () => {
   });
 
   it('detects dead processes on this host only', () => {
-    assert.equal(isStaleOwner(`${hostname()}:${process.pid}:x`), false);
+    assert.equal(isStaleOwner(PROCESS_OWNER), false);
+    assert.equal(isStaleOwner(`${hostname()}:${process.pid}:earlier-run`), true, 'same pid, different run (restarted container)');
     assert.equal(isStaleOwner(`${hostname()}:2147483646:x`), true);
     assert.equal(isStaleOwner(`some-other-host:2147483646:x`), false);
   });
