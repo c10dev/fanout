@@ -399,7 +399,7 @@ export const mastodon: Provider = {
       .slice(0, limit);
   },
 
-  async reply({ ctx, account, target, comment, text }) {
+  async reply({ ctx, account, target, comment, text, sending }) {
     assertPublisher(account, target);
     if (isScheduled(target)) throw new ProviderError('rejected', 'mastodon.scheduled', SCHEDULED_NOTE);
     const c = creds(account);
@@ -412,6 +412,7 @@ export const mastodon: Provider = {
     const own = (target.options as Partial<MastodonOptions>).visibility ?? 'public';
     const visibility = VISIBILITY_ORDER[Math.max(VISIBILITY_ORDER.indexOf(parent.visibility), VISIBILITY_ORDER.indexOf(own))] ?? 'unlisted';
     const key = createHash('sha256').update(`${target.id}\n${comment.id}\n${status}`).digest('hex').slice(0, 32);
+    sending();
     const { body } = await api<{ id: string; url?: string }>(ctx, c, '/api/v1/statuses', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'idempotency-key': `fanout-reply-${key}` },

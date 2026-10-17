@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, cancelTarget, createScheduledPost, editPost, fetchComments, previewPost, refreshStats, removeTarget, replyToComment, retryTarget } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, cancelTarget, createScheduledPost, editPost, fetchComments, previewPost, refreshStats, MaybeLiveError, removeTarget, replyToComment, retryTarget } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import { DEFAULT_EVENTS, detectFormat, notifyConfig, send as sendWebhook, validWebhookUrl, type NotifyConfig } from '../core/notify.ts';
@@ -259,8 +259,11 @@ export class Dashboard {
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'retry') return send(res, 200, this.#retry(parts[1]));
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'cancel') {
       try {
-        return send(res, 200, this.#publicTarget(cancelTarget(this.#opts.ctx.store, parts[1])));
+        const body = await readJson<{ confirmedNotPosted?: unknown }>(req).catch(() => ({}) as { confirmedNotPosted?: unknown });
+        return send(res, 200, this.#publicTarget(cancelTarget(this.#opts.ctx.store, parts[1], { confirmedNotPosted: body.confirmedNotPosted === true })));
       } catch (err) {
+        // The dashboard asks the user to check the platform, then sends confirmedNotPosted.
+        if (err instanceof MaybeLiveError) return send(res, 409, { error: err.message, needsConfirm: true });
         throw new HttpError(409, err instanceof Error ? err.message : String(err));
       }
     }

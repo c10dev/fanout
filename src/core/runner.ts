@@ -1,8 +1,7 @@
-import { randomUUID } from 'node:crypto';
-import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { ProviderError } from './errors.ts';
 import { sleep } from './http.ts';
+import { isStaleOwner, PROCESS_OWNER } from './lease.ts';
 import { checkMedia, ensureVariant, probe, type MediaInfo } from './media.ts';
 import type { Provider, ProviderContext, PublishOutcome } from './provider.ts';
 import { withTimeout } from './posting.ts';
@@ -17,25 +16,7 @@ const RENEW_MS = 5 * 60_000;
 export const PROCESSING_MAX_MS = 24 * 3600_000;
 const POLL_TIMEOUT_MS = 60_000;
 
-/** Identifies this process in target leases: host, pid and a random suffix. */
-export const PROCESS_OWNER = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
-
-/**
- * A lease held by a process on this machine that no longer exists can be taken over at once. That
- * includes an earlier run with our own pid (a restarted container where node is always pid 1).
- */
-export function isStaleOwner(holder: string): boolean {
-  const [host, pidText] = holder.split(':');
-  const pid = Number(pidText);
-  if (host !== hostname() || !Number.isInteger(pid) || pid <= 0) return false;
-  if (pid === process.pid) return holder !== PROCESS_OWNER;
-  try {
-    process.kill(pid, 0);
-    return false;
-  } catch (err) {
-    return (err as NodeJS.ErrnoException).code === 'ESRCH';
-  }
-}
+export { isStaleOwner, PROCESS_OWNER };
 
 /** Targets this process is stepping right now (leases are per process, so guard within it too). */
 const inFlight = new Set<string>();
@@ -66,6 +47,12 @@ export async function step(deps: RunnerDeps, targetId: string): Promise<Target> 
   if (isTerminal(target.state)) return target;
   // Another process (dashboard, CLI, watch, MCP) or another loop here may be on it: leave it alone.
   if (inFlight.has(targetId) || !store.claim(targetId, owner, LEASE_MS, isStaleOwner)) return target;
+  // It may have been canceled (or finished elsewhere) between the read above and the claim.
+  const fresh = store.getTarget(targetId);
+  if (!fresh || isTerminal(fresh.state)) {
+    store.release(targetId, owner);
+    return fresh ?? target;
+  }
   inFlight.add(targetId);
   // Keep the lease alive through long uploads; if another process took it (we were suspended past
   // the lease), stop writing this target's state.
