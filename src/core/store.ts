@@ -443,6 +443,14 @@ export class Store {
     this.#db.prepare('UPDATE targets SET stats = ? WHERE id = ?').run(JSON.stringify(stats), id);
   }
 
+  /** Posts scheduled at or after `fromIso`, soonest first. */
+  listScheduled(fromIso: string, limit = 50): Post[] {
+    const rows = this.#db
+      .prepare(`SELECT body FROM posts WHERE json_extract(body, '$.scheduledAt') >= ? ORDER BY json_extract(body, '$.scheduledAt') LIMIT ?`)
+      .all(fromIso, limit) as Array<{ body: string }>;
+    return rows.map((r) => JSON.parse(r.body) as Post);
+  }
+
   /** Times at or after `fromIso` that posts are scheduled for, unless every target of the post was given up on. */
   scheduledTimes(fromIso: string): string[] {
     const rows = this.#db

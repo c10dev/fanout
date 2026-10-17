@@ -1130,6 +1130,7 @@ function postCard({ post, targets }) {
 const BOARD_PAGE = 30;
 let boardLimit = BOARD_PAGE;
 let boardQuery = '';
+let boardScheduled = false;
 
 let boardTimer;
 let boardSeq = 0;
@@ -1139,7 +1140,7 @@ async function refreshBoard() {
   const seq = ++boardSeq;
   try {
     const limit = boardLimit;
-    const posts = await api(`/posts?limit=${limit}${boardQuery ? `&q=${encodeURIComponent(boardQuery)}` : ''}`);
+    const posts = await api(`/posts?limit=${limit}${boardScheduled ? '&scheduled=1' : boardQuery ? `&q=${encodeURIComponent(boardQuery)}` : ''}`);
     // A newer refresh (another search, a click) started meanwhile: its answer wins.
     if (seq !== boardSeq) return;
     // A full page means there may be more; set only where the board is actually redrawn.
@@ -1158,7 +1159,8 @@ async function refreshBoard() {
       showMore();
     } else {
       showMore();
-      $('#board').replaceChildren(...(posts.length ? posts.map(postCard) : [h('p', { class: 'empty' }, boardQuery ? `"${boardQuery}"에 맞는 게시물이 없습니다` : '아직 게시물이 없습니다')]));
+      const empty = boardScheduled ? '앞으로 예약된 게시물이 없습니다' : boardQuery ? `"${boardQuery}"에 맞는 게시물이 없습니다` : '아직 게시물이 없습니다';
+      $('#board').replaceChildren(...(posts.length ? posts.map(postCard) : [h('p', { class: 'empty' }, empty)]));
     }
     active = posts.some((p) => p.targets.some((t) => !t.terminal));
     $('#board-updated').textContent = `${new Date().toLocaleTimeString('ko-KR')} 갱신`;
@@ -1461,6 +1463,13 @@ $('#board-search').addEventListener('input', (e) => {
     boardLimit = BOARD_PAGE;
     refreshBoard();
   }, 300);
+});
+// "예약만": upcoming posts by time; the search box doesn't apply there.
+$('#board-scheduled').addEventListener('change', (e) => {
+  boardScheduled = e.target.checked;
+  $('#board-search').disabled = boardScheduled;
+  boardLimit = BOARD_PAGE;
+  refreshBoard();
 });
 $('#board-more').addEventListener('click', () => {
   boardLimit += BOARD_PAGE;
