@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, createScheduledPost } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
@@ -222,6 +222,7 @@ export class Dashboard {
     if (method === 'POST' && parts[0] === 'assets' && (parts[1] === 'thumbnail' || parts[1] === 'caption')) return send(res, 201, await this.#uploadAsset(req, parts[1]));
     if (method === 'GET' && parts[0] === 'posts' && parts.length === 1) return send(res, 200, this.#listPosts(Number(url.searchParams.get('limit') ?? 20)));
     if (method === 'POST' && parts[0] === 'posts' && parts.length === 1) return send(res, 201, await this.#createPost(req));
+    if (method === 'POST' && parts[0] === 'preview' && parts.length === 1) return send(res, 200, await this.#preview(req));
     if (method === 'GET' && parts[0] === 'posts' && parts[1]) return send(res, 200, this.#postDetail(parts[1]));
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'retry') return send(res, 200, this.#retry(parts[1]));
 
@@ -490,8 +491,8 @@ export class Dashboard {
     return path;
   }
 
-  async #createPost(req: IncomingMessage) {
-    const body = await readJson<CreatePostBody>(req);
+  /** Validate a create/preview body into post input and targets (shared by both endpoints). */
+  #parsePost(body: CreatePostBody): { input: PostInput; targets: TargetInput[] } {
     if (!body.mediaId || !MEDIA_ID.test(body.mediaId) || !existsSync(join(this.#mediaDir, body.mediaId))) {
       throw new HttpError(400, '먼저 영상을 업로드하세요 (mediaId 없음)');
     }
@@ -518,7 +519,19 @@ export class Dashboard {
       scheduledAt: body.scheduledAt ? new Date(body.scheduledAt).toISOString() : undefined,
     };
     const targets = body.targets.map((t) => ({ platform: t.platform, account: t.account, options: t.options ?? {} }));
-    const created = createScheduledPost(store, this.#opts.providers, input, targets);
+    return { input, targets };
+  }
+
+  /** Who and how each target would post, plus every error/warning preflight would raise. Creates nothing. */
+  async #preview(req: IncomingMessage) {
+    const { input, targets } = this.#parsePost(await readJson<CreatePostBody>(req));
+    const media = await (this.#opts.probe ?? realProbe)(input.mediaPath);
+    return { targets: previewPost(this.#opts.ctx.store, this.#opts.providers, input, targets, media) };
+  }
+
+  async #createPost(req: IncomingMessage) {
+    const { input, targets } = this.#parsePost(await readJson<CreatePostBody>(req));
+    const created = createScheduledPost(this.#opts.ctx.store, this.#opts.providers, input, targets);
     this.tick();
     return { post: this.#publicPost(created.post), targets: created.targets.map((t) => this.#publicTarget(t)) };
   }
