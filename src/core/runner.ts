@@ -5,6 +5,7 @@ import { ProviderError } from './errors.ts';
 import { sleep } from './http.ts';
 import { checkMedia, ensureVariant, probe, type MediaInfo } from './media.ts';
 import type { Provider, ProviderContext, PublishOutcome } from './provider.ts';
+import { withTimeout } from './posting.ts';
 import { isTerminal } from './state.ts';
 import type { Target } from './types.ts';
 
@@ -14,6 +15,7 @@ const LEASE_MS = 15 * 60_000;
 const RENEW_MS = 5 * 60_000;
 /** A platform that hasn't finished processing after this long is not going to. */
 export const PROCESSING_MAX_MS = 24 * 3600_000;
+const POLL_TIMEOUT_MS = 60_000;
 
 /** Identifies this process in target leases: host, pid and a random suffix. */
 export const PROCESS_OWNER = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
@@ -113,8 +115,10 @@ async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> 
         // The remote object may still finish later, so keep its ids: starting over could post twice.
         throw new ProviderError('rejected', 'processing_timeout', `플랫폼 처리가 ${PROCESSING_MAX_MS / 3600_000}시간 넘게 끝나지 않았습니다. 플랫폼에서 직접 확인하세요`, undefined, { keepResume: true });
       }
-      account = await provider.refresh(ctx, account);
-      const outcome = await provider.poll({ ctx, post, target: { ...target, remoteId: target.remoteId }, account });
+      // Status checks are short calls: give them a deadline so a silent platform can't hold the loop.
+      const pollCtx = withTimeout(ctx, POLL_TIMEOUT_MS);
+      account = await provider.refresh(pollCtx, account);
+      const outcome = await provider.poll({ ctx: pollCtx, post, target: { ...target, remoteId: target.remoteId }, account });
       return applyOutcome(deps, target, outcome);
     }
 
