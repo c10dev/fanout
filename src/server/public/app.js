@@ -251,8 +251,9 @@ function applyPreset(preset) {
     body.hidden = false;
     applyOptions(t.platform, body, t.options);
   }
-  if (preset.tags?.length) $('#tags').value = preset.tags.join(', ');
-  if (preset.description) $('#description').value = preset.description;
+  // In add mode the text belongs to the post being added to.
+  if (!addingTo && preset.tags?.length) $('#tags').value = preset.tags.join(', ');
+  if (!addingTo && preset.description) $('#description').value = preset.description;
   hideConfirm();
   $('#form-error').textContent = missing.length ? `연결돼 있지 않아 건너뛴 계정: ${missing.join(', ')}` : '';
 }
@@ -406,7 +407,7 @@ function renderTargets() {
 
 /** { postId, title, covered: Set<"platform/account"> } while adding to a post. */
 let addingTo = null;
-const COVERING = new Set(['queued', 'transcoding', 'uploading', 'processing', 'published', 'handed_off']);
+const COVERING = new Set(['queued', 'transcoding', 'uploading', 'processing', 'published', 'handed_off', 'needs_reauth']);
 const LOCKED_FIELDS = ['#file', '#title', '#description', '#tags', '#scheduled', '#ai', '#thumbnail', '#add-caption'];
 
 function lockCoveredTargets() {
@@ -417,7 +418,12 @@ function lockCoveredTargets() {
     const single = block.querySelector('[data-account]')?.dataset.account;
     if (select) {
       for (const o of [...select.options]) if (addingTo.covered.has(`${platform}/${o.value}`)) o.remove();
-      if (!select.options.length) toggle.disabled = true;
+      if (!select.options.length) {
+        toggle.checked = false;
+        toggle.disabled = true;
+        block.querySelector('.target-body').hidden = true;
+        block.classList.add('disabled');
+      }
     } else if (single && addingTo.covered.has(`${platform}/${single}`)) {
       toggle.checked = false;
       toggle.disabled = true;
@@ -436,6 +442,8 @@ async function startAddMode(postId) {
     return;
   }
   hideConfirm();
+  // Start from nothing picked: a platform checked for some other post must not carry over.
+  for (const t of document.querySelectorAll('#targets [name="enabled"]')) t.checked = false;
   addingTo = { postId, title: m.post.title, covered: new Set(m.onPost.filter((t) => COVERING.has(t.state)).map((t) => `${t.platform}/${t.account}`)) };
   media = { id: null, name: m.name, media: m.media, isShort: m.isShort, assessments: m.assessments };
   $('#title').value = m.post.title;

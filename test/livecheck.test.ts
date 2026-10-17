@@ -62,3 +62,17 @@ describe('doctor --live round trip', { skip: !hasFfmpeg && 'ffmpeg not installed
     assert.match(checks[2]!.detail, /https:\/\/fake\/R1/);
   });
 });
+
+describe('doctor --live labels', { skip: !hasFfmpeg && 'ffmpeg not installed' }, () => {
+  it('a failed delete is reported as the delete step', async () => {
+    const { ctx } = makeCtx();
+    const account = { platform: 'fake', name: 'main', credentials: {}, profile: {} };
+    const { provider } = fake({
+      async remove() {
+        throw new Error('403 forbidden');
+      },
+    });
+    const checks = await liveRoundTrip(ctx, provider, account, { options: {}, pollMs: 1 });
+    assert.deepEqual(checks.map((c) => [c.name, c.status]), [['테스트 업로드', 'ok'], ['처리·게시', 'ok'], ['테스트 게시물 삭제', 'fail'], ['테스트 게시물 삭제', 'warn']]);
+  });
+});

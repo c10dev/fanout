@@ -247,7 +247,7 @@ export class Store {
     this.#db.exec('BEGIN IMMEDIATE');
     try {
       insertPost.run(post.id, JSON.stringify(post), now);
-      created = this.#insertTargets(post.id, targets, notBefore, now);
+      created = this.#insertTargets(post.id, targets, () => notBefore, now);
       this.#db.exec('COMMIT');
     } catch (err) {
       this.#db.exec('ROLLBACK');
@@ -256,8 +256,8 @@ export class Store {
     return { post, targets: created };
   }
 
-  /** Queue more targets on an existing post (e.g. a platform added later). */
-  addTargets(postId: string, targets: TargetInput[], notBefore?: string): Target[] {
+  /** Queue more targets on an existing post (e.g. a platform added later), all or none. */
+  addTargets(postId: string, targets: TargetInput[], notBefore: (t: TargetInput) => string | undefined = () => undefined): Target[] {
     let created: Target[] = [];
     this.#db.exec('BEGIN IMMEDIATE');
     try {
@@ -270,7 +270,7 @@ export class Store {
     return created;
   }
 
-  #insertTargets(postId: string, targets: TargetInput[], notBefore: string | undefined, now: string): Target[] {
+  #insertTargets(postId: string, targets: TargetInput[], notBefore: (t: TargetInput) => string | undefined, now: string): Target[] {
     const insertTarget = this.#db.prepare(
       `INSERT INTO targets (id, post_id, platform, account, options, state, not_before, updated_at)
        VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`,
@@ -278,7 +278,7 @@ export class Store {
     const insertEvent = this.#db.prepare('INSERT INTO events (target_id, at, from_state, to_state) VALUES (?, ?, NULL, ?)');
     return targets.map((t) => {
       const id = randomUUID();
-      insertTarget.run(id, postId, t.platform, t.account, JSON.stringify(t.options), notBefore ?? null, now);
+      insertTarget.run(id, postId, t.platform, t.account, JSON.stringify(t.options), notBefore(t) ?? null, now);
       insertEvent.run(id, now, 'queued');
       return this.getTarget(id)!;
     });
@@ -429,9 +429,12 @@ export class Store {
     this.#db.prepare('UPDATE targets SET stats = ? WHERE id = ?').run(JSON.stringify(stats), id);
   }
 
-  /** Whether a target other than `exceptId` already points at this remote object. */
-  remoteIdInUse(platform: string, remoteId: string, exceptId: string): boolean {
-    return Boolean(this.#db.prepare('SELECT 1 FROM targets WHERE platform = ? AND remote_id = ? AND id != ? LIMIT 1').get(platform, remoteId, exceptId));
+  /** Whether a target of the same account, other than `exceptId`, already points at this remote object. */
+  remoteIdInUse(platform: string, account: string, remoteId: string, exceptId: string): boolean {
+    // Remote ids are only unique per account's instance (PeerTube numbers videos per instance).
+    return Boolean(
+      this.#db.prepare('SELECT 1 FROM targets WHERE platform = ? AND account = ? AND remote_id = ? AND id != ? LIMIT 1').get(platform, account, remoteId, exceptId),
+    );
   }
 
   /** Keep a dated copy of a successful stats read, for trends. */
@@ -460,12 +463,12 @@ export class Store {
     return this.#db
       .prepare(
         `SELECT t.id, t.post_id AS postId, t.platform FROM targets t JOIN posts p ON p.id = t.post_id
-         WHERE t.state = 'published' AND t.remote_id IS NOT NULL AND p.created_at >= ?
+         WHERE t.state = 'published' AND t.remote_id IS NOT NULL AND (p.created_at >= ? OR t.updated_at >= ?)
            AND t.platform IN (${platforms.map(() => '?').join(', ')})
            AND (t.stats IS NULL OR json_extract(t.stats, '$.fetchedAt') < ?)
          ORDER BY json_extract(t.stats, '$.fetchedAt') LIMIT ?`,
       )
-      .all(postedSince, ...platforms, staleBefore, limit) as Array<{ id: string; postId: string; platform: string }>;
+      .all(postedSince, postedSince, ...platforms, staleBefore, limit) as Array<{ id: string; postId: string; platform: string }>;
   }
 
   /** The latest stats reading at or before `atOrBefore`. */

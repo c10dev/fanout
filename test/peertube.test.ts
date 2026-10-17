@@ -367,3 +367,18 @@ describe('PeerTube seventh review fixes', () => {
     assert.equal((next.credentials as typeof CREDS).accessToken, 'AT-OTHER');
   });
 });
+
+describe('PeerTube video ids are per instance', () => {
+  it('a target of another account with the same id does not hide our video', async () => {
+    const e = env([
+      ['PUT', 'upload_id=S', () => json({ error: { code: 'FileNotFound' } }, 404)],
+      ['GET', '/api/v1/users/me/videos', () => json({ data: [{ id: 90, shortUUID: 's90', name: '테스트 영상', createdAt: '2026-10-17T02:59:30Z', channel: { id: 3 } }] })],
+    ]);
+    const { targets } = e.store.createPost(POST, [{ platform: 'peertube', account: 'alt', options: { privacy: 'public' } }]);
+    e.store.transition(targets[0]!.id, 'uploading');
+    e.store.transition(targets[0]!.id, 'published', { remoteId: '90' });
+    e.store.updateTarget(e.target.id, { resume: { location: `${I}/api/v1/videos/upload-resumable?upload_id=S`, total: 10, instance: I, userId: 7, channelId: 3, startedAt: '2026-10-17T02:59:00Z', finalSent: true } });
+    const out = await peertube.publish({ ctx: e.ctx, post: e.post, target: e.store.getTarget(e.target.id)!, account: e.account, mediaPath: video(10), media: {} as MediaInfo, saveResume: () => {} });
+    assert.equal(out.remoteId, '90');
+  });
+});

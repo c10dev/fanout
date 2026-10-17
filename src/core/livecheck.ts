@@ -30,6 +30,7 @@ export async function liveRoundTrip(ctx: ProviderContext, provider: Provider, ac
   scratch.saveAccount(account);
   let remoteId: string | undefined;
   let removed = false;
+  let step = '테스트 업로드';
   let url: string | undefined;
   try {
     await makeTestClip(clip);
@@ -53,6 +54,7 @@ export async function liveRoundTrip(ctx: ProviderContext, provider: Provider, ac
     remoteId = out.remoteId;
     url = out.remoteUrl;
     checks.push({ name: '테스트 업로드', status: 'ok', detail: `올림 (${out.remoteUrl ?? out.remoteId})` });
+    step = '처리·게시';
     scratch.transition(id, 'processing', { remoteId: out.remoteId, remoteUrl: out.remoteUrl });
     const deadline = Date.now() + (opts.timeoutMs ?? 180_000);
     while (out.state === 'processing' && Date.now() < deadline) {
@@ -70,13 +72,14 @@ export async function liveRoundTrip(ctx: ProviderContext, provider: Provider, ac
     );
     if (out.state === 'published' && provider.remove) {
       scratch.transition(id, 'published', { remoteId: out.remoteId, remoteUrl: out.remoteUrl });
+      step = '테스트 게시물 삭제';
       const t = current();
       await provider.remove({ ctx: sctx, account: acct(), target: { ...t, remoteId: out.remoteId } });
       removed = true;
       checks.push({ name: '테스트 게시물 삭제', status: 'ok', detail: '삭제함' });
     }
   } catch (err) {
-    checks.push({ name: remoteId ? '처리·게시' : '테스트 업로드', status: 'fail', detail: err instanceof Error ? err.message : String(err) });
+    checks.push({ name: step, status: 'fail', detail: err instanceof Error ? err.message : String(err) });
   } finally {
     if (remoteId && !removed) {
       checks.push({ name: '테스트 게시물 삭제', status: 'warn', detail: `지우지 못했습니다. 직접 지워 주세요: ${url ?? remoteId}` });

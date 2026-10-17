@@ -118,7 +118,8 @@ export function previewPost(
 }
 
 /** States in which a target already covers its platform account on this post. */
-const COVERING_STATES: ReadonlySet<Target['state']> = new Set(['queued', 'transcoding', 'uploading', 'processing', 'published', 'handed_off']);
+// needs_reauth goes back to queued once the account is reconnected, so it still covers its account.
+const COVERING_STATES: ReadonlySet<Target['state']> = new Set(['queued', 'transcoding', 'uploading', 'processing', 'published', 'handed_off', 'needs_reauth']);
 
 export interface AddTargetsPlan {
   post: Post;
@@ -174,9 +175,7 @@ export function addTargets(store: Store, providers: Map<string, Provider>, postI
   if (plan.dropped.length) store.updatePost(postId, { thumbnailPath: plan.post.thumbnailPath, captions: plan.post.captions });
   // Like a new post: platforms without native scheduling wait for the time, if it is still ahead.
   const at = plan.post.scheduledAt && Date.parse(plan.post.scheduledAt) > Date.now() ? plan.post.scheduledAt : undefined;
-  const native = targets.filter((t) => providers.get(t.platform)?.capabilities.nativeSchedule);
-  const waiting = targets.filter((t) => !providers.get(t.platform)?.capabilities.nativeSchedule);
-  return [...store.addTargets(postId, native), ...store.addTargets(postId, waiting, at)];
+  return store.addTargets(postId, targets, (t) => (providers.get(t.platform)?.capabilities.nativeSchedule ? undefined : at));
 }
 
 /**

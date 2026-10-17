@@ -515,7 +515,7 @@ export const peertube: Provider = {
           v.name === post.title.trim() &&
           v.channel?.id === r.channelId &&
           Date.parse(v.createdAt ?? '') >= since &&
-          !ctx.store.remoteIdInUse('peertube', String(v.id), target.id),
+          !ctx.store.remoteIdInUse('peertube', target.account, String(v.id), target.id),
       );
       if (!candidates.length) return null;
       // Two look-alikes (the user uploaded the same title meanwhile): don't guess which is ours.
