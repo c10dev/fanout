@@ -480,7 +480,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     if (post.scheduledAt && !started && !scheduleAhead(post)) {
       issues.push({ severity: 'warning', code: 'schedule_past', message: 'YouTube 예약 시각이 이미 지나 예약 없이 바로 게시합니다' });
     }
-    if (post.scheduledAt && o.privacy && o.privacy !== 'public') {
+    if (scheduleAhead(post) && o.privacy && o.privacy !== 'public') {
       issues.push({ severity: 'error', code: 'schedule_privacy', message: 'YouTube 예약 게시는 public으로 공개되는 경우만 지원합니다' });
     }
     if (!post.title.trim()) issues.push({ severity: 'error', code: 'title', message: 'YouTube 제목이 비어 있습니다' });

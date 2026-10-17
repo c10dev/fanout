@@ -748,7 +748,7 @@ export class Dashboard {
 
   #listPosts(limit: number, query?: string) {
     const { store } = this.#opts.ctx;
-    return store.listPosts(Math.min(Math.max(limit || 20, 1), 300), query?.slice(0, 100)).map((p) => ({
+    return store.listPosts(Math.min(Math.max(Math.floor(limit) || 20, 1), 300), query?.slice(0, 100)).map((p) => ({
       post: this.#publicPost(p),
       targets: store.targetsForPost(p.id).map((t) => this.#publicTarget(t)),
     }));

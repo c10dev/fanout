@@ -42,8 +42,9 @@ docker network create "$N" >/dev/null
 docker volume create "$N-system" >/dev/null
 docker run -d --name "$N-pg" --network "$N" -e POSTGRES_USER=mastodon -e POSTGRES_PASSWORD=mastodon -e POSTGRES_DB=mastodon postgres:17-alpine >/dev/null
 docker run -d --name "$N-redis" --network "$N" redis:7-alpine >/dev/null
-until docker exec "$N-pg" pg_isready -U mastodon >/dev/null 2>&1; do sleep 1; done
-docker run --rm --network "$N" --env-file "$WORK/env" "$IMAGE" bundle exec rails db:setup >/dev/null 2>&1
+until_ok 60 docker exec "$N-pg" pg_isready -U mastodon
+docker run --rm --network "$N" --env-file "$WORK/env" "$IMAGE" bundle exec rails db:setup >"$WORK/db.log" 2>&1 ||
+  fail 'rails db:setup failed' "$(tail -40 "$WORK/db.log")"
 docker run -d --name "$N-web" --network "$N" --env-file "$WORK/env" -v "$N-system:/mastodon/public/system" -p "127.0.0.1:$PORT:3000" "$IMAGE" bundle exec puma -C config/puma.rb >/dev/null
 docker run -d --name "$N-sidekiq" --network "$N" --env-file "$WORK/env" -v "$N-system:/mastodon/public/system" "$IMAGE" bundle exec sidekiq >/dev/null
 wait_for "http://127.0.0.1:$PORT/health" 300
@@ -66,7 +67,7 @@ PROXY_PID=$!
 wait_for "$BASE/api/v2/instance" 30
 
 # Two local users (no mail is ever sent, so skip the MX check), each with a token.
-rails() { docker exec "$N-web" bundle exec rails runner "$1" 2>/dev/null | sed -n 's/^OUT=//p'; }
+rails() { docker exec "$N-web" bundle exec rails runner "$1" 2>>"$WORK/rails.log" | sed -n 's/^OUT=//p'; }
 user_token() {
   rails "
 a = Account.create!(username: '$1')
@@ -78,18 +79,22 @@ puts 'OUT=' + Doorkeeper::AccessToken.create!(application: app, resource_owner_i
 }
 TOKEN=$(user_token fanoutit)
 FAN=$(user_token fan)
-[ -n "$TOKEN" ] && [ -n "$FAN" ] || fail 'could not create test users'
+[ -n "$TOKEN" ] && [ -n "$FAN" ] || fail 'could not create test users' "$(tail -40 "$WORK/rails.log" 2>/dev/null)"
 api() { curl -s -H "authorization: Bearer $TOKEN" "$@"; }
 
 step connect
-expect '연결됨: mastodon/main' "$(fanout connect mastodon --name main --instance "$BASE" --token "$TOKEN")"
+expect '연결됨: mastodon/main' "$(run connect mastodon --name main --instance "$BASE" --token "$TOKEN")"
 
 step 'doctor --live'
-expect '테스트 게시물 삭제: 삭제함' "$(fanout doctor mastodon --live)"
-[ "$(api "$BASE/api/v1/accounts/verify_credentials" | json d.statuses_count)" = 0 ] || fail 'doctor --live left a status behind'
+out=$(run doctor mastodon --live)
+expect '테스트 게시물 삭제: 삭제함' "$out"
+# The test status is "direct", which statuses_count ignores: look the status itself up instead.
+DOCTOR_SID=$(sed -n 's|.*처리·게시: 게시됨 .*/\([0-9]*\)$|\1|p' <<<"$out")
+[ -n "$DOCTOR_SID" ] || fail 'no status id in the doctor output' "$out"
+[ "$(api -o /dev/null -w '%{http_code}' "$BASE/api/v1/statuses/$DOCTOR_SID")" = 404 ] || fail 'doctor --live left its status behind'
 
 step 'post with thumbnail'
-out=$(fanout post "$WORK/clip.mp4" --title 'fanout 통합 테스트' --description 'Mastodon 통합 테스트' --tags fanout \
+out=$(run post "$WORK/clip.mp4" --title 'fanout 통합 테스트' --description 'Mastodon 통합 테스트' --tags fanout \
   --thumbnail "$WORK/thumb.jpg" --to mastodon --md-visibility unlisted --md-alt '테스트 영상' --yes)
 expect 'published' "$out"
 POST=$(post_id "$out")
@@ -99,32 +104,31 @@ SID=$(api "$BASE/api/v1/accounts/$ME/statuses" | json 'd[0].id')
   fail 'visibility, alt text or thumbnail not applied'
 
 step edit
-expect '반영함' "$(fanout edit "$POST" --title 'fanout 통합 테스트 (수정)')"
+expect '반영함' "$(run edit "$POST" --title 'fanout 통합 테스트 (수정)')"
 [ "$(api "$BASE/api/v1/statuses/$SID" | json 'd.media_attachments.length+","+d.content.includes("(수정)")')" = '1,true' ] || fail 'edit lost the video or the text'
 
 step 'comments and reply'
 curl -s -H "authorization: Bearer $FAN" -H 'content-type: application/json' "$BASE/api/v1/statuses" \
   -d "{\"status\":\"@fanoutit 영상 잘 봤어요\",\"in_reply_to_id\":\"$SID\",\"visibility\":\"unlisted\"}" >/dev/null
-out=$(fanout comments "$POST")
+out=$(run comments "$POST")
 expect '영상 잘 봤어요' "$out"
 CID=$(sed -n 's/.*\[\([0-9]*\)\]$/\1/p' <<<"$out" | head -1)
-for _ in 1 2; do expect '답글을 달았습니다' "$(fanout reply "$POST" mastodon "$CID" '고마워요' --yes)"; done
+for _ in 1 2; do expect '답글을 달았습니다' "$(run reply "$POST" mastodon "$CID" '고마워요' --yes)"; done
 [ "$(api "$BASE/api/v1/statuses/$CID/context" | json 'd.descendants.length+","+d.descendants[0].mentions.map(m=>m.acct).join()')" = '1,fan' ] ||
   fail 'expected one reply that mentions the commenter'
 
 step stats
-expect '댓글 1' "$(fanout stats "$POST")"
+expect '댓글 1' "$(run stats "$POST")"
 
 step 'schedule and cancel it'
-out=$(fanout post "$WORK/clip.mp4" --title 'fanout 예약 테스트' --to mastodon --md-visibility unlisted --at "$(date -u -d '+3 days' +%Y-%m-%dT%H:%M:%SZ)" --yes)
+out=$(run post "$WORK/clip.mp4" --title 'fanout 예약 테스트' --to mastodon --md-visibility unlisted --at "$(date -u -d '+3 days' +%Y-%m-%dT%H:%M:%SZ)" --yes)
 expect '예약 게시' "$out"
 [ "$(api "$BASE/api/v1/scheduled_statuses" | json d.length)" = 1 ] || fail 'no scheduled status'
-expect '삭제했습니다' "$(fanout remove "$(post_id "$out")" mastodon --yes)"
+expect '삭제했습니다' "$(run remove "$(post_id "$out")" mastodon --yes)"
 [ "$(api "$BASE/api/v1/scheduled_statuses" | json d.length)" = 0 ] || fail 'scheduled status not canceled'
 
 step remove
-expect '삭제했습니다' "$(fanout remove "$POST" mastodon --yes)"
-sleep 3
+expect '삭제했습니다' "$(run remove "$POST" mastodon --yes)"
 [ "$(api -o /dev/null -w '%{http_code}' "$BASE/api/v1/statuses/$SID")" = 404 ] || fail 'status still there'
 
 printf '\n✓ Mastodon integration passed\n'
