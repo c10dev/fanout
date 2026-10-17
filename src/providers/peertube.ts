@@ -2,7 +2,7 @@ import { openAsBlob, statSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { readChunk } from '../core/http.ts';
+import { imageMime, readChunk } from '../core/http.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Comment, Issue, Post } from '../core/types.ts';
@@ -190,18 +190,13 @@ async function serverVersion(ctx: ProviderContext, c: PeerTubeCredentials): Prom
   return m ? [Number(m[1]), Number(m[2])] : undefined;
 }
 
-function imageType(path: string): string {
-  const ext = extname(path).toLowerCase();
-  return ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
-}
-
 /** Thumbnail and captions go on after the upload; both are replace-in-place, so redoing them is harmless. */
 async function applyExtras(ctx: ProviderContext, c: PeerTubeCredentials, post: Post, videoId: number): Promise<string[]> {
   const warnings: string[] = [];
   if (post.thumbnailPath) {
     const form = new FormData();
     // PeerTube checks the part's MIME type, not just the file name.
-    form.set('thumbnailfile', await openAsBlob(post.thumbnailPath, { type: imageType(post.thumbnailPath) }), basename(post.thumbnailPath));
+    form.set('thumbnailfile', await openAsBlob(post.thumbnailPath, { type: imageMime(post.thumbnailPath) }), basename(post.thumbnailPath));
     await api(ctx, c, `/api/v1/videos/${videoId}`, { method: 'PUT', body: form }).catch((err: Error) => warnings.push(`썸네일을 올리지 못했습니다: ${err.message}`));
   }
   for (const cap of post.captions) {
