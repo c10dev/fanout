@@ -15,6 +15,7 @@ function fakeProvider(id: string, publish: () => Promise<unknown> = async () => 
     capabilities: { nativeSchedule: false, thumbnail: false, captions: false, syntheticMediaFlag: false },
     spec: { maxDurationSec: 60 },
     appFields: [],
+    connectMethod: 'token',
     setupGuide: () => '',
     connect: async () => {
       throw new Error('n/a');

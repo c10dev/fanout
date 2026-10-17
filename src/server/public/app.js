@@ -431,6 +431,210 @@ async function refreshBoard() {
   boardTimer = setTimeout(refreshBoard, active ? 3000 : 15000);
 }
 
+// ── Views and banner ─────────────────────────────────────────────
+
+function showView(view) {
+  for (const tab of document.querySelectorAll('.tab')) {
+    if (tab.dataset.view === view) tab.setAttribute('aria-current', 'page');
+    else tab.removeAttribute('aria-current');
+  }
+  $('#view-post').hidden = view !== 'post';
+  $('#view-settings').hidden = view !== 'settings';
+  if (view === 'settings') loadSettings();
+}
+
+for (const tab of document.querySelectorAll('.tab')) tab.addEventListener('click', () => showView(tab.dataset.view));
+
+function banner(text, kind) {
+  const el = $('#banner');
+  el.textContent = text;
+  el.className = `banner ${kind}`;
+  el.hidden = !text;
+}
+
+// ── Settings ─────────────────────────────────────────────────────
+
+const APP_TITLE = { youtube: 'YouTube', tiktok: 'TikTok', meta: 'Meta (Instagram · Facebook)' };
+const CHECK_ICON = { ok: '✓', warn: '⚠', fail: '✗', info: 'ℹ' };
+const LIVE_NOTICE = {
+  youtube: '4초짜리 테스트 영상을 일부 공개로 올려, 공개 업로드가 실제로 되는지 확인하고 바로 삭제합니다. 오늘 업로드 한도 1회를 씁니다. 처리를 기다리느라 몇 분 걸릴 수 있습니다.',
+  tiktok: '4초짜리 테스트 영상을 TikTok 앱 수신함으로 보냅니다. 앱 알림에 뜨는 테스트 영상은 게시하지 말고 지우세요.',
+};
+
+function message(el, text, ok) {
+  el.textContent = text;
+  el.className = `msg ${ok ? 'ok' : 'bad'}`;
+}
+
+function appCard(app, platforms) {
+  const fields = app.fields.map((f) =>
+    h(
+      'label',
+      { class: 'field' },
+      `${f.label}${f.optional ? ' (선택)' : ''}`,
+      h('input', {
+        name: f.key,
+        type: f.secret ? 'password' : 'text',
+        autocomplete: 'off',
+        value: f.secret ? undefined : f.value,
+        placeholder: f.secret && f.set ? '저장됨 · 바꿀 때만 입력' : '',
+      }),
+    ),
+  );
+  const jsonInput = app.key === 'youtube' ? h('input', { type: 'file', accept: '.json,application/json', name: 'clientJson' }) : null;
+  const status = h('span', { class: 'msg' });
+  const form = h(
+    'form',
+    {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const values = {};
+        for (const f of app.fields) values[f.key] = form.querySelector(`[name="${f.key}"]`).value;
+        const file = jsonInput?.files[0];
+        try {
+          await api(`/apps/${app.key}`, { method: 'PUT', body: JSON.stringify({ values, clientJson: file ? await file.text() : undefined }) });
+          message(status, '저장했습니다', true);
+          await refreshAll();
+        } catch (err) {
+          message(status, err.message, false);
+        }
+      },
+    },
+    h('div', { class: 'app-form' }, fields, jsonInput ? h('label', { class: 'field' }, '또는 Google에서 받은 OAuth JSON 파일', jsonInput) : null),
+    h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'submit' }, '앱 정보 저장'), status),
+  );
+  const configured = app.fields.filter((f) => !f.optional).every((f) => f.set);
+  return h(
+    'section',
+    { class: 'panel' },
+    h('h2', {}, APP_TITLE[app.key] ?? app.key, badge(configured ? ['앱 등록됨', 'ok'] : ['앱 미등록', 'warn'])),
+    h('details', { open: !configured }, h('summary', {}, '내 개발자 앱 만드는 방법'), h('pre', { class: 'guide' }, app.guide)),
+    form,
+    platforms.map((p) => platformBlock(p, configured)),
+  );
+}
+
+function platformBlock(p, appReady) {
+  const rows = p.accounts.map((a) => accountRow(p, a));
+  return h(
+    'div',
+    { class: 'platform-block' },
+    h('h3', {}, p.displayName),
+    rows.length ? rows : h('p', { class: 'muted' }, '연결된 계정이 없습니다'),
+    connectForm(p, appReady),
+  );
+}
+
+function accountRow(p, a) {
+  const results = h('ul', { class: 'checks', hidden: true });
+  const run = async (live) => {
+    if (live && !confirm(LIVE_NOTICE[p.id])) return;
+    for (const b of row.querySelectorAll('button')) b.disabled = true;
+    results.hidden = false;
+    results.replaceChildren(h('li', { class: 'info' }, live ? '실제 업로드로 점검 중… 몇 분 걸릴 수 있습니다' : '점검 중…'));
+    try {
+      const { checks } = await api(`/doctor/${p.id}`, { method: 'POST', body: JSON.stringify({ account: a.name, live }) });
+      results.replaceChildren(...checks.map((c) => h('li', { class: c.status }, `${CHECK_ICON[c.status] ?? ''} ${c.name}: ${c.detail}`)));
+    } catch (err) {
+      results.replaceChildren(h('li', { class: 'fail' }, `✗ ${err.message}`));
+    } finally {
+      for (const b of row.querySelectorAll('button')) b.disabled = false;
+    }
+  };
+  const row = h(
+    'div',
+    { class: 'acct' },
+    h('span', { class: 'acct-name' }, `${a.label}`, h('span', { class: 'muted' }, `  ${p.id}/${a.name}`)),
+    h('button', { class: 'small', type: 'button', onclick: () => run(false) }, '점검'),
+    LIVE_NOTICE[p.id] ? h('button', { class: 'small', type: 'button', onclick: () => run(true) }, '실제 업로드로 점검') : null,
+    h(
+      'button',
+      {
+        class: 'small',
+        type: 'button',
+        onclick: async () => {
+          if (!confirm(`${p.displayName} ${a.label} 연결을 해제할까요? 저장된 토큰을 지웁니다.`)) return;
+          try {
+            await api(`/accounts/${p.id}/${encodeURIComponent(a.name)}`, { method: 'DELETE' });
+            await refreshAll();
+          } catch (err) {
+            alert(err.message);
+          }
+        },
+      },
+      '연결 해제',
+    ),
+    results,
+  );
+  return row;
+}
+
+function connectForm(p, appReady) {
+  const status = h('span', { class: 'msg' });
+  const name = h('input', { name: 'name', value: p.accounts.some((a) => a.name === 'main') ? '' : 'main', placeholder: '예: main, sub', autocomplete: 'off' });
+  const token = p.connectMethod === 'token' ? h('textarea', { name: 'token', rows: 2, placeholder: 'Graph API 탐색기에서 만든 사용자 액세스 토큰' }) : null;
+  const page = p.connectMethod === 'token' ? h('input', { name: 'page', placeholder: '비우면 첫 번째 페이지', autocomplete: 'off' }) : null;
+  const redirect =
+    p.connectMethod === 'oauth'
+      ? h(
+          'p',
+          { class: 'redirect' },
+          p.id === 'tiktok' ? 'TikTok 개발자 포털 Login Kit에 이 Redirect URI를 등록해야 합니다: ' : 'Redirect URI (Google 데스크톱 앱 클라이언트는 따로 등록하지 않아도 됩니다): ',
+          h('code', {}, p.redirectUri),
+        )
+      : null;
+  const button = h('button', { class: 'primary', type: 'submit', disabled: !appReady }, p.connectMethod === 'oauth' ? `${p.id === 'youtube' ? 'Google' : 'TikTok'} 계정으로 연결` : '연결');
+  return h(
+    'form',
+    {
+      onsubmit: async (e) => {
+        e.preventDefault();
+        button.disabled = true;
+        try {
+          const res = await api(`/connect/${p.id}`, {
+            method: 'POST',
+            body: JSON.stringify({ name: name.value.trim() || 'main', token: token?.value, page: page?.value }),
+          });
+          if (res.authorizeUrl) {
+            window.location.href = res.authorizeUrl;
+            return;
+          }
+          message(status, `연결됨: ${res.account.label}`, true);
+          await refreshAll();
+        } catch (err) {
+          message(status, err.message, false);
+          button.disabled = !appReady;
+        }
+      },
+    },
+    h('div', { class: 'connect' }, h('label', { class: 'field' }, '계정 이름', name), page ? h('label', { class: 'field' }, '페이지 ID (선택)', page) : null),
+    token ? h('label', { class: 'field' }, '액세스 토큰', token) : null,
+    redirect,
+    h('div', { class: 'actions' }, button, appReady ? null : h('span', { class: 'muted' }, '먼저 위에서 앱 정보를 저장하세요'), status),
+  );
+}
+
+async function loadSettings() {
+  const box = $('#settings');
+  if (!overview.settingsEnabled) {
+    box.replaceChildren(h('section', { class: 'panel' }, h('p', {}, '설정 화면은 127.0.0.1 전용으로 연 대시보드에서만 쓸 수 있습니다. 이 서버의 터미널에서 fanout app set / fanout connect 를 쓰세요.')));
+    return;
+  }
+  try {
+    const settings = await api('/settings');
+    box.replaceChildren(...settings.apps.map((app) => appCard(app, settings.platforms.filter((p) => app.platforms.includes(p.id)))));
+  } catch (err) {
+    box.replaceChildren(h('p', { class: 'form-error' }, err.message));
+  }
+}
+
+async function refreshAll() {
+  overview = await api('/overview');
+  renderAccounts();
+  renderTargets();
+  if (!$('#view-settings').hidden) await loadSettings();
+}
+
 async function init() {
   try {
     overview = await api('/overview');
@@ -441,6 +645,13 @@ async function init() {
   renderAccounts();
   renderTargets();
   refreshBoard();
+
+  // Coming back from an OAuth redirect.
+  const params = new URLSearchParams(location.search);
+  if (params.get('connected')) banner(`연결했습니다: ${params.get('connected')}`, 'ok');
+  if (params.get('oauthError')) banner(`연결 실패: ${params.get('oauthError')}`, 'bad');
+  if (params.has('view')) history.replaceState(null, '', '/');
+  showView(params.get('view') === 'settings' ? 'settings' : 'post');
 }
 
 init();

@@ -55,6 +55,7 @@ export const instagram: Provider = {
   appFields: META_APP_FIELDS,
   setupGuide: () => META_SETUP_GUIDE,
 
+  connectMethod: 'token',
   connect: (ctx, name, flags) => connectPage(ctx, 'instagram', name, flags),
 
   // Page tokens from a long-lived user token don't expire; a revoked one surfaces as Graph error 190.

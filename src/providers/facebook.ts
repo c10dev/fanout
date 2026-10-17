@@ -58,6 +58,7 @@ export const facebook: Provider = {
   appFields: META_APP_FIELDS,
   setupGuide: () => META_SETUP_GUIDE,
 
+  connectMethod: 'token',
   connect: (ctx, name, flags) => connectPage(ctx, 'facebook', name, flags),
   refresh: async (_ctx, account) => account,
 

@@ -6,6 +6,7 @@ import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { probe as realProbe, type MediaInfo } from '../core/media.ts';
 import { assessMedia, createScheduledPost } from '../core/posting.ts';
+import { ProviderError } from '../core/errors.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { settle, type RunnerDeps } from '../core/runner.ts';
 import { isTerminal } from '../core/state.ts';
@@ -36,6 +37,16 @@ const STATIC: Record<string, string> = {
 const MEDIA_ID = /^[0-9a-f-]{36}\.[a-z0-9]{1,5}$/;
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi']);
 const JSON_LIMIT = 1024 * 1024;
+const ACCOUNT_NAME = /^[A-Za-z0-9_-]{1,32}$/;
+const OAUTH_TTL_MS = 10 * 60_000;
+
+interface PendingOAuth {
+  platform: string;
+  name: string;
+  verifier: string;
+  redirectUri: string;
+  expiresAt: number;
+}
 
 class HttpError extends Error {
   readonly status: number;
@@ -94,6 +105,7 @@ export class Dashboard {
   #timer?: NodeJS.Timeout;
   #allowedHosts = new Set<string>();
   #running = new Set<Promise<unknown>>();
+  readonly #pendingOAuth = new Map<string, PendingOAuth>();
 
   constructor(opts: DashboardOptions) {
     this.#opts = opts;
@@ -111,12 +123,14 @@ export class Dashboard {
     mkdirSync(this.#mediaDir, { recursive: true, mode: 0o700 });
     this.#server = createServer((req, res) => {
       this.#handle(req, res).catch((err: unknown) => {
-        const status = err instanceof HttpError ? err.status : 500;
+        const status = err instanceof HttpError ? err.status : err instanceof ProviderError ? 400 : 500;
         if (status === 500) this.#opts.ctx.log.warn(`dashboard: ${err instanceof Error ? err.stack : String(err)}`);
         if (!res.headersSent) send(res, status, { error: err instanceof Error ? err.message : String(err) });
         else res.end();
       });
     });
+    // Large video uploads can take longer than Node's default 5-minute request timeout.
+    this.#server.requestTimeout = 0;
     await new Promise<void>((r) => this.#server!.listen(this.#opts.port ?? 8780, host, r));
     const port = (this.#server.address() as AddressInfo).port;
     for (const h of ['127.0.0.1', 'localhost', '[::1]']) this.#allowedHosts.add(`${h}:${port}`);
@@ -173,6 +187,7 @@ export class Dashboard {
       res.end(readFileSync(join(PUBLIC_DIR, url.pathname.slice(1))));
       return;
     }
+    if (method === 'GET' && url.pathname.startsWith('/oauth/') && url.pathname.endsWith('/callback')) return this.#oauthCallback(req, res, url);
     if (!url.pathname.startsWith('/api/')) throw new HttpError(404, 'not found');
     if (req.headers['x-fanout-token'] !== this.#token) throw new HttpError(401, '대시보드 토큰이 필요합니다');
 
@@ -183,6 +198,14 @@ export class Dashboard {
     if (method === 'POST' && parts[0] === 'posts' && parts.length === 1) return send(res, 201, await this.#createPost(req));
     if (method === 'GET' && parts[0] === 'posts' && parts[1]) return send(res, 200, this.#postDetail(parts[1]));
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'retry') return send(res, 200, this.#retry(parts[1]));
+
+    // Settings: app secrets and account tokens, local dashboards only.
+    if (['settings', 'apps', 'connect', 'accounts', 'doctor'].includes(parts[0] ?? '')) this.#requireSettings();
+    if (method === 'GET' && parts[0] === 'settings') return send(res, 200, this.#settings(req));
+    if (method === 'PUT' && parts[0] === 'apps' && parts[1]) return send(res, 200, this.#saveApp(parts[1], await readJson(req)));
+    if (method === 'POST' && parts[0] === 'connect' && parts[1]) return send(res, 200, await this.#connect(req, parts[1], await readJson(req)));
+    if (method === 'DELETE' && parts[0] === 'accounts' && parts[1] && parts[2]) return send(res, 200, this.#disconnect(parts[1], decodeURIComponent(parts[2])));
+    if (method === 'POST' && parts[0] === 'doctor' && parts[1]) return send(res, 200, await this.#doctor(parts[1], await readJson(req)));
     throw new HttpError(404, 'not found');
   }
 
@@ -200,10 +223,169 @@ export class Dashboard {
     res.end(html);
   }
 
+  /** Settings handle app secrets and tokens, so only a loopback-only dashboard exposes them. */
+  get settingsEnabled(): boolean {
+    return isLoopback(this.#opts.host ?? '127.0.0.1') && !this.#opts.allowedHosts?.length;
+  }
+
+  #requireSettings(): void {
+    if (!this.settingsEnabled) {
+      throw new HttpError(403, '설정 화면은 127.0.0.1 전용입니다. 이 서버에서 터미널로 fanout app set / connect 를 쓰세요');
+    }
+  }
+
+  #provider(id: string): Provider {
+    const p = this.#opts.providers.get(id);
+    if (!p) throw new HttpError(404, `알 수 없는 플랫폼: ${id}`);
+    return p;
+  }
+
+  #accountLabel(profile: Record<string, unknown>, name: string): string {
+    const pr = profile as Record<string, string | undefined>;
+    return pr.channelTitle ?? (pr.username ? `@${pr.username}` : undefined) ?? pr.pageName ?? pr.displayName ?? name;
+  }
+
+  #redirectUri(req: IncomingMessage, platform: string): string {
+    return `http://${req.headers.host}/oauth/${platform}/callback`;
+  }
+
+  #settings(req: IncomingMessage) {
+    const { store } = this.#opts.ctx;
+    const accounts = store.listAccounts();
+    const apps = new Map<string, { key: string; platforms: string[]; guide: string; fields: unknown[] }>();
+    for (const p of this.#opts.providers.values()) {
+      const key = p.appKey ?? p.id;
+      const existing = apps.get(key);
+      if (existing) {
+        existing.platforms.push(p.id);
+        continue;
+      }
+      const config = store.getApp<Record<string, unknown>>(key) ?? {};
+      apps.set(key, {
+        key,
+        platforms: [p.id],
+        guide: p.setupGuide(),
+        // Secrets never leave the server; the form only learns whether one is stored.
+        fields: p.appFields.map((f) => ({
+          ...f,
+          set: config[f.key] !== undefined && config[f.key] !== '',
+          value: f.secret ? undefined : (config[f.key] as string | undefined),
+        })),
+      });
+    }
+    return {
+      apps: [...apps.values()],
+      platforms: [...this.#opts.providers.values()].map((p) => ({
+        id: p.id,
+        displayName: p.displayName,
+        appKey: p.appKey ?? p.id,
+        appConfigured: Boolean(store.getApp(p.appKey ?? p.id)),
+        connectMethod: p.connectMethod,
+        redirectUri: p.connectMethod === 'oauth' ? this.#redirectUri(req, p.id) : undefined,
+        accounts: accounts.filter((a) => a.platform === p.id).map((a) => ({ name: a.name, label: this.#accountLabel(a.profile, a.name) })),
+      })),
+    };
+  }
+
+  #saveApp(key: string, body: { values?: Record<string, unknown>; clientJson?: string }) {
+    const provider = [...this.#opts.providers.values()].find((p) => (p.appKey ?? p.id) === key);
+    if (!provider) throw new HttpError(404, `알 수 없는 앱: ${key}`);
+    const { store } = this.#opts.ctx;
+    const config: Record<string, unknown> = { ...(store.getApp(key) ?? {}) };
+    if (body.clientJson) {
+      // Google's downloaded client file: { installed: {...} } or { web: {...} }.
+      let parsed: Record<string, { client_id?: string; client_secret?: string }>;
+      try {
+        parsed = JSON.parse(body.clientJson) as typeof parsed;
+      } catch {
+        throw new HttpError(400, 'JSON 파일을 읽을 수 없습니다');
+      }
+      const inner = parsed.installed ?? parsed.web;
+      if (!inner?.client_id) throw new HttpError(400, 'client_id가 있는 Google OAuth JSON이 아닙니다');
+      if (!parsed.installed) throw new HttpError(400, '"데스크톱 앱" 유형 OAuth 클라이언트 JSON이어야 합니다 (installed)');
+      config.clientId = inner.client_id;
+      config.clientSecret = inner.client_secret;
+    }
+    for (const f of provider.appFields) {
+      const raw = body.values?.[f.key];
+      if (raw === undefined) continue;
+      const v = String(raw).trim();
+      if (v) config[f.key] = v;
+      // An empty secret means "keep the stored one"; an empty optional field clears it.
+      else if (!f.secret && f.optional) delete config[f.key];
+    }
+    const missing = provider.appFields.filter((f) => !f.optional && !config[f.key]).map((f) => f.label);
+    if (missing.length) throw new HttpError(400, `필수 항목이 비어 있습니다: ${missing.join(', ')}`);
+    store.setApp(key, config);
+    return { ok: true };
+  }
+
+  async #connect(req: IncomingMessage, platform: string, body: { name?: string; token?: string; page?: string }) {
+    const provider = this.#provider(platform);
+    const name = (body.name ?? 'main').trim();
+    if (!ACCOUNT_NAME.test(name)) throw new HttpError(400, '계정 이름은 영문·숫자·-·_ 32자 이내');
+
+    if (provider.connectMethod === 'oauth') {
+      const redirectUri = this.#redirectUri(req, platform);
+      const start = provider.oauthBegin!(this.#opts.ctx, redirectUri);
+      const now = Date.now();
+      for (const [k, v] of this.#pendingOAuth) if (v.expiresAt < now) this.#pendingOAuth.delete(k);
+      this.#pendingOAuth.set(start.state, { platform, name, verifier: start.verifier, redirectUri, expiresAt: now + OAUTH_TTL_MS });
+      return { authorizeUrl: start.url };
+    }
+
+    if (!body.token?.trim()) throw new HttpError(400, '액세스 토큰을 붙여넣으세요');
+    const account = await provider.connect(this.#opts.ctx, name, { token: body.token.trim(), page: body.page?.trim() || undefined });
+    this.#opts.ctx.store.saveAccount(account);
+    return { account: { name, label: this.#accountLabel(account.profile, name) } };
+  }
+
+  async #oauthCallback(_req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+    const back = (params: Record<string, string>) => {
+      res.writeHead(303, { location: `/?${new URLSearchParams({ view: 'settings', ...params })}`, 'cache-control': 'no-store' });
+      res.end();
+    };
+    if (!this.settingsEnabled) return back({ oauthError: '설정 화면은 127.0.0.1 전용입니다' });
+    const platform = url.pathname.split('/')[2] ?? '';
+    const state = url.searchParams.get('state') ?? '';
+    const pending = this.#pendingOAuth.get(state);
+    this.#pendingOAuth.delete(state);
+    if (!pending || pending.platform !== platform || pending.expiresAt < Date.now()) {
+      return back({ oauthError: '연결 요청이 만료됐거나 올바르지 않습니다. 다시 연결을 눌러 주세요' });
+    }
+    try {
+      const provider = this.#provider(platform);
+      const account = await provider.oauthFinish!(this.#opts.ctx, pending.name, url.searchParams, pending.redirectUri, pending.verifier);
+      this.#opts.ctx.store.saveAccount(account);
+      back({ connected: `${platform}/${pending.name}` });
+    } catch (err) {
+      back({ oauthError: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  #disconnect(platform: string, name: string) {
+    this.#provider(platform);
+    if (!this.#opts.ctx.store.removeAccount(platform, name)) throw new HttpError(404, '해당 계정이 없습니다');
+    return { ok: true };
+  }
+
+  async #doctor(platform: string, body: { account?: string; live?: boolean }) {
+    const provider = this.#provider(platform);
+    const name = body.account ?? 'main';
+    const account = this.#opts.ctx.store.getAccount(platform, name);
+    if (!account) throw new HttpError(404, `${platform}/${name} 계정이 연결되지 않았습니다`);
+    try {
+      return { checks: await provider.doctor({ ctx: this.#opts.ctx, account, live: Boolean(body.live) }) };
+    } catch (err) {
+      return { checks: [{ name: '점검 중 오류', status: 'fail', detail: err instanceof Error ? err.message : String(err) }] };
+    }
+  }
+
   #overview() {
     const { store } = this.#opts.ctx;
     const accounts = store.listAccounts();
     return {
+      settingsEnabled: this.settingsEnabled,
       platforms: [...this.#opts.providers.values()].map((p) => ({
         id: p.id,
         displayName: p.displayName,
@@ -211,10 +393,7 @@ export class Dashboard {
         appConfigured: Boolean(store.getApp(p.appKey ?? p.id)),
         accounts: accounts
           .filter((a) => a.platform === p.id)
-          .map((a) => {
-            const pr = a.profile as Record<string, string | undefined>;
-            return { name: a.name, label: pr.channelTitle ?? (pr.username ? `@${pr.username}` : undefined) ?? pr.pageName ?? pr.displayName ?? a.name };
-          }),
+          .map((a) => ({ name: a.name, label: this.#accountLabel(a.profile, a.name) })),
       })),
     };
   }
