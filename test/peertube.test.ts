@@ -213,3 +213,91 @@ describe('PeerTube after upload', () => {
     assert.equal(other.calls.length, 0);
   });
 });
+
+describe('PeerTube review fixes', () => {
+  const session = (id: string, extra: Record<string, unknown> = {}) => ({ location: `${I}/api/v1/videos/upload-resumable?upload_id=${id}`, total: 10, instance: I, userId: 7, channelId: 3, startedAt: '2026-10-17T02:59:00Z', ...extra });
+
+  it('edits a post without a description by sending null, not an empty string', async () => {
+    const e = env([['PUT', '/api/v1/videos/42', () => empty(204)]], { description: '' });
+    e.store.transition(e.target.id, 'uploading');
+    e.store.transition(e.target.id, 'published', { remoteId: '42', resume: { videoId: 42, instance: I, userId: 7 } });
+    const t = e.store.getTarget(e.target.id)! as typeof e.target & { remoteId: string };
+    await peertube.update!({ ctx: e.ctx, account: e.account, target: t, post: e.post });
+    assert.equal(JSON.parse(String(e.calls[0]!.body)).description, null);
+  });
+
+  it('a refused last chunk clears the session so the next try starts clean', async () => {
+    const path = video(10);
+    const e = env([
+      ...base,
+      ['POST', '/api/v1/videos/upload-resumable', () => empty(201, { location: '/api/v1/videos/upload-resumable?upload_id=BAD' })],
+      ['PUT', 'upload_id=BAD', () => json({ detail: 'Video file unreadable.' }, 400)],
+    ]);
+    const saved: Array<Record<string, unknown>> = [];
+    await assert.rejects(peertube.publish({ ctx: e.ctx, post: e.post, target: e.target, account: e.account, mediaPath: path, media: {} as MediaInfo, saveResume: (r) => saved.push(r) }));
+    assert.equal(saved.at(-1)!.finalSent, undefined);
+    assert.equal(saved.at(-1)!.location, undefined);
+  });
+
+  it('after a lost last-chunk answer, adopts the video it made', async () => {
+    const path = video(10);
+    const e = env([
+      // uploadx answers with an error object, not the REST API's problem+json.
+      ['PUT', 'upload_id=DONE', () => json({ error: { code: 'FileNotFound', message: 'Not found' } }, 404)],
+      [
+        'GET',
+        '/api/v1/users/me/videos',
+        () => json({ data: [{ id: 77, shortUUID: 's77', name: '테스트 영상', createdAt: '2026-10-17T02:59:30Z', channel: { id: 3 } }, { id: 70, name: '테스트 영상', createdAt: '2026-10-10T00:00:00Z', channel: { id: 3 } }] }),
+      ],
+    ]);
+    e.store.updateTarget(e.target.id, { resume: session('DONE', { finalSent: true }) });
+    const out = await peertube.publish({ ctx: e.ctx, post: e.post, target: e.store.getTarget(e.target.id)!, account: e.account, mediaPath: path, media: {} as MediaInfo, saveResume: () => {} });
+    assert.equal(out.remoteId, '77');
+    assert.equal(e.calls.some((c) => c.method === 'POST'), false, 'not uploaded again');
+  });
+
+  it('after a lost last-chunk answer with no such video, starts over', async () => {
+    const path = video(10);
+    const e = env([
+      ...base.filter(([, u]) => u !== '/api/v1/users/me'),
+      ['PUT', 'upload_id=DONE', () => json({ detail: 'Upload not found' }, 404)],
+      ['GET', '/api/v1/users/me/videos', () => json({ data: [] })],
+      ['GET', '/api/v1/users/me', () => json(ME)],
+      ['POST', '/api/v1/videos/upload-resumable', () => empty(201, { location: '/api/v1/videos/upload-resumable?upload_id=NEW2' })],
+      ['PUT', 'upload_id=NEW2', () => json({ video: { id: 78, shortUUID: 's78' } })],
+    ]);
+    e.store.updateTarget(e.target.id, { resume: session('DONE', { finalSent: true }) });
+    const out = await peertube.publish({ ctx: e.ctx, post: e.post, target: e.store.getTarget(e.target.id)!, account: e.account, mediaPath: path, media: {} as MediaInfo, saveResume: () => {} });
+    assert.equal(out.remoteId, '78');
+  });
+
+  it('a token revoked mid-upload is renewed and the chunk sent again', async () => {
+    const path = video(10);
+    const tokens: string[] = [];
+    const e = env([
+      ['POST', '/api/v1/users/token', () => json({ access_token: 'AT-NEW', refresh_token: 'RT-NEW', expires_in: 86400 })],
+      ['PUT', 'upload_id=U5', (c) => (tokens.push(c.headers.authorization!), c.headers.authorization === 'Bearer AT' ? json({ code: 'invalid_token' }, 401) : json({ video: { id: 5, shortUUID: 's5' } }))],
+    ]);
+    e.store.updateTarget(e.target.id, { resume: session('U5') });
+    // The status query is the first PUT: it gets the 401, then the renewed token.
+    const out = await peertube.publish({ ctx: e.ctx, post: e.post, target: e.store.getTarget(e.target.id)!, account: e.account, mediaPath: path, media: {} as MediaInfo, saveResume: () => {} });
+    assert.equal(out.remoteId, '5');
+    assert.deepEqual(tokens, ['Bearer AT', 'Bearer AT-NEW']);
+    assert.equal((e.store.getAccount('peertube', 'main')!.credentials as typeof CREDS).accessToken, 'AT-NEW');
+  });
+
+  it('never reads stats or comments of another instance’s video with the same id', async () => {
+    const e = env([]);
+    e.store.transition(e.target.id, 'uploading');
+    e.store.transition(e.target.id, 'published', { remoteId: '42', resume: { videoId: 42, instance: 'https://old.example', userId: 7 } });
+    const t = e.store.getTarget(e.target.id)! as typeof e.target & { remoteId: string };
+    await assert.rejects(peertube.stats!({ ctx: e.ctx, account: e.account, target: t }), /old\.example/);
+    await assert.rejects(peertube.comments!({ ctx: e.ctx, account: e.account, target: t, limit: 5 }), /old\.example/);
+    assert.equal(e.calls.length, 0);
+  });
+
+  it('counts emoji as one character, like the server', () => {
+    const { post, target } = env([], { title: '🎬'.repeat(65), tags: ['🎬'.repeat(16)] });
+    assert.deepEqual(peertube.validate(post, target, {} as MediaInfo).map((i) => i.code), []);
+  });
+});
