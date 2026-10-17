@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="fanout-token" content="__FANOUT_TOKEN__">
+  <title>fanout</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header class="top">
+    <h1>fanout</h1>
+    <ul id="accounts" class="chips" aria-label="연결된 계정"></ul>
+  </header>
+
+  <main class="layout">
+    <section class="panel" aria-labelledby="new-h">
+      <h2 id="new-h">새 게시물</h2>
+      <form id="post-form" novalidate>
+        <div class="drop" id="drop">
+          <input type="file" id="file" accept="video/*,.mkv">
+          <label for="file" id="drop-label">영상 파일을 고르거나 여기에 끌어다 놓으세요</label>
+          <progress id="upload-progress" max="1" value="0" hidden></progress>
+        </div>
+        <div id="media-info" class="media-info" hidden></div>
+
+        <label class="field">제목
+          <input id="title" maxlength="100" autocomplete="off">
+        </label>
+        <label class="field">설명
+          <textarea id="description" rows="4"></textarea>
+        </label>
+        <label class="field">태그
+          <input id="tags" placeholder="쉼표로 구분 (예: 브이로그, 여행)" autocomplete="off">
+        </label>
+        <div class="row">
+          <label class="field">예약 게시
+            <input type="datetime-local" id="scheduled">
+          </label>
+          <label class="check"><input type="checkbox" id="ai"> AI로 생성·합성한 사실적인 콘텐츠</label>
+        </div>
+
+        <h3 class="sub">올릴 곳</h3>
+        <div id="targets" class="targets"></div>
+
+        <p id="form-error" class="form-error" role="alert"></p>
+        <button type="submit" id="submit" class="primary">업로드 시작</button>
+      </form>
+    </section>
+
+    <section class="panel" aria-labelledby="board-h">
+      <div class="panel-head">
+        <h2 id="board-h">게시 현황</h2>
+        <span id="board-updated" class="muted"></span>
+      </div>
+      <div id="board" class="board" aria-live="polite"></div>
+    </section>
+  </main>
+</body>
+</html>

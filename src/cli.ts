@@ -4,12 +4,14 @@ import { resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { openContext } from './core/context.ts';
 import { ProviderError } from './core/errors.ts';
-import { checkMedia, probe } from './core/media.ts';
+import { probe } from './core/media.ts';
+import { assessMedia, createScheduledPost } from './core/posting.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
 import { isTerminal } from './core/state.ts';
 import type { CaptionFile, Post, PostInput, Target, TargetInput } from './core/types.ts';
 import { BUILTIN_PROVIDERS, providerMap } from './providers/index.ts';
+import { Dashboard } from './server/server.ts';
 import { isShort } from './providers/youtube.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
@@ -218,6 +220,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout retry <postId> [platform]
   fanout run                             밀린 작업 처리 후 종료
   fanout worker [--interval 60]          예약·재시도 작업을 계속 처리
+  fanout serve [--port 8780] [--host 127.0.0.1]   웹 대시보드 (작업 처리 포함)
 
 post 공통 옵션
   --description 텍스트 | --description-file 파일   --tags a,b,c
@@ -295,15 +298,11 @@ async function cmdCheck(providers: Map<string, Provider>, args: Args): Promise<v
       `${media.audio ? `${media.audio.codec} ${media.audio.sampleRate}Hz` : '오디오 없음'}`,
   );
   const ids = str(args, 'to')?.split(',').map((s) => s.split(':')[0]!) ?? [...providers.keys()];
-  for (const id of ids) {
-    const p = providers.get(id);
-    if (!p) continue;
-    const violations = checkMedia(media, p.spec);
-    const blocking = violations.filter((x) => !x.fixable);
-    const fixable = violations.filter((x) => x.fixable);
-    const verdict = blocking.length ? '✗ 올릴 수 없음' : fixable.length ? '⚙ 변환 후 업로드' : '✓ 원본 그대로';
-    console.log(`  ${id.padEnd(10)} ${verdict}${id === 'youtube' && isShort(media) ? ' (Shorts로 분류)' : ''}`);
-    for (const x of violations) console.log(`      ${x.fixable ? '⚙' : '✗'} ${x.message}`);
+  const selected = ids.map((id) => providers.get(id)).filter((p): p is Provider => Boolean(p));
+  const label = { as_is: '✓ 원본 그대로', transcode: '⚙ 변환 후 업로드', blocked: '✗ 올릴 수 없음' } as const;
+  for (const a of assessMedia(media, selected)) {
+    console.log(`  ${a.platform.padEnd(10)} ${label[a.verdict]}${a.platform === 'youtube' && isShort(media) ? ' (Shorts로 분류)' : ''}`);
+    for (const x of a.violations) console.log(`      ${x.fixable ? '⚙' : '✗'} ${x.message}`);
   }
 }
 
@@ -336,12 +335,7 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
   for (const t of targets) console.log(`  ${accountLabel(ctx, t).padEnd(40)} ${visibilityLabel(t, input.scheduledAt)}`);
   if (!args.flags.yes && !(await confirm('이대로 업로드할까요?'))) return 1;
 
-  const { post, targets: created } = ctx.store.createPost(input, targets);
-  if (input.scheduledAt) {
-    for (const t of created) {
-      if (!deps.providers.get(t.platform)!.capabilities.nativeSchedule) ctx.store.updateTarget(t.id, { notBefore: input.scheduledAt });
-    }
-  }
+  const { post } = createScheduledPost(ctx.store, deps.providers, input, targets);
   console.log(`post ${post.id.slice(0, 8)} 생성`);
   if (args.flags['no-wait']) return 0;
 
@@ -373,6 +367,33 @@ async function cmdWorker(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
     if (ids.length) await settle(deps, ids, { ...settleOpts(ctx), timeoutMs: interval });
     await new Promise((r) => setTimeout(r, interval));
   }
+}
+
+async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const host = str(args, 'host') ?? '127.0.0.1';
+  const loopback = ['127.0.0.1', 'localhost', '::1'].includes(host);
+  const token = process.env.FANOUT_DASHBOARD_TOKEN;
+  if (!loopback && !token) {
+    throw new UsageError('127.0.0.1이 아닌 주소로 열려면 FANOUT_DASHBOARD_TOKEN 환경 변수로 접속 토큰을 정하세요');
+  }
+  const dashboard = new Dashboard({
+    ctx,
+    providers: deps.providers,
+    host,
+    port: num(args, 'port') ?? 8780,
+    token,
+    allowedHosts: str(args, 'allow-host')?.split(','),
+  });
+  const url = await dashboard.start();
+  console.log(`fanout 대시보드: ${url}`);
+  if (!loopback) console.log('외부 접속 허용 중입니다. 페이지에서 FANOUT_DASHBOARD_TOKEN 값을 입력해야 합니다. HTTPS 리버스 프록시 뒤에 두세요.');
+  await new Promise<void>((resolve) => {
+    process.once('SIGINT', resolve);
+    process.once('SIGTERM', resolve);
+  });
+  console.log('\n대시보드 종료 중… 진행 중인 업로드는 다음 실행 때 이어서 처리됩니다');
+  await dashboard.stop();
+  return 0;
 }
 
 async function cmdRetry(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
@@ -461,6 +482,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdRun(ctx, deps);
       case 'worker':
         return await cmdWorker(ctx, deps, args);
+      case 'serve':
+        return await cmdServe(ctx, deps, args);
       default:
         throw new UsageError(`알 수 없는 명령: ${cmd}\n\n${HELP}`);
     }
