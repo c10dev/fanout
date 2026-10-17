@@ -183,4 +183,15 @@ export const facebook: Provider = {
       access_token: c.pageToken,
     });
   },
+
+  async comments({ ctx, account, target, limit }) {
+    const c = pageCreds(account);
+    const res = await graph<{ data?: Array<{ id: string; message?: string; created_time: string; like_count?: number; comment_count?: number; from?: { name?: string } }> }>(
+      ctx,
+      'GET',
+      `/${target.remoteId}/comments`,
+      { fields: 'from{name},message,created_time,like_count,comment_count', order: 'reverse_chronological', limit: Math.min(limit, 100), access_token: c.pageToken },
+    );
+    return (res.data ?? []).map((m) => ({ id: m.id, author: m.from?.name ?? '(이름 없음)', text: m.message ?? '', at: m.created_time, likes: m.like_count, replies: m.comment_count }));
+  },
 };

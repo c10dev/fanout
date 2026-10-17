@@ -54,6 +54,17 @@ export interface Post extends PostInput {
   createdAt: string;
 }
 
+/** A top-level comment on a published post, normalized across platforms. */
+export interface Comment {
+  id: string;
+  author: string;
+  text: string;
+  at: string;
+  likes?: number;
+  replies?: number;
+  url?: string;
+}
+
 /** Audience reaction to a published post, as far as the platform API and granted scopes allow. */
 export interface PostStats {
   views?: number;

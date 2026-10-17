@@ -2,7 +2,7 @@ import { checkMedia, type MediaInfo, type Violation } from './media.ts';
 import { isTerminal } from './state.ts';
 import type { Provider, ProviderContext } from './provider.ts';
 import type { Store } from './store.ts';
-import type { Post, PostInput, PostStats, Target, TargetInput } from './types.ts';
+import type { Comment, Post, PostInput, PostStats, Target, TargetInput } from './types.ts';
 
 export type Verdict = 'as_is' | 'transcode' | 'blocked';
 
@@ -169,11 +169,12 @@ export interface StatsResult {
  * skipped unless `includePaid`; failures become notes instead of failing the whole refresh.
  */
 export async function refreshStats(
-  ctx: ProviderContext,
+  baseCtx: ProviderContext,
   providers: Map<string, Provider>,
   postId: string,
   opts: { includePaid?: boolean; platform?: string } = {},
 ): Promise<StatsResult[]> {
+  const ctx = withTimeout(baseCtx);
   const out: StatsResult[] = [];
   for (const t of ctx.store.targetsForPost(postId)) {
     if (opts.platform && t.platform !== opts.platform) continue;
@@ -214,7 +215,8 @@ export async function refreshStats(
  * Delete a published post from its platform and mark the target removed. Irreversible on the
  * platform side, so callers confirm with the user first.
  */
-export async function removeTarget(ctx: ProviderContext, providers: Map<string, Provider>, targetId: string): Promise<Target> {
+export async function removeTarget(baseCtx: ProviderContext, providers: Map<string, Provider>, targetId: string): Promise<Target> {
+  const ctx = withTimeout(baseCtx);
   const t = ctx.store.getTarget(targetId);
   if (!t) throw new Error(`대상 없음: ${targetId}`);
   if (t.state !== 'published' || !t.remoteId) throw new Error(`게시된 대상만 삭제할 수 있습니다 (지금: ${t.state})`);
@@ -240,11 +242,12 @@ export interface EditResult {
  * platform can edit posts. The post record is updated first, so targets still queued pick it up.
  */
 export async function editPost(
-  ctx: ProviderContext,
+  baseCtx: ProviderContext,
   providers: Map<string, Provider>,
   postId: string,
   patch: Partial<Pick<Post, 'title' | 'description' | 'tags'>>,
 ): Promise<EditResult[]> {
+  const ctx = withTimeout(baseCtx);
   const current = ctx.store.getPost(postId);
   if (!current) throw new Error(`게시물 없음: ${postId}`);
   if (patch.title !== undefined && !patch.title.trim()) throw new Error('제목이 비어 있습니다');
@@ -274,6 +277,50 @@ export async function editPost(
       out.push({ ...base, status: 'updated' });
     } catch (err) {
       out.push({ ...base, status: 'failed', detail: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return out;
+}
+
+/**
+ * The same context with a deadline on every request that doesn't bring its own signal. For short
+ * API calls (stats, comments, edit, delete) — never for uploads, which can legitimately run long.
+ */
+export function withTimeout(ctx: ProviderContext, ms = 20_000): ProviderContext {
+  return { ...ctx, fetch: ((input, init) => ctx.fetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(ms) })) as typeof fetch };
+}
+
+export interface CommentsResult {
+  targetId: string;
+  platform: string;
+  account: string;
+  comments?: Comment[];
+  skipped?: string;
+  error?: string;
+}
+
+/** Newest comments for each published target of a post, read live (nothing is stored). */
+export async function fetchComments(baseCtx: ProviderContext, providers: Map<string, Provider>, postId: string, limit = 20): Promise<CommentsResult[]> {
+  const ctx = withTimeout(baseCtx);
+  const out: CommentsResult[] = [];
+  for (const t of ctx.store.targetsForPost(postId)) {
+    const base = { targetId: t.id, platform: t.platform, account: t.account };
+    const provider = providers.get(t.platform);
+    if (t.state !== 'published' || !t.remoteId) {
+      out.push({ ...base, skipped: t.state === 'removed' ? '플랫폼에서 삭제했습니다' : '게시된 대상이 아닙니다' });
+      continue;
+    }
+    if (!provider?.comments) {
+      out.push({ ...base, skipped: `${provider?.displayName ?? t.platform} 댓글은 아직 가져올 수 없습니다` });
+      continue;
+    }
+    try {
+      let account = ctx.store.getAccount(t.platform, t.account);
+      if (!account) throw new Error('연결된 계정이 없습니다');
+      account = await provider.refresh(ctx, account);
+      out.push({ ...base, comments: await provider.comments({ ctx, account, target: { ...t, remoteId: t.remoteId }, limit }) });
+    } catch (err) {
+      out.push({ ...base, error: err instanceof Error ? err.message : String(err) });
     }
   }
   return out;

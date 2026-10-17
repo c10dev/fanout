@@ -168,4 +168,16 @@ export const instagram: Provider = {
     // Plays need the instagram_manage_insights permission, which fanout doesn't ask for.
     return { likes: m.like_count, comments: m.comments_count, note: '조회수는 Instagram 인사이트 권한이 필요해 가져오지 않습니다' };
   },
+
+  // Needs the instagram_manage_comments permission on the token (see the Meta setup guide).
+  async comments({ ctx, account, target, limit }) {
+    const c = pageCreds(account);
+    const res = await graph<{ data?: Array<{ id: string; text?: string; username?: string; timestamp: string; like_count?: number }> }>(
+      ctx,
+      'GET',
+      `/${target.remoteId}/comments`,
+      { fields: 'id,text,username,timestamp,like_count', limit: Math.min(limit, 50), access_token: c.pageToken },
+    );
+    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '(알 수 없음)', text: m.text ?? '', at: m.timestamp, likes: m.like_count }));
+  },
 };

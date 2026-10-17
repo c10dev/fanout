@@ -28,6 +28,19 @@
 | Mastodon | | ✓ | ✓ | ✓ | |
 | TikTok | | | | | `video.list` 권한이 필요해 아직 지원하지 않음. 수신함으로 넘긴 게시물은 id도 모름 |
 
+## 댓글 모아보기
+
+`fanout comments <postId>`, 대시보드 "댓글", MCP `get_post_comments`가 게시물별 최근 최상위 댓글을 가져옵니다. 저장하지 않고 그때그때 읽습니다.
+
+| 플랫폼 | 방법 | 필요한 권한 |
+|---|---|---|
+| YouTube | `commentThreads.list` (최신순) | 이미 받은 `youtube.force-ssl`. 댓글을 꺼 둔 영상은 빈 목록 |
+| Facebook | `/{video-id}/comments` | 페이지 토큰 |
+| Instagram | `/{media-id}/comments` | 토큰에 `instagram_manage_comments` 추가 필요 |
+| Bluesky | 공개 AppView `getPostThread` | 없음 |
+| Mastodon | `/statuses/:id/context`의 직접 답글 | 이미 받은 토큰 |
+| X, TikTok | 아직 지원하지 않음(X는 검색 요금, TikTok은 공개 댓글 API 없음) | |
+
 ## 게시 후 수정
 
 `fanout edit <postId> --title … --description … --tags …`, 대시보드 "수정", MCP `update_post`로 고칩니다.

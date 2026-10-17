@@ -230,3 +230,12 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .edit-form { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 6px; }
 .edit-form .field { margin-top: 8px; }
 .okline { color: var(--ok); }
+
+.comments { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 8px; display: flex; flex-direction: column; gap: 10px; }
+.comments-head { display: flex; justify-content: space-between; align-items: center; }
+.comment-group { display: flex; flex-direction: column; gap: 6px; }
+.comment-src { font-size: 13px; font-weight: 600; }
+.comment { background: var(--bg); border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+.comment-meta { display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; font-size: 13px; }
+.comment-link { margin-left: auto; color: var(--accent); font-size: 12px; }
+.comment-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }

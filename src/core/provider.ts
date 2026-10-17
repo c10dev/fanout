@@ -1,6 +1,6 @@
 import type { MediaInfo, MediaSpec } from './media.ts';
 import type { Account, Store } from './store.ts';
-import type { Capabilities, Issue, Post, PostStats, Target } from './types.ts';
+import type { Capabilities, Comment, Issue, Post, PostStats, Target } from './types.ts';
 
 export interface Logger {
   info(msg: string): void;
@@ -123,6 +123,9 @@ export interface Provider {
 
   /** Delete a published post from the platform. Omit when the API can't. Resolve if it's already gone. */
   remove?(args: StatsArgs): Promise<void>;
+
+  /** Newest top-level comments on a published post. Omit when the API can't read them. */
+  comments?(args: StatsArgs & { limit: number }): Promise<Comment[]>;
 
   /** Apply an edited title/description/tags (already saved on `post`) to the published post. */
   update?(args: StatsArgs & { post: Post }): Promise<void>;

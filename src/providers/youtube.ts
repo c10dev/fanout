@@ -700,4 +700,26 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       body: JSON.stringify({ id: target.remoteId, snippet: { title, description, tags, categoryId, ...(defaultLanguage ? { defaultLanguage } : {}) } }),
     });
   },
+
+  async comments({ ctx, account, target, limit }) {
+    const res = await api<{
+      items?: Array<{ id: string; snippet: { totalReplyCount?: number; topLevelComment: { snippet: { authorDisplayName: string; textOriginal: string; publishedAt: string; likeCount?: number } } } }>;
+    }>(ctx, account, `/commentThreads?part=snippet&order=time&maxResults=${Math.min(limit, 100)}&videoId=${target.remoteId}`).catch((err: unknown) => {
+      // Comments turned off (or the video is gone) isn't an error worth failing the panel for.
+      if (err instanceof ProviderError && err.platformCode === 'commentsDisabled') return { items: [] };
+      throw err;
+    });
+    return (res.items ?? []).map((t) => {
+      const c = t.snippet.topLevelComment.snippet;
+      return {
+        id: t.id,
+        author: c.authorDisplayName,
+        text: c.textOriginal,
+        at: c.publishedAt,
+        likes: c.likeCount,
+        replies: t.snippet.totalReplyCount,
+        url: `https://www.youtube.com/watch?v=${target.remoteId}&lc=${t.id}`,
+      };
+    });
+  },
 };
