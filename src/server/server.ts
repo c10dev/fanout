@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, refreshStats, retryTarget } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, refreshStats, removeTarget, retryTarget } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
@@ -225,6 +225,14 @@ export class Dashboard {
     if (method === 'POST' && parts[0] === 'preview' && parts.length === 1) return send(res, 200, await this.#preview(req));
     if (method === 'GET' && parts[0] === 'posts' && parts[1]) return send(res, 200, this.#postDetail(parts[1]));
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'retry') return send(res, 200, this.#retry(parts[1]));
+    if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'remove') {
+      try {
+        return send(res, 200, this.#publicTarget(await removeTarget(this.#opts.ctx, this.#opts.providers, parts[1])));
+      } catch (err) {
+        if (err instanceof ProviderError) throw err;
+        throw new HttpError(409, err instanceof Error ? err.message : String(err));
+      }
+    }
     if (method === 'POST' && parts[0] === 'posts' && parts[1] && parts[2] === 'stats') {
       const body = await readJson<{ includePaid?: boolean; platform?: string }>(req);
       if (!this.#opts.ctx.store.getPost(parts[1])) throw new HttpError(404, '게시물이 없습니다');
@@ -583,6 +591,7 @@ export class Dashboard {
 
   #publicTarget(t: Target) {
     const { resume: _r, ...rest } = t;
-    return { ...rest, terminal: isTerminal(t.state), statsCost: this.#opts.providers.get(t.platform)?.statsCost };
+    const provider = this.#opts.providers.get(t.platform);
+    return { ...rest, terminal: isTerminal(t.state), statsCost: provider?.statsCost, removable: t.state === 'published' && Boolean(provider?.remove) };
   }
 }

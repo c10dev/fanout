@@ -423,4 +423,10 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
     if (!p) return { note: '게시물을 찾을 수 없습니다 (삭제됨?)' };
     return { likes: p.likeCount, comments: p.replyCount, shares: (p.repostCount ?? 0) + (p.quoteCount ?? 0), note: 'Bluesky는 조회수를 공개하지 않습니다' };
   },
+
+  async remove({ ctx, account, target }) {
+    const c = creds(account);
+    const rkey = target.remoteId.split('/').pop()!;
+    await xrpc(ctx, c.pds, 'com.atproto.repo.deleteRecord', { token: c.accessJwt, json: { repo: c.did, collection: 'app.bsky.feed.post', rkey } });
+  },
 };

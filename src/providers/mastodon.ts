@@ -227,4 +227,13 @@ export const mastodon: Provider = {
     const { body } = await api<{ favourites_count?: number; replies_count?: number; reblogs_count?: number }>(ctx, creds(account), `/api/v1/statuses/${target.remoteId}`);
     return { likes: body.favourites_count, comments: body.replies_count, shares: body.reblogs_count, note: 'Mastodon은 조회수를 제공하지 않습니다' };
   },
+
+  async remove({ ctx, account, target }) {
+    try {
+      await api(ctx, creds(account), `/api/v1/statuses/${target.remoteId}`, { method: 'DELETE' });
+    } catch (err) {
+      if (err instanceof ProviderError && err.code === 'mastodon.http_404') return;
+      throw err;
+    }
+  },
 };

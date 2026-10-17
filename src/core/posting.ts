@@ -141,7 +141,8 @@ export function priorPosts(store: Store, hash: string | undefined, targets: Targ
     if (p.id === excludePostId) continue;
     for (const t of store.targetsForPost(p.id)) {
       const key = `${t.platform}/${t.account}`;
-      if (!wanted.has(key) || t.state === 'failed') continue;
+      // Failed posts never went out; removed ones were taken down on purpose, so posting again is fine.
+      if (!wanted.has(key) || t.state === 'failed' || t.state === 'removed') continue;
       out.set(key, [...(out.get(key) ?? []), { postId: p.id, createdAt: p.createdAt, state: t.state, url: t.remoteUrl }]);
     }
   }
@@ -178,7 +179,8 @@ export async function refreshStats(
     const base = { targetId: t.id, platform: t.platform, account: t.account };
     const provider = providers.get(t.platform);
     if (t.state !== 'published' || !t.remoteId) {
-      out.push({ ...base, skipped: t.state === 'handed_off' ? '앱에서 마무리한 게시물은 id를 몰라 가져올 수 없습니다' : '게시되지 않았습니다' });
+      const why = t.state === 'handed_off' ? '앱에서 마무리한 게시물은 id를 몰라 가져올 수 없습니다' : t.state === 'removed' ? '플랫폼에서 삭제했습니다' : '게시되지 않았습니다';
+      out.push({ ...base, skipped: why });
       continue;
     }
     if (!provider?.stats) {
@@ -205,4 +207,21 @@ export async function refreshStats(
     out.push({ ...base, stats });
   }
   return out;
+}
+
+/**
+ * Delete a published post from its platform and mark the target removed. Irreversible on the
+ * platform side, so callers confirm with the user first.
+ */
+export async function removeTarget(ctx: ProviderContext, providers: Map<string, Provider>, targetId: string): Promise<Target> {
+  const t = ctx.store.getTarget(targetId);
+  if (!t) throw new Error(`대상 없음: ${targetId}`);
+  if (t.state !== 'published' || !t.remoteId) throw new Error(`게시된 대상만 삭제할 수 있습니다 (지금: ${t.state})`);
+  const provider = providers.get(t.platform);
+  if (!provider?.remove) throw new Error(`${provider?.displayName ?? t.platform}는 API로 삭제할 수 없습니다. 앱에서 직접 지우세요`);
+  let account = ctx.store.getAccount(t.platform, t.account);
+  if (!account) throw new Error(`연결된 계정이 없습니다: ${t.platform}/${t.account}`);
+  account = await provider.refresh(ctx, account);
+  await provider.remove({ ctx, account, target: { ...t, remoteId: t.remoteId } });
+  return ctx.store.transition(t.id, 'removed', {}, 'removed by user');
 }

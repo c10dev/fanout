@@ -6,7 +6,7 @@ import { openContext, stderrLogger } from './core/context.ts';
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { fileHash, probe } from './core/media.ts';
-import { accountLabel, assessMedia, createScheduledPost, describePrior, priorPosts, refreshStats, retryTarget, visibilityLabel } from './core/posting.ts';
+import { accountLabel, assessMedia, createScheduledPost, describePrior, priorPosts, refreshStats, removeTarget, retryTarget, visibilityLabel } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
@@ -157,6 +157,7 @@ const STATE_ICON: Record<string, string> = {
   handed_off: '→',
   failed: '✗',
   needs_reauth: '🔑',
+  removed: '⌫',
 };
 
 function targetLine(t: Target): string {
@@ -219,6 +220,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout worker [--interval 60]          예약·재시도 작업을 계속 처리
   fanout serve [--port 8780] [--host 127.0.0.1] [--keep-days 7 | --no-prune]
                                          웹 대시보드 (작업 처리, 6시간마다 자동 정리 포함)
+  fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
   fanout stats [postId] [--include-paid]  게시된 영상의 조회·좋아요·댓글 (X는 --include-paid일 때만)
   fanout prune [--days 7] [--dry-run]    다 올린 원본·오래된 변환 파일 정리 (~/.fanout 안만)
   fanout mcp                             MCP 서버 (stdio) — AI 에이전트용 도구, 업로드 처리 포함
@@ -491,6 +493,23 @@ async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   return 0;
 }
 
+async function cmdRemove(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const [, id, platform] = args.positionals;
+  const post = id ? ctx.store.findPost(id) : undefined;
+  if (!post || !platform) throw new UsageError('fanout remove <postId> <platform> [--account main] [--yes]');
+  const account = str(args, 'account');
+  const candidates = ctx.store.targetsForPost(post.id).filter((t) => t.platform === platform && (!account || t.account === account));
+  if (candidates.length !== 1) throw new UsageError(candidates.length ? `계정이 여러 개입니다. --account 로 고르세요: ${candidates.map((t) => t.account).join(', ')}` : `${platform} 대상이 없습니다`);
+  const t = candidates[0]!;
+  console.log(`"${post.title}" → ${t.platform}/${t.account} ${t.remoteUrl ?? t.remoteId ?? ''}`);
+  if (!args.flags.yes && !(await confirm('플랫폼에서 이 게시물을 삭제할까요? 되돌릴 수 없습니다'))) return 1;
+  const done = await removeTarget(ctx, deps.providers, t.id).catch((err: Error) => {
+    throw err instanceof ProviderError ? err : new UsageError(err.message);
+  });
+  console.log(`삭제했습니다: ${done.platform}/${done.account}`);
+  return 0;
+}
+
 async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const id = args.positionals[1];
   const posts = id ? [ctx.store.findPost(id)].filter((p): p is Post => Boolean(p)) : ctx.store.listPosts(5);
@@ -623,6 +642,8 @@ export async function main(argv: string[]): Promise<number> {
         return cmdPrune(ctx, args);
       case 'stats':
         return await cmdStats(ctx, deps, args);
+      case 'remove':
+        return await cmdRemove(ctx, deps, args);
       case 'retry':
         return await cmdRetry(ctx, deps, args);
       case 'run':
