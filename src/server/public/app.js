@@ -55,6 +55,7 @@ const STATE = {
   handed_off: ['앱에서 마무리', 'warn'],
   failed: ['실패', 'bad'],
   needs_reauth: ['재연결 필요', 'bad'],
+  removed: ['삭제됨', 'info'],
 };
 const VERDICT = {
   as_is: ['원본 그대로', 'ok'],
@@ -518,6 +519,22 @@ function targetRow(t) {
     );
   }
 
+  const remove = t.removable
+    ? h(
+        'button',
+        {
+          class: 'small danger',
+          type: 'button',
+          onclick: async (e) => {
+            if (!confirm(`${t.platform}/${t.account}에서 이 게시물을 삭제할까요?\n플랫폼에서 지워지며 되돌릴 수 없습니다.`)) return;
+            e.target.disabled = true;
+            await api(`/targets/${t.id}/remove`, { method: 'POST' }).catch((err) => alert(err.message));
+            refreshBoard();
+          },
+        },
+        '삭제',
+      )
+    : null;
   const retry =
     t.state === 'failed' || t.state === 'needs_reauth'
       ? h(
@@ -537,7 +554,7 @@ function targetRow(t) {
           },
           '다시 시도',
         )
-      : h('span');
+      : remove ?? h('span');
   return h('div', { class: 'trow' }, h('span', { class: 'tname' }, `${t.platform}/${t.account}`), badge(STATE[t.state] ?? [t.state, 'info']), detail, retry);
 }
 

@@ -6,13 +6,14 @@ const TRANSITIONS: Record<TargetState, readonly TargetState[]> = {
   transcoding: ['uploading', 'queued', 'failed'],
   uploading: ['processing', 'published', 'handed_off', 'queued', 'failed', 'needs_reauth'],
   processing: ['published', 'handed_off', 'failed', 'needs_reauth'],
-  published: [],
+  published: ['removed'],
   handed_off: [],
   failed: ['queued'],
   needs_reauth: ['queued'],
+  removed: [],
 };
 
-export const TERMINAL_STATES: readonly TargetState[] = ['published', 'handed_off', 'failed', 'needs_reauth'];
+export const TERMINAL_STATES: readonly TargetState[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed'];
 
 export function isTerminal(state: TargetState): boolean {
   return TERMINAL_STATES.includes(state);

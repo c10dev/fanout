@@ -28,6 +28,20 @@
 | Mastodon | | ✓ | ✓ | ✓ | |
 | TikTok | | | | | `video.list` 권한이 필요해 아직 지원하지 않음. 수신함으로 넘긴 게시물은 id도 모름 |
 
+## 삭제
+
+`fanout remove <postId> <platform>`이나 대시보드의 삭제 버튼으로 게시물을 플랫폼에서 지울 수 있습니다. 대상은 "삭제됨"(`removed`)으로 남고, 같은 영상을 다시 올려도 중복 경고를 하지 않습니다. MCP에는 일부러 넣지 않았습니다.
+
+| 플랫폼 | 삭제 | 방법 |
+|---|---|---|
+| YouTube | ✓ | `videos.delete` |
+| Facebook | ✓ | `DELETE /{video-id}` (페이지 토큰) |
+| X | ✓ | `DELETE /2/tweets/:id` (요금) |
+| Bluesky | ✓ | `deleteRecord` |
+| Mastodon | ✓ | `DELETE /api/v1/statuses/:id` |
+| Instagram | | API로 지울 수 없음, 앱에서 직접 |
+| TikTok | | API로 지울 수 없음, 앱에서 직접 |
+
 ## 실제 계정으로 확인한 것
 
 리서치에서 공식 문서만으로 답할 수 없었던 질문들입니다. 처음 세 개는 각자 자기 키로 확인할 수 있게 명령으로 만들어 두었습니다. 결과 칸은 2026-10-17에 계정 하나씩으로 확인한 것이라, 플랫폼 정책이 바뀌거나 계정마다 다르면 결과가 달라질 수 있습니다.

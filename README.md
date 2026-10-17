@@ -68,7 +68,7 @@ node src/cli.ts status
 
 | 방법 | 문서 |
 |---|---|
-| 웹 대시보드: 업로드 폼, 게시 전 미리보기, 게시 현황과 반응 통계, 설정(앱 등록·계정 연결·점검) | [docs/dashboard.md](docs/dashboard.md) |
+| 웹 대시보드: 업로드 폼, 게시 전 미리보기, 게시 현황과 반응 통계, 게시물 삭제, 설정(앱 등록·계정 연결·점검) | [docs/dashboard.md](docs/dashboard.md) |
 | 감시 폴더: 폴더에 영상을 넣으면 정해 둔 대로 자동 게시 | [docs/watch-folder.md](docs/watch-folder.md) |
 | AI 에이전트(MCP): Claude 등이 영상 검사·미리보기·게시 | [docs/mcp.md](docs/mcp.md) |
 | 플랫폼별 방식·제약·실제 확인 결과·정책 | [docs/platforms.md](docs/platforms.md) |

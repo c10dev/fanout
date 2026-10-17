@@ -223,3 +223,5 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .stats strong { font-variant-numeric: tabular-nums; }
 .post-foot { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-top: 6px; }
 .post-foot details { flex: 1; min-width: 0; }
+
+.small.danger { color: var(--bad); border-color: var(--bad); }

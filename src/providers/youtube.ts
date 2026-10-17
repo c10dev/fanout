@@ -680,4 +680,10 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const n = (v?: string) => (v === undefined ? undefined : Number(v));
     return { views: n(st.viewCount), likes: n(st.likeCount), comments: n(st.commentCount) };
   },
+
+  async remove({ ctx, account, target }) {
+    const res = await ctx.fetch(`${API}/videos?id=${target.remoteId}`, { method: 'DELETE', headers: { authorization: `Bearer ${creds(account).accessToken}` } });
+    if (res.ok || res.status === 404) return;
+    throw await uploadError(res);
+  },
 };

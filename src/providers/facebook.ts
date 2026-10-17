@@ -164,4 +164,15 @@ export const facebook: Provider = {
     );
     return { likes: v.likes?.summary?.total_count, comments: v.comments?.summary?.total_count, note: '조회수는 페이지 인사이트 권한이 필요해 가져오지 않습니다' };
   },
+
+  async remove({ ctx, account, target }) {
+    const c = pageCreds(account);
+    try {
+      await graph<{ success?: boolean }>(ctx, 'DELETE', `/${target.remoteId}`, { access_token: c.pageToken });
+    } catch (err) {
+      // 100/33: the object doesn't exist (already deleted).
+      if (err instanceof ProviderError && (err.platformCode?.startsWith('100') || err.platformCode?.startsWith('33'))) return;
+      throw err;
+    }
+  },
 };

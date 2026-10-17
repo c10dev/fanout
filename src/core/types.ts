@@ -8,6 +8,7 @@ export type PlatformId = string;
  *   queued → transcoding → uploading → processing → published
  *                                   ↘ handed_off   (finished by the user in the platform app, e.g. TikTok inbox)
  *   any non-terminal state → failed | needs_reauth
+ *   published → removed   (the user deleted it from the platform through fanout)
  */
 export type TargetState =
   | 'queued'
@@ -17,7 +18,8 @@ export type TargetState =
   | 'published'
   | 'handed_off'
   | 'failed'
-  | 'needs_reauth';
+  | 'needs_reauth'
+  | 'removed';
 
 export interface CaptionFile {
   language: string;

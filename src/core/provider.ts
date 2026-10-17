@@ -120,4 +120,7 @@ export interface Provider {
   stats?(args: StatsArgs): Promise<Omit<PostStats, 'fetchedAt'>>;
   /** Set when reading stats is billed (X); stats are then fetched only on explicit request. */
   readonly statsCost?: string;
+
+  /** Delete a published post from the platform. Omit when the API can't. Resolve if it's already gone. */
+  remove?(args: StatsArgs): Promise<void>;
 }

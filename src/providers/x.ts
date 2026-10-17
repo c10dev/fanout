@@ -331,4 +331,13 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     if (!m) return { note: '게시물을 찾을 수 없습니다' };
     return { views: m.impression_count, likes: m.like_count, comments: m.reply_count, shares: (m.retweet_count ?? 0) + (m.quote_count ?? 0) };
   },
+
+  async remove({ ctx, account, target }) {
+    try {
+      await api(ctx, account, `/2/tweets/${target.remoteId}`, { method: 'DELETE' });
+    } catch (err) {
+      if (err instanceof ProviderError && err.code === 'x.http_404') return;
+      throw err;
+    }
+  },
 };
