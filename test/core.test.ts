@@ -133,6 +133,12 @@ describe('upcoming scheduled posts', () => {
     // Past its time but still waiting for a worker: still to go out.
     const late = store.createPost({ ...base, title: 'late', scheduledAt: '2026-10-16T10:00:00.000Z' }, [{ platform: 'x', account: 'main', options: {} }], '2026-10-16T10:00:00.000Z');
     assert.ok(late.targets[0]!.notBefore);
-    assert.deepEqual(store.listScheduled('2026-10-17T00:00:00.000Z').map((p) => p.title), ['late', 'sooner', 'later']);
+    // 'past' too: its YouTube target is still queued, so it hasn't gone out either.
+    assert.deepEqual(store.listScheduled('2026-10-17T00:00:00.000Z').map((p) => p.title), ['past', 'late', 'sooner', 'later']);
+    for (const t of store.targetsForPost(store.listScheduled('2026-10-17T00:00:00.000Z')[0]!.id)) {
+      store.transition(t.id, 'uploading');
+      store.transition(t.id, 'published');
+    }
+    assert.deepEqual(store.listScheduled('2026-10-17T00:00:00.000Z').map((p) => p.title), ['late', 'sooner', 'later'], 'gone out: no longer listed');
   });
 });

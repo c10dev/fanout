@@ -92,6 +92,23 @@ describe('provider stats', () => {
     assert.equal((await instagram.stats!({ ctx: env.ctx, account: acct('instagram', { pageToken: 'PT' }), target: before })).views, undefined);
   });
 
+  it('a timed-out insights read keeps the last views', async () => {
+    const ig = mockFetch([
+      [
+        'GET',
+        '/M/insights',
+        () => {
+          throw new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+        },
+      ],
+      ['GET', '/M?', () => json({ like_count: 11, comments_count: 2 })],
+    ]);
+    const env = makeCtx(ig.fetch);
+    env.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const before = { ...target('instagram', 'M'), stats: { views: 321, shares: 5, fetchedAt: '2026-10-16T00:00:00Z' } };
+    assert.equal((await instagram.stats!({ ctx: env.ctx, account: acct('instagram', { pageToken: 'PT' }), target: before })).views, 321);
+  });
+
   it('X reads public metrics and is marked as billed', async () => {
     assert.ok(x.statsCost);
     const { fetch } = mockFetch([['GET', '/2/tweets/T?tweet.fields=public_metrics', () => json({ data: { public_metrics: { impression_count: 900, like_count: 30, reply_count: 3, retweet_count: 4, quote_count: 1 } } })]]);

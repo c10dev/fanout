@@ -230,7 +230,8 @@ export async function readInsights(
     if (err instanceof ProviderError && err.kind === 'auth') return { values: {}, note: `조회수는 ${scope} 권한이 있어야 가져올 수 있습니다` };
     // A rate limit or server hiccup: the caller keeps the last numbers it had. Anything else (e.g. a
     // metric this media doesn't have) is permanent, and old numbers would go stale forever.
-    const transient = err instanceof ProviderError && err.kind === 'retryable';
+    // Timeouts and network failures aren't ProviderErrors, and are just as passing.
+    const transient = !(err instanceof ProviderError) || err.kind === 'retryable';
     return { values: {}, note: `조회수를 가져오지 못했습니다: ${err instanceof Error ? err.message : String(err)}`, ...(transient ? { transient } : {}) };
   }
 }

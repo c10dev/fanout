@@ -460,7 +460,7 @@ export class Store {
          WHERE json_extract(p.body, '$.scheduledAt') IS NOT NULL
            AND EXISTS (SELECT 1 FROM targets t WHERE t.post_id = p.id AND t.state NOT IN ('canceled', 'failed', 'removed'))
            AND (json_extract(p.body, '$.scheduledAt') >= ?
-                OR EXISTS (SELECT 1 FROM targets t WHERE t.post_id = p.id AND t.state = 'queued' AND t.not_before IS NOT NULL))
+                OR EXISTS (SELECT 1 FROM targets t WHERE t.post_id = p.id AND t.state IN ('queued', 'transcoding', 'uploading', 'processing')))
          ORDER BY json_extract(p.body, '$.scheduledAt') LIMIT ?`,
       )
       .all(fromIso, limit) as Array<{ body: string }>;
