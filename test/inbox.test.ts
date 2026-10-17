@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, planPost, render, Scanner, WatchConfigError, type WatchConfig } from '../src/core/inbox.ts';
+import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, nextFreeSlot, planPost, render, Scanner, WatchConfigError, type WatchConfig } from '../src/core/inbox.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { fakeMedia, makeCtx } from './helpers.ts';
 
@@ -232,5 +232,52 @@ describe('watch example config', () => {
     assert.equal(defaultAccountName([{ platform: 'tiktok', name: 'a' }, { platform: 'tiktok', name: 'main' }], 'tiktok'), 'main');
     assert.equal(defaultAccountName([{ platform: 'tiktok', name: 'solo' }], 'tiktok'), 'solo');
     assert.equal(defaultAccountName([{ platform: 'tiktok', name: 'a' }, { platform: 'tiktok', name: 'b' }], 'tiktok'), 'main');
+  });
+});
+
+describe('posting slots', () => {
+  // Local time, like the slots themselves.
+  const local = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m);
+
+  it('picks the next slot at least 15 minutes ahead that nothing else takes', () => {
+    const slots = ['19:00', '12:00'];
+    assert.equal(nextFreeSlot(slots, new Set(), local(17, 10)), local(17, 12).toISOString());
+    assert.equal(nextFreeSlot(slots, new Set(), local(17, 18, 50)), local(18, 12).toISOString(), 'too close to 19:00');
+    assert.equal(nextFreeSlot(slots, new Set([local(17, 12).toISOString(), local(17, 19).toISOString()]), local(17, 10)), local(18, 12).toISOString());
+  });
+
+  it('a batch dropped at once goes out one per slot; a video with its own time keeps it', async () => {
+    const { store } = makeCtx();
+    const config: WatchConfig = { to: ['youtube'], options: { youtube: { privacy: 'public', madeForKids: false } }, slots: ['19:00'] };
+    const dir = folder(config);
+    const probe = async () => fakeMedia();
+    const now = local(17, 9);
+    let fill = 0;
+    const at = async (name: string) => {
+      // Different bytes each time, or the duplicate check would skip them.
+      const r = await ingest({ dir, config, videoPath: video(dir, name, 60_000, ++fill), providers, store, probe, now });
+      assert.ok(r.ok);
+      return store.getPost(r.postId)!.scheduledAt;
+    };
+    assert.equal(await at('a.mp4'), local(17, 19).toISOString());
+    assert.equal(await at('b.mp4'), local(18, 19).toISOString());
+    writeFileSync(join(dir, 'c.json'), JSON.stringify({ at: '2026-11-01T09:00:00Z' }));
+    assert.equal(await at('c.mp4'), '2026-11-01T09:00:00.000Z');
+    assert.equal(await at('d.mp4'), local(19, 19).toISOString());
+  });
+
+  it('a slot whose post was canceled is free again', async () => {
+    const { store } = makeCtx();
+    const config: WatchConfig = { to: ['youtube'], options: { youtube: { privacy: 'public', madeForKids: false } }, slots: ['19:00'] };
+    const dir = folder(config);
+    const r = await ingest({ dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: local(17, 9) });
+    assert.ok(r.ok);
+    for (const t of store.targetsForPost(r.postId)) store.transition(t.id, 'canceled');
+    assert.deepEqual(store.scheduledTimes(local(17, 0).toISOString()), []);
+  });
+
+  it('rejects malformed slots', () => {
+    const dir = folder({ to: ['youtube'], slots: ['7pm'] } as WatchConfig);
+    assert.throws(() => loadWatchConfig(dir), /HH:MM/);
   });
 });

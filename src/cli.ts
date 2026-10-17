@@ -511,7 +511,8 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
         console.log(`✗ ${basename(videoPath)}: ${r.error}\n    → ${r.movedTo}`);
         continue;
       }
-      console.log(`+ ${basename(videoPath)} → post ${r.postId.slice(0, 8)} "${r.plan.input.title}" (${r.plan.targets.map((t) => t.platform).join(', ')})`);
+      const when = r.plan.input.scheduledAt ? `, 예약 ${new Date(r.plan.input.scheduledAt).toLocaleString('ko-KR')}` : '';
+      console.log(`+ ${basename(videoPath)} → post ${r.postId.slice(0, 8)} "${r.plan.input.title}" (${r.plan.targets.map((t) => t.platform).join(', ')}${when})`);
       for (const s of r.plan.skipped) console.log(`    건너뜀 ${s.platform}: ${s.reason}`);
     }
   };

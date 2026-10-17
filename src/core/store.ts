@@ -443,6 +443,18 @@ export class Store {
     this.#db.prepare('UPDATE targets SET stats = ? WHERE id = ?').run(JSON.stringify(stats), id);
   }
 
+  /** Times at or after `fromIso` that posts are scheduled for, unless every target of the post was given up on. */
+  scheduledTimes(fromIso: string): string[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT DISTINCT json_extract(p.body, '$.scheduledAt') AS at FROM posts p
+         WHERE json_extract(p.body, '$.scheduledAt') >= ?
+           AND EXISTS (SELECT 1 FROM targets t WHERE t.post_id = p.id AND t.state NOT IN ('canceled', 'failed', 'removed'))`,
+      )
+      .all(fromIso) as Array<{ at: string }>;
+    return rows.map((r) => r.at);
+  }
+
   /** Whether a target of the same account, other than `exceptId`, already points at this remote object. */
   remoteIdInUse(platform: string, account: string, remoteId: string, exceptId: string): boolean {
     // Remote ids are only unique per account's instance (PeerTube numbers videos per instance).
