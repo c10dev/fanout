@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { openContext, stderrLogger } from './core/context.ts';
+import { DEFAULT_EVENTS, detectFormat, flushNotifications, notifyConfig, send, type NotifyConfig } from './core/notify.ts';
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { fileHash, probe } from './core/media.ts';
@@ -11,7 +12,7 @@ import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
 import { isTerminal } from './core/state.ts';
-import type { CaptionFile, Post, PostInput, Target, TargetInput } from './core/types.ts';
+import type { CaptionFile, Post, PostInput, Target, TargetInput, TargetState } from './core/types.ts';
 import { BUILTIN_PROVIDERS, providerMap } from './providers/index.ts';
 import { Dashboard } from './server/server.ts';
 import { McpServer, serveStdio } from './mcp/server.ts';
@@ -222,6 +223,8 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
                                          웹 대시보드 (작업 처리, 6시간마다 자동 정리 포함)
   fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
   fanout stats [postId] [--include-paid]  게시된 영상의 조회·좋아요·댓글 (X는 --include-paid일 때만)
+  fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off] [--format slack|discord|json]
+  fanout notify test | off               상태 알림 (Slack·Discord·JSON webhook)
   fanout prune [--days 7] [--dry-run]    다 올린 원본·오래된 변환 파일 정리 (~/.fanout 안만)
   fanout mcp                             MCP 서버 (stdio) — AI 에이전트용 도구, 업로드 처리 포함
   fanout watch <폴더> --init             감시 폴더와 예시 설정(fanout.watch.json) 만들기
@@ -510,6 +513,39 @@ async function cmdRemove(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
   return 0;
 }
 
+async function cmdNotify(ctx: ProviderContext, args: Args): Promise<number> {
+  const sub = args.positionals[1];
+  if (sub === 'set') {
+    const url = args.positionals[2];
+    if (!url || !/^https:\/\//.test(url)) throw new UsageError('fanout notify set <https://… webhook URL>');
+    const events = str(args, 'events')?.split(',').map((e) => e.trim()) as TargetState[] | undefined;
+    const known: readonly string[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed'];
+    if (events?.some((e) => !known.includes(e))) throw new UsageError(`--events 는 ${known.join(', ')} 중에서`);
+    const format = str(args, 'format') as NotifyConfig['format'];
+    if (format && !['slack', 'discord', 'json'].includes(format)) throw new UsageError('--format 은 slack, discord, json');
+    ctx.store.setApp('notify', { url, ...(events ? { events } : {}), ...(format ? { format } : {}) });
+    console.log(`알림을 켰습니다 (${format ?? detectFormat(url)} 형식, ${(events ?? DEFAULT_EVENTS).join(', ')}). fanout notify test 로 확인하세요`);
+    return 0;
+  }
+  if (sub === 'off') {
+    ctx.store.setApp('notify', {});
+    console.log('알림을 껐습니다');
+    return 0;
+  }
+  const config = notifyConfig(ctx);
+  if (sub === 'test') {
+    if (!config) throw new UsageError('알림이 꺼져 있습니다 — fanout notify set <URL>');
+    const format = config.format ?? detectFormat(config.url);
+    const text = '🔔 fanout 알림 테스트입니다';
+    await send(ctx, config, format === 'slack' ? { text } : format === 'discord' ? { content: text } : { event: 'test', text });
+    console.log('보냈습니다');
+    return 0;
+  }
+  if (!config) console.log('알림 꺼짐');
+  else console.log(`알림 켜짐: ${new URL(config.url).host} (${config.format ?? detectFormat(config.url)}, ${(config.events ?? DEFAULT_EVENTS).join(', ')})${process.env.FANOUT_WEBHOOK_URL ? ' — FANOUT_WEBHOOK_URL' : ''}`);
+  return 0;
+}
+
 async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const id = args.positionals[1];
   const posts = id ? [ctx.store.findPost(id)].filter((p): p is Post => Boolean(p)) : ctx.store.listPosts(5);
@@ -644,6 +680,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdStats(ctx, deps, args);
       case 'remove':
         return await cmdRemove(ctx, deps, args);
+      case 'notify':
+        return await cmdNotify(ctx, args);
       case 'retry':
         return await cmdRetry(ctx, deps, args);
       case 'run':
@@ -658,6 +696,7 @@ export async function main(argv: string[]): Promise<number> {
         throw new UsageError(`알 수 없는 명령: ${cmd}\n\n${HELP}`);
     }
   } finally {
+    await flushNotifications();
     ctx.store.close();
   }
 }
