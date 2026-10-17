@@ -64,4 +64,15 @@ npm test           # node --test (ffmpeg가 있으면 실제 트랜스코딩 테
 npm run typecheck
 ```
 
+### 실제 서버로 확인하는 통합 테스트
+
+`scripts/it/peertube.sh`와 `scripts/it/mastodon.sh`는 Docker로 PeerTube 8.3.1·Mastodon 4.7.3을 띄우고 fanout CLI로 연결, `doctor --live`, 썸네일·자막을 붙인 게시, 수정, 댓글·답글, 반응, 예약, 삭제까지 실행한 뒤 서버 API로 결과를 확인합니다. Docker, Node 24, ffmpeg, curl, openssl이 필요하고(리눅스 기준), 끝나면 컨테이너를 모두 지웁니다.
+
+```bash
+scripts/it/peertube.sh
+scripts/it/mastodon.sh
+```
+
+GitHub Actions의 `Integration` 워크플로가 매주, 수동 실행 때, 그리고 이 provider나 관련 코드가 바뀐 PR에서 두 스크립트를 돌립니다.
+
 `npm run build`는 `dist/`로 컴파일하고 대시보드 정적 파일을 복사합니다. `npm install` 때도 자동으로 실행됩니다(`prepare`). PR과 `main` 푸시마다 GitHub Actions([`.github/workflows/ci.yml`](../.github/workflows/ci.yml))가 ffmpeg를 설치한 Ubuntu·Node 24에서 typecheck, 테스트, 패키지 설치 확인, Docker 이미지 빌드를 실행합니다.
