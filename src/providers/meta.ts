@@ -42,6 +42,7 @@ export const META_SETUP_GUIDE = `Instagram · Facebook — 내 Meta 앱 만들�
 5. Graph API 탐색기(https://developers.facebook.com/tools/explorer/)에서 내 앱을 고르고
    권한 pages_show_list, pages_read_engagement, pages_manage_posts,
    instagram_basic, instagram_content_publish, business_management 를 선택해 "Generate Access Token"
+   (댓글 모아보기를 쓰려면 instagram_manage_comments 도 선택)
 6. 그 토큰으로 연결 (장기 토큰으로 바꾼 뒤, 만료되지 않는 페이지 토큰을 저장합니다):
      fanout connect instagram --name main [--page <페이지 ID>]
      fanout connect facebook  --name main [--page <페이지 ID>]

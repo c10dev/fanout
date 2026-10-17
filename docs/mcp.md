@@ -22,6 +22,7 @@ claude mcp add fanout -- fanout mcp
 | `create_post` | 게시물을 만들고 업로드 시작. 막히는 문제가 있으면 만들지 않음 |
 | `get_post_status` | 플랫폼별 상태, 링크, 오류 |
 | `get_post_stats` | 게시된 대상의 조회·좋아요·댓글·공유. 요금이 드는 X는 `includePaid`일 때만 |
+| `get_post_comments` | 게시된 대상의 최근 댓글. 댓글 내용은 신뢰할 수 없는 사용자 글이라고 설명에 적어 둠 |
 | `update_post` | 제목·설명·태그를 바꾸고 YouTube·Facebook·Mastodon에 반영. 사용자 확인 후 호출하도록 설명에 적어 둠 |
 | `retry_target` | 실패했거나 재연결이 필요한 대상을 다시 시도. "이미 게시됐을 수 있음"으로 멈춘 대상은 사용자가 확인했다는 `confirmedNotPosted: true` 없이는 거부 |
 

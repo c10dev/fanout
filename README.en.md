@@ -61,7 +61,7 @@ Data is stored in `FANOUT_HOME` (default `~/.fanout`). Tokens and app secrets ar
 
 ## Ways to use it
 
-- **Web dashboard** (`fanout serve`): drag-and-drop upload with per-platform verdicts, a preview of exactly which account and visibility each post will use before anything uploads, a live status board with retry, per-platform reactions (views, likes, comments), editing and deletion, and a settings tab for app registration, account connection and checks. Loopback-only by default, per-start API token, Host-header check against DNS rebinding.
+- **Web dashboard** (`fanout serve`): drag-and-drop upload with per-platform verdicts, a preview of exactly which account and visibility each post will use before anything uploads, a live status board with retry, per-platform reactions (views, likes, comments), a combined comments panel, editing and deletion, and a settings tab for app registration, account connection and checks. Loopback-only by default, per-start API token, Host-header check against DNS rebinding.
 - **Watch folder** (`fanout watch <dir>`): drop videos into a folder and they're posted according to `fanout.watch.json`, with per-video overrides in a sidecar JSON.
 - **AI agents over MCP** (`fanout mcp`): tools `list_accounts`, `check_video`, `preview_post`, `create_post`, `get_post_status`, `retry_target`. Register with `claude mcp add fanout -- fanout mcp`.
 - **CLI**: everything above from the terminal (`fanout help`).

@@ -11,6 +11,7 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 - **미리 보기** 버튼을 누르면 업로드 전에 플랫폼마다 올라갈 채널·계정, 공개 범위, 변환 여부, 오류·경고를 보여줍니다. 같은 영상을 그 계정에 이미 올렸으면 경고도 함께 보여줍니다. 오류가 없을 때만 "이대로 업로드"가 나타나고, 폼을 고치면 미리보기는 사라집니다.
 - "썸네일·자막"을 펼치면 썸네일 이미지(JPG·PNG, 2MB 이하)와 언어별 자막 파일을 붙일 수 있습니다. 썸네일은 YouTube와 Mastodon, 자막은 YouTube와 Bluesky(VTT)에 적용됩니다.
 - 게시된 영상은 **반응 새로고침**으로 조회·좋아요·댓글·공유 수를 가져옵니다. X는 읽기에도 요금이 들어서 대상마다 따로 "반응 가져오기 (요금)"를 눌러야 합니다.
+- 게시물의 **댓글** 버튼은 플랫폼별 최근 댓글을 한 패널에 모아 보여줍니다(YouTube·Facebook·Instagram·Bluesky·Mastodon).
 - 게시물의 **수정**으로 제목·설명·태그를 바꾸면 YouTube·Facebook·Mastodon에 게시된 글에 반영하고, 아직 올리기 전인 대상은 바뀐 내용으로 올라갑니다. 수정 폼을 열어 둔 동안에는 보드가 새로 그려지지 않습니다.
 - 게시된 대상의 **삭제** 버튼은 플랫폼에서 게시물을 지우고 "삭제됨"으로 표시합니다. 되돌릴 수 없어 한 번 더 확인합니다. API로 지울 수 없는 Instagram·TikTok에는 버튼이 없습니다.
 - 게시 현황 보드는 플랫폼별 상태, 플랫폼 오류 코드, 경고, 상태 전이 기록을 보여주고, 실패하거나 재연결이 필요한 대상은 "다시 시도"할 수 있습니다.
@@ -35,6 +36,7 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 | `POST /api/preview` | `/api/posts`와 같은 본문으로, 만들지 않고 대상별 계정·공개 범위·판정·오류·경고만 돌려줌 |
 | `POST /api/posts` | `{ mediaId, title, description, tags, scheduledAt, containsSyntheticMedia, targets: [{ platform, account, options }], thumbnailId?, captions?: [{ language, assetId }] }` |
 | `GET /api/posts`, `GET /api/posts/:id` | 게시 현황, 상태 전이 기록 |
+| `GET /api/posts/:id/comments?limit=20` | 게시된 대상의 최근 댓글(실시간으로 읽고 저장하지 않음) |
 | `POST /api/posts/:id/edit` | `{ title?, description?, tags? }` 수정하고 편집 가능한 플랫폼에 반영, 대상별 결과 반환 |
 | `POST /api/posts/:id/stats` | `{ includePaid?, platform? }` 게시된 대상의 반응 수치를 가져와 저장 |
 | `POST /api/targets/:id/remove` | 게시된 대상을 플랫폼에서 삭제 (YouTube·Facebook·X·Bluesky·Mastodon) |

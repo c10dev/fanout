@@ -7,7 +7,7 @@ import { DEFAULT_EVENTS, detectFormat, flushNotifications, notifyConfig, send, t
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { fileHash, probe } from './core/media.ts';
-import { accountLabel, assessMedia, createScheduledPost, describePrior, editPost, priorPosts, refreshStats, removeTarget, retryTarget, visibilityLabel } from './core/posting.ts';
+import { accountLabel, assessMedia, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, retryTarget, visibilityLabel } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
@@ -224,6 +224,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout edit <postId> [--title T] [--description D | --description-file F] [--tags a,b]
                                          제목·설명·태그 수정 (YouTube·Facebook·Mastodon에 반영)
   fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
+  fanout comments <postId> [--limit 20]  게시된 대상의 최근 댓글 (YouTube·Facebook·Instagram·Bluesky·Mastodon)
   fanout stats [postId] [--include-paid]  게시된 영상의 조회·좋아요·댓글 (X는 --include-paid일 때만)
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off] [--format slack|discord|json]
   fanout notify test | off               상태 알림 (Slack·Discord·JSON webhook)
@@ -498,6 +499,19 @@ async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   return 0;
 }
 
+async function cmdComments(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
+  if (!post) throw new UsageError('fanout comments <postId> [--limit 20]');
+  for (const r of await fetchComments(ctx, deps.providers, post.id, num(args, 'limit') ?? 20)) {
+    console.log(`\n${r.platform}/${r.account}${r.skipped ? ` — ${r.skipped}` : r.error ? ` — ✗ ${r.error}` : ` — ${r.comments!.length}개`}`);
+    for (const c of r.comments ?? []) {
+      console.log(`  ${c.at.slice(0, 16).replace('T', ' ')}  ${c.author}${c.likes ? `  ♥${c.likes}` : ''}${c.replies ? `  ↳${c.replies}` : ''}`);
+      console.log(`    ${c.text.replace(/\s+/g, ' ').slice(0, 200)}`);
+    }
+  }
+  return 0;
+}
+
 async function cmdEdit(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
   if (!post) throw new UsageError('fanout edit <postId> [--title] [--description] [--tags]');
@@ -701,6 +715,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdRemove(ctx, deps, args);
       case 'edit':
         return await cmdEdit(ctx, deps, args);
+      case 'comments':
+        return await cmdComments(ctx, deps, args);
       case 'notify':
         return await cmdNotify(ctx, args);
       case 'retry':

@@ -583,6 +583,75 @@ async function fillHistory(details, postId) {
   }
 }
 
+/** Open comment panels: post id → last results (null while loading). Survive board re-renders. */
+const openComments = new Map();
+
+function commentsPanel(postId) {
+  const results = openComments.get(postId);
+  const reload = async () => {
+    openComments.set(postId, null);
+    refreshBoard();
+    try {
+      const { results } = await api(`/posts/${postId}/comments?limit=20`);
+      openComments.set(postId, results);
+    } catch (err) {
+      openComments.set(postId, [{ platform: '', account: '', error: err.message }]);
+    }
+    refreshBoard();
+  };
+  if (results === undefined) return null;
+  const body =
+    results === null
+      ? [h('p', { class: 'muted' }, '댓글을 불러오는 중…')]
+      : results.map((r) =>
+          h(
+            'div',
+            { class: 'comment-group' },
+            r.platform ? h('div', { class: 'comment-src' }, `${r.platform}/${r.account}`, h('span', { class: 'muted' }, r.comments ? ` · ${r.comments.length}개` : '')) : null,
+            r.skipped ? h('p', { class: 'muted' }, r.skipped) : null,
+            r.error ? h('p', { class: 'err' }, r.error) : null,
+            r.comments && !r.comments.length ? h('p', { class: 'muted' }, '아직 댓글이 없습니다') : null,
+            (r.comments ?? []).map((c) =>
+              h(
+                'div',
+                { class: 'comment' },
+                h(
+                  'div',
+                  { class: 'comment-meta' },
+                  h('strong', {}, c.author),
+                  h('span', { class: 'muted' }, ` · ${c.at ? fmtTime(c.at) : ''}${c.likes ? ` · ♥ ${fmtNum(c.likes)}` : ''}${c.replies ? ` · 답글 ${fmtNum(c.replies)}` : ''}`),
+                  c.url ? h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer', class: 'comment-link' }, '열기') : null,
+                ),
+                h('div', { class: 'comment-text' }, c.text),
+              ),
+            ),
+          ),
+        );
+  return h(
+    'div',
+    { class: 'comments' },
+    h('div', { class: 'comments-head' }, h('strong', {}, '댓글'), h('button', { class: 'small', type: 'button', onclick: reload, disabled: results === null }, '다시 불러오기')),
+    body,
+  );
+}
+
+async function toggleComments(postId) {
+  if (openComments.has(postId)) {
+    openComments.delete(postId);
+    refreshBoard();
+    return;
+  }
+  openComments.set(postId, null);
+  refreshBoard();
+  try {
+    const { results } = await api(`/posts/${postId}/comments?limit=20`);
+    if (openComments.has(postId)) openComments.set(postId, results);
+  } catch (err) {
+    if (openComments.has(postId)) openComments.set(postId, [{ platform: '', account: '', error: err.message }]);
+  }
+  refreshBoard();
+}
+
 /** Post id whose edit form is open; the board doesn't re-render under it. */
 let editingPost = null;
 
@@ -658,6 +727,10 @@ function postCard({ post, targets }) {
         '반응 새로고침',
       )
     : null;
+  const hasPublished = targets.some((t) => t.state === 'published');
+  const commentsButton = hasPublished
+    ? h('button', { class: 'small', type: 'button', onclick: () => toggleComments(post.id) }, openComments.has(post.id) ? '댓글 닫기' : '댓글')
+    : null;
   const editable = targets.some((t) => t.state !== 'failed' && t.state !== 'removed');
   const editButton = editable
     ? h(
@@ -680,7 +753,8 @@ function postCard({ post, targets }) {
     { class: 'post', 'data-post': post.id },
     h('div', { class: 'post-head' }, h('span', { class: 'post-title' }, post.title), h('span', { class: 'muted' }, [fmtTime(post.createdAt), post.scheduledAt && `예약 ${fmtTime(post.scheduledAt)}`, post.hasThumbnail && '썸네일', post.captionLanguages?.length && `자막 ${post.captionLanguages.join(', ')}`].filter(Boolean).join(' · '))),
     targets.map(targetRow),
-    h('div', { class: 'post-foot' }, history, h('div', { class: 'actions-inline' }, editButton, refreshStats)),
+    h('div', { class: 'post-foot' }, history, h('div', { class: 'actions-inline' }, commentsButton, editButton, refreshStats)),
+    commentsPanel(post.id),
   );
 }
 

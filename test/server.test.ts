@@ -214,6 +214,15 @@ describe('dashboard server', () => {
     assert.ok(targets[0]!.warnings.some((w) => w.includes('이미 올렸습니다')));
   });
 
+  it('routes post sub-resources (comments) past the post detail route', async () => {
+    const posts = (await (await fetch(`${base}/api/posts`, { headers: auth })).json()) as Array<{ post: { id: string } }>;
+    const id = posts[0]!.post.id;
+    const res = await fetch(`${base}/api/posts/${id}/comments?limit=5`, { headers: auth });
+    assert.equal(res.status, 200);
+    const body = (await res.json()) as { results?: unknown[] };
+    assert.ok(Array.isArray(body.results), 'comments endpoint, not the post detail');
+  });
+
   it('validates post requests', async () => {
     const post = (body: unknown) => fetch(`${base}/api/posts`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await post({ mediaId: '../../etc/passwd', title: 't', targets: [{ platform: 'alpha', account: 'main' }] })).status, 400);

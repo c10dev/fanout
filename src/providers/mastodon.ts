@@ -71,6 +71,20 @@ async function api<T>(
 }
 
 /** Status text: title, description, hashtags; the description goes first if it doesn't fit. */
+/** Mastodon returns status bodies as HTML; good enough plain text for a comment list. */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/p>\s*<p>/gi, '\n\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&amp;/g, '&')
+    .trim();
+}
+
 export function statusText(post: Post, opts: Partial<MastodonOptions>, maxChars = DEFAULT_MAX_CHARS): string {
   if (opts.text !== undefined) return opts.text;
   const tags = post.tags.map((t) => `#${t.replace(/^#/, '').replace(/\s+/g, '')}`).join(' ');
@@ -286,5 +300,23 @@ export const mastodon: Provider = {
         ...(o.spoilerText ? { spoiler_text: o.spoilerText, sensitive: true } : {}),
       }),
     });
+  },
+
+  async comments({ ctx, account, target, limit }) {
+    type Status = { id: string; in_reply_to_id?: string | null; content: string; created_at: string; url?: string; favourites_count?: number; replies_count?: number; account: { acct: string; display_name?: string } };
+    const { body } = await api<{ descendants?: Status[] }>(ctx, creds(account), `/api/v1/statuses/${target.remoteId}/context`);
+    return (body.descendants ?? [])
+      .filter((s) => s.in_reply_to_id === target.remoteId)
+      .map((s) => ({
+        id: s.id,
+        author: s.account.display_name ? `${s.account.display_name} (@${s.account.acct})` : `@${s.account.acct}`,
+        text: htmlToText(s.content),
+        at: s.created_at,
+        likes: s.favourites_count,
+        replies: s.replies_count,
+        url: s.url,
+      }))
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, limit);
   },
 };

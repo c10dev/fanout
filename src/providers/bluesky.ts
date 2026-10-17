@@ -429,4 +429,24 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
     const rkey = target.remoteId.split('/').pop()!;
     await xrpc(ctx, c.pds, 'com.atproto.repo.deleteRecord', { token: c.accessJwt, json: { repo: c.did, collection: 'app.bsky.feed.post', rkey } });
   },
+
+  async comments({ ctx, target, limit }) {
+    type Reply = { post?: { uri: string; author: { handle: string; displayName?: string }; record: { text?: string; createdAt?: string }; likeCount?: number; replyCount?: number } };
+    const res = await xrpc<{ thread?: { replies?: Reply[] } }>(ctx, PUBLIC_APPVIEW, 'app.bsky.feed.getPostThread', {
+      query: { uri: target.remoteId, depth: '1', parentHeight: '0' },
+    });
+    return (res.thread?.replies ?? [])
+      .filter((r): r is Required<Reply> => Boolean(r.post))
+      .map((r) => ({
+        id: r.post.uri,
+        author: r.post.author.displayName ? `${r.post.author.displayName} (@${r.post.author.handle})` : `@${r.post.author.handle}`,
+        text: r.post.record.text ?? '',
+        at: r.post.record.createdAt ?? '',
+        likes: r.post.likeCount,
+        replies: r.post.replyCount,
+        url: `https://bsky.app/profile/${r.post.author.handle}/post/${r.post.uri.split('/').pop()}`,
+      }))
+      .sort((a, b) => b.at.localeCompare(a.at))
+      .slice(0, limit);
+  },
 };
