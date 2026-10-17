@@ -1,0 +1,38 @@
+# 웹 대시보드
+
+[← README](../README.md)
+
+```bash
+node src/cli.ts serve            # http://127.0.0.1:8780/
+```
+
+- 영상을 끌어다 놓으면 플랫폼마다 "원본 그대로 / 변환 후 업로드 / 올릴 수 없음"을 바로 보여줍니다.
+- 플랫폼별 옵션은 정책에 맞춰 기본값 없이 고르게 합니다. YouTube 공개 범위·아동용 여부, TikTok Direct Post 공개 범위·음악 사용 동의가 그렇고, TikTok 댓글·듀엣·이어찍기는 꺼진 상태로 시작합니다.
+- **미리 보기** 버튼을 누르면 업로드 전에 플랫폼마다 올라갈 채널·계정, 공개 범위, 변환 여부, 오류·경고를 보여줍니다. 오류가 없을 때만 "이대로 업로드"가 나타나고, 폼을 고치면 미리보기는 사라집니다.
+- "썸네일·자막"을 펼치면 썸네일 이미지(JPG·PNG, 2MB 이하)와 언어별 자막 파일을 붙일 수 있습니다. 썸네일은 YouTube와 Mastodon, 자막은 YouTube와 Bluesky(VTT)에 적용됩니다.
+- 게시 현황 보드는 플랫폼별 상태, 플랫폼 오류 코드, 경고, 상태 전이 기록을 보여주고, 실패하거나 재연결이 필요한 대상은 "다시 시도"할 수 있습니다.
+- 서버 안에서 작업 처리기가 돌아가므로 `fanout worker`를 따로 켤 필요가 없습니다.
+- **설정** 탭에서 개발자 앱 등록, 계정 연결·해제, 점검(`doctor`)을 할 수 있습니다. 127.0.0.1 전용으로 연 대시보드에서만 열립니다.
+  - YouTube: 앱 정보를 넣거나 Google에서 받은 JSON 파일을 올린 뒤 "Google 계정으로 연결". 데스크톱 앱 클라이언트라 Redirect URI를 따로 등록하지 않아도 됩니다.
+  - TikTok: 설정 탭에 보이는 Redirect URI(`http://127.0.0.1:8780/oauth/tiktok/callback`)를 TikTok 개발자 포털에 등록해야 합니다. CLI의 `fanout connect tiktok`은 다른 주소(`http://127.0.0.1:8723/callback`)를 쓰므로, 둘 다 쓰려면 둘 다 등록하세요.
+  - Instagram·Facebook: Graph API 탐색기에서 만든 토큰을 붙여넣으면 장기 토큰으로 바꾼 뒤 페이지 토큰을 저장합니다.
+  - X: Client ID(와 confidential 앱이면 Secret)를 저장하고, X 개발자 포털에 설정 탭에 보이는 Redirect URI를 등록한 뒤 "X 계정으로 연결".
+  - Mastodon: 인스턴스 주소와, 환경설정 → 개발에서 만든 액세스 토큰(`read:accounts`, `write:media`, `write:statuses`)을 넣습니다.
+  - Bluesky: 핸들과 앱 비밀번호를 넣습니다. 앱 비밀번호는 저장하지 않고, 로그인해서 받은 토큰만 보관하며 자동으로 갱신합니다.
+  - "실제 업로드로 점검"은 `doctor --live`와 같습니다. 테스트 영상을 실제로 올리므로 실행 전에 한 번 더 확인을 받습니다.
+- 올린 원본은 `~/.fanout/media/`에 저장됩니다. 대시보드가 6시간마다 정리합니다([운영 문서의 디스크 정리](operations.md#디스크-정리)).
+
+보안: 기본으로 127.0.0.1에만 열립니다. API는 실행할 때마다 새로 만드는 토큰을 요구하고(페이지에 자동으로 넣는 것은 127.0.0.1 전용으로 열었을 때뿐), Host 헤더를 검사해 DNS rebinding을 막습니다. 다른 기기에서 접속하려면 `FANOUT_DASHBOARD_TOKEN`을 정하고 `--host 0.0.0.0 --allow-host 내주소:8780`으로 열되, HTTPS 리버스 프록시 뒤에 두세요.
+
+| REST API (`x-fanout-token` 헤더 필요) | |
+|---|---|
+| `GET /api/overview` | 플랫폼, 기능, 연결된 계정 |
+| `POST /api/media` | 영상 원본 바이트 업로드 (`x-filename` 헤더) → 분석·플랫폼별 판정 |
+| `POST /api/assets/thumbnail`, `POST /api/assets/caption` | 썸네일(JPG·PNG, 2MB)·자막(SRT·VTT 등) 원본 바이트 업로드 (`x-filename` 헤더) → `id` |
+| `POST /api/preview` | `/api/posts`와 같은 본문으로, 만들지 않고 대상별 계정·공개 범위·판정·오류·경고만 돌려줌 |
+| `POST /api/posts` | `{ mediaId, title, description, tags, scheduledAt, containsSyntheticMedia, targets: [{ platform, account, options }], thumbnailId?, captions?: [{ language, assetId }] }` |
+| `GET /api/posts`, `GET /api/posts/:id` | 게시 현황, 상태 전이 기록 |
+| `POST /api/targets/:id/retry` | 실패·재연결 필요 대상 다시 시도 |
+| `GET /api/settings`, `PUT /api/apps/:key` | 앱 등록 상태, 앱 정보 저장 (비밀값은 응답에 넣지 않음). 127.0.0.1 전용 |
+| `POST /api/connect/:platform`, `DELETE /api/accounts/:platform/:name` | 계정 연결(OAuth는 인증 URL을 돌려줌)·해제. 127.0.0.1 전용 |
+| `POST /api/doctor/:platform` | `{ account, live }` 점검. 127.0.0.1 전용 |
