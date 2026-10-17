@@ -24,9 +24,10 @@ Node 24 이상과 ffmpeg가 필요합니다. 런타임 의존성은 두지 않�
 ## 새 플랫폼 추가
 
 1. `src/providers/<플랫폼>.ts`에 `Provider`를 구현합니다. 필요한 것은 `connect`, `refresh`, `validate`, `publish`, `poll`, `doctor`, 미디어 사양(`spec`), 설정 안내(`setupGuide`)입니다.
+   반응 통계·댓글·답글·수정·삭제는 선택 메서드입니다. 목록은 [docs/development.md](docs/development.md)에 있습니다.
 2. `src/providers/index.ts`에 등록합니다.
-3. `test/`에 HTTP mock 테스트를 추가합니다. 업로드 요청의 형태, 오류 분류, 상태 조회를 확인해 주세요.
-4. README의 플랫폼 표에 제약(승인, 한도, 사양)과 공식 문서 링크를 적습니다.
+3. `test/`에 HTTP mock 테스트를 추가합니다. 업로드 요청의 형태, 오류 분류, 상태 조회, 응답을 잃은 뒤 다시 시도해도 두 번 게시되지 않는지 확인해 주세요.
+4. README의 플랫폼 표와 [docs/platforms.md](docs/platforms.md)에 제약(승인, 한도, 사양)과 공식 문서 링크를 적습니다.
 
 ## PR
 

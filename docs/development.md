@@ -15,19 +15,38 @@ src/
     store.ts              SQLite 저장소: BYO 앱, 계정, 게시물, 대상, 상태 이벤트, 사용량, 작업 잠금
     crypto.ts             토큰 암호화 (AES-256-GCM)
     media.ts              ffprobe 분석, 사양 검사, 조건부 트랜스코딩
-    posting.ts            게시물 생성·미리보기, 플랫폼별 판정, 다시 시도
+    posting.ts            게시물 생성·미리보기, 플랫폼별 판정, 다시 시도·취소, 반응·댓글·답글, 수정·삭제
     runner.ts             사전 검사 → 변환 → 업로드 → 처리 확인, 재시도·재인증·잠금
     worker.ts             백그라운드 처리 루프 (대시보드·MCP 공용)
     inbox.ts              감시 폴더
     prune.ts              디스크 정리
+    notify.ts             Slack·Discord·JSON webhook 알림
+    export.ts             CSV·JSON 내보내기
+    context.ts            데이터 폴더·키·저장소를 여는 공통 진입점
     provider.ts           Provider 인터페이스
+    errors.ts             ProviderError (retryable · auth · rejected)
+    http.ts               공통 HTTP·OAuth 도우미 (PKCE, 루프백 콜백, 조각 읽기)
   providers/
     youtube.ts  tiktok.ts  instagram.ts  facebook.ts  meta.ts(Instagram·Facebook 공통)
     x.ts  bluesky.ts  mastodon.ts
 test/                     node:test + HTTP mock (실제 플랫폼 호출 없음)
 ```
 
-새 플랫폼은 `Provider` 인터페이스(`connect`, `refresh`, `validate`, `publish`, `poll`, `doctor`, 미디어 사양, 연결 방식)를 구현해 `providers/index.ts`에 등록합니다. 자세한 절차는 [CONTRIBUTING.md](../CONTRIBUTING.md)에 있습니다. 브라우저 자동화 어댑터도 같은 인터페이스를 쓰되, 이 저장소 밖의 별도 패키지로 둡니다.
+새 플랫폼은 `Provider` 인터페이스를 구현해 `providers/index.ts`에 등록합니다.
+
+- 필수: `connect`, `refresh`, `validate`, `publish`, `poll`, `doctor`, 미디어 사양(`spec`), 연결 방식(`connectMethod`)
+- 선택: 플랫폼 API가 지원할 때만 구현합니다. 없으면 대시보드·CLI·MCP가 그 기능을 "지원하지 않음"으로 보여 줍니다.
+
+| 메서드 | 쓰는 곳 |
+|---|---|
+| `oauthBegin`, `oauthFinish` | 대시보드 설정 탭의 OAuth 연결 |
+| `connectFields` | 토큰·비밀번호로 연결하는 플랫폼의 입력 칸 |
+| `specFor` | 계정마다 다른 사양(예: TikTok 최대 길이) |
+| `stats`, `statsCost` | 반응 통계. 읽기에 요금이 들면 `statsCost`를 두어 명시적으로 요청할 때만 읽음 |
+| `comments` | 최근 최상위 댓글 |
+| `reply` | 댓글에 답글. 한 번만 호출하고 다시 시도하지 않음 |
+| `update` | 게시 후 제목·설명·태그 수정 |
+| `remove` | 게시물 삭제. 이미 지워졌으면 성공으로 끝내되, 다른 계정이라 안 보이는 것과 구분 | 자세한 절차는 [CONTRIBUTING.md](../CONTRIBUTING.md)에 있습니다. 브라우저 자동화 어댑터도 같은 인터페이스를 쓰되, 이 저장소 밖의 별도 패키지로 둡니다.
 
 ### 중복 게시를 막는 규칙
 
