@@ -1267,6 +1267,9 @@ function platformBlock(p, appReady) {
   );
 }
 
+/** Each account row's read-only check, for "모든 계정 점검". */
+const accountChecks = new Map();
+
 function accountRow(p, a) {
   const results = h('ul', { class: 'checks', hidden: true });
   const run = async (live) => {
@@ -1282,7 +1285,9 @@ function accountRow(p, a) {
     } finally {
       for (const b of row.querySelectorAll('button')) b.disabled = false;
     }
+    return !results.querySelector('li.fail');
   };
+  accountChecks.set(`${p.id}/${a.name}`, () => run(false));
   const row = h(
     'div',
     { class: 'acct' },
@@ -1418,10 +1423,37 @@ async function loadSettings() {
   }
   try {
     const [settings, notify] = await Promise.all([api('/settings'), api('/notify')]);
-    box.replaceChildren(...settings.apps.map((app) => appCard(app, settings.platforms.filter((p) => app.platforms.includes(p.id)))), notifyCard(notify));
+    accountChecks.clear();
+    const cards = settings.apps.map((app) => appCard(app, settings.platforms.filter((p) => app.platforms.includes(p.id))));
+    box.replaceChildren(checkAllCard(), ...cards, notifyCard(notify));
   } catch (err) {
     box.replaceChildren(h('p', { class: 'form-error' }, err.message));
   }
+}
+
+/** One button to run every connected account's read-only check, one after another. */
+function checkAllCard() {
+  const status = h('span', { class: 'muted' });
+  const button = h(
+    'button',
+    {
+      class: 'small',
+      type: 'button',
+      onclick: async () => {
+        button.disabled = true;
+        const failed = [];
+        let i = 0;
+        for (const [key, check] of accountChecks) {
+          status.textContent = ` ${++i}/${accountChecks.size} ${key} 점검 중…`;
+          if (!(await check())) failed.push(key);
+        }
+        status.textContent = accountChecks.size ? ` ${accountChecks.size}개 계정 점검${failed.length ? `, 문제 있음: ${failed.join(', ')}` : ', 모두 정상'}` : ' 연결된 계정이 없습니다';
+        button.disabled = false;
+      },
+    },
+    '모든 계정 점검',
+  );
+  return h('section', { class: 'panel' }, h('div', { class: 'acct' }, button, status), h('p', { class: 'note' }, '읽기만 하는 점검입니다. 실제 업로드 점검은 계정마다 따로 실행하세요.'));
 }
 
 async function refreshAll() {
