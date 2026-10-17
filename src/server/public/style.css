@@ -225,3 +225,8 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .post-foot details { flex: 1; min-width: 0; }
 
 .small.danger { color: var(--bad); border-color: var(--bad); }
+
+.actions-inline { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.edit-form { border-top: 1px solid var(--line); margin-top: 10px; padding-top: 6px; }
+.edit-form .field { margin-top: 8px; }
+.okline { color: var(--ok); }

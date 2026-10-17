@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, refreshStats, removeTarget, retryTarget } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, createScheduledPost, editPost, previewPost, refreshStats, removeTarget, retryTarget } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import { DEFAULT_EVENTS, detectFormat, notifyConfig, send as sendWebhook, type NotifyConfig } from '../core/notify.ts';
@@ -233,6 +233,17 @@ export class Dashboard {
         if (err instanceof ProviderError) throw err;
         throw new HttpError(409, err instanceof Error ? err.message : String(err));
       }
+    }
+    if (method === 'POST' && parts[0] === 'posts' && parts[1] && parts[2] === 'edit') {
+      const body = await readJson<{ title?: string; description?: string; tags?: string[] }>(req);
+      if (!this.#opts.ctx.store.getPost(parts[1])) throw new HttpError(404, '게시물이 없습니다');
+      const patch = {
+        ...(typeof body.title === 'string' ? { title: body.title.trim() } : {}),
+        ...(typeof body.description === 'string' ? { description: body.description } : {}),
+        ...(Array.isArray(body.tags) ? { tags: body.tags.map((t) => String(t).trim()).filter(Boolean) } : {}),
+      };
+      if (patch.title !== undefined && !patch.title) throw new HttpError(400, '제목을 입력하세요');
+      return send(res, 200, { results: await editPost(this.#opts.ctx, this.#opts.providers, parts[1], patch) });
     }
     if (method === 'POST' && parts[0] === 'posts' && parts[1] && parts[2] === 'stats') {
       const body = await readJson<{ includePaid?: boolean; platform?: string }>(req);

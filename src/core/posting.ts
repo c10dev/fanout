@@ -1,4 +1,5 @@
 import { checkMedia, type MediaInfo, type Violation } from './media.ts';
+import { isTerminal } from './state.ts';
 import type { Provider, ProviderContext } from './provider.ts';
 import type { Store } from './store.ts';
 import type { Post, PostInput, PostStats, Target, TargetInput } from './types.ts';
@@ -224,4 +225,56 @@ export async function removeTarget(ctx: ProviderContext, providers: Map<string, 
   account = await provider.refresh(ctx, account);
   await provider.remove({ ctx, account, target: { ...t, remoteId: t.remoteId } });
   return ctx.store.transition(t.id, 'removed', {}, 'removed by user');
+}
+
+export interface EditResult {
+  targetId: string;
+  platform: string;
+  account: string;
+  status: 'updated' | 'skipped' | 'failed';
+  detail?: string;
+}
+
+/**
+ * Change a post's title/description/tags and push the change to every published target whose
+ * platform can edit posts. The post record is updated first, so targets still queued pick it up.
+ */
+export async function editPost(
+  ctx: ProviderContext,
+  providers: Map<string, Provider>,
+  postId: string,
+  patch: Partial<Pick<Post, 'title' | 'description' | 'tags'>>,
+): Promise<EditResult[]> {
+  const current = ctx.store.getPost(postId);
+  if (!current) throw new Error(`게시물 없음: ${postId}`);
+  if (patch.title !== undefined && !patch.title.trim()) throw new Error('제목이 비어 있습니다');
+  const post = ctx.store.updatePost(postId, patch);
+  const out: EditResult[] = [];
+  for (const t of ctx.store.targetsForPost(postId)) {
+    const base = { targetId: t.id, platform: t.platform, account: t.account };
+    const provider = providers.get(t.platform);
+    if (t.state !== 'published' || !t.remoteId) {
+      const detail = isTerminal(t.state)
+        ? `${t.state} 상태라 고치지 않았습니다`
+        : t.state === 'queued' || t.state === 'transcoding'
+          ? '아직 올리기 전이라 바뀐 내용으로 올라갑니다'
+          : '올리는 중이라 반영되지 않았습니다. 게시된 뒤 다시 수정하세요';
+      out.push({ ...base, status: 'skipped', detail });
+      continue;
+    }
+    if (!provider?.update) {
+      out.push({ ...base, status: 'skipped', detail: `${provider?.displayName ?? t.platform}는 API로 게시물을 고칠 수 없습니다` });
+      continue;
+    }
+    try {
+      let account = ctx.store.getAccount(t.platform, t.account);
+      if (!account) throw new Error('연결된 계정이 없습니다');
+      account = await provider.refresh(ctx, account);
+      await provider.update({ ctx, account, target: { ...t, remoteId: t.remoteId }, post });
+      out.push({ ...base, status: 'updated' });
+    } catch (err) {
+      out.push({ ...base, status: 'failed', detail: err instanceof Error ? err.message : String(err) });
+    }
+  }
+  return out;
 }

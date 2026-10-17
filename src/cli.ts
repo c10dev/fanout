@@ -7,7 +7,7 @@ import { DEFAULT_EVENTS, detectFormat, flushNotifications, notifyConfig, send, t
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { fileHash, probe } from './core/media.ts';
-import { accountLabel, assessMedia, createScheduledPost, describePrior, priorPosts, refreshStats, removeTarget, retryTarget, visibilityLabel } from './core/posting.ts';
+import { accountLabel, assessMedia, createScheduledPost, describePrior, editPost, priorPosts, refreshStats, removeTarget, retryTarget, visibilityLabel } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
@@ -221,6 +221,8 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout worker [--interval 60]          예약·재시도 작업을 계속 처리
   fanout serve [--port 8780] [--host 127.0.0.1] [--keep-days 7 | --no-prune]
                                          웹 대시보드 (작업 처리, 6시간마다 자동 정리 포함)
+  fanout edit <postId> [--title T] [--description D | --description-file F] [--tags a,b]
+                                         제목·설명·태그 수정 (YouTube·Facebook·Mastodon에 반영)
   fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
   fanout stats [postId] [--include-paid]  게시된 영상의 조회·좋아요·댓글 (X는 --include-paid일 때만)
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off] [--format slack|discord|json]
@@ -496,6 +498,23 @@ async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   return 0;
 }
 
+async function cmdEdit(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
+  if (!post) throw new UsageError('fanout edit <postId> [--title] [--description] [--tags]');
+  const descFile = str(args, 'description-file');
+  const patch = {
+    ...(str(args, 'title') !== undefined ? { title: str(args, 'title')! } : {}),
+    ...(descFile ? { description: readFileSync(descFile, 'utf8') } : str(args, 'description') !== undefined ? { description: str(args, 'description')! } : {}),
+    ...(str(args, 'tags') !== undefined ? { tags: str(args, 'tags')!.split(',').map((t) => t.trim()).filter(Boolean) } : {}),
+  };
+  if (!Object.keys(patch).length) throw new UsageError('바꿀 것을 하나 이상 주세요 (--title, --description, --tags)');
+  const icon = { updated: '✓', skipped: '·', failed: '✗' } as const;
+  for (const r of await editPost(ctx, deps.providers, post.id, patch)) {
+    console.log(`  ${icon[r.status]} ${`${r.platform}/${r.account}`.padEnd(18)} ${r.status === 'updated' ? '반영함' : (r.detail ?? '')}`);
+  }
+  return 0;
+}
+
 async function cmdRemove(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const [, id, platform] = args.positionals;
   const post = id ? ctx.store.findPost(id) : undefined;
@@ -680,6 +699,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdStats(ctx, deps, args);
       case 'remove':
         return await cmdRemove(ctx, deps, args);
+      case 'edit':
+        return await cmdEdit(ctx, deps, args);
       case 'notify':
         return await cmdNotify(ctx, args);
       case 'retry':

@@ -260,6 +260,14 @@ export class Store {
     return rows.map((r) => JSON.parse(r.body) as Post);
   }
 
+  updatePost(id: string, patch: Partial<Pick<Post, 'title' | 'description' | 'tags'>>): Post {
+    const current = this.getPost(id);
+    if (!current) throw new Error(`no post ${id}`);
+    const next = { ...current, ...patch };
+    this.#db.prepare('UPDATE posts SET body = ? WHERE id = ?').run(JSON.stringify(next), id);
+    return next;
+  }
+
   getPost(id: string): Post | undefined {
     const row = this.#db.prepare('SELECT body FROM posts WHERE id = ?').get(id) as { body: string } | undefined;
     return row ? (JSON.parse(row.body) as Post) : undefined;

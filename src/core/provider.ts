@@ -123,4 +123,7 @@ export interface Provider {
 
   /** Delete a published post from the platform. Omit when the API can't. Resolve if it's already gone. */
   remove?(args: StatsArgs): Promise<void>;
+
+  /** Apply an edited title/description/tags (already saved on `post`) to the published post. */
+  update?(args: StatsArgs & { post: Post }): Promise<void>;
 }
