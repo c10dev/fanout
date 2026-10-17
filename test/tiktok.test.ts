@@ -145,3 +145,25 @@ describe('tiktok publish', () => {
     );
   });
 });
+
+describe('tiktok refresh', () => {
+  it('doctor still really refreshes a stale copy of an unchanged token', async () => {
+    const { fetch, calls } = mockFetch([['POST', '/oauth/token/', () => json({ access_token: 'AT2', refresh_token: 'RT2', expires_in: 86400, refresh_expires_in: 31536000, open_id: 'o', scope: 'video.upload' })]]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('tiktok', { clientKey: 'k', clientSecret: 's' });
+    store.saveAccount(account);
+    const next = await tiktok.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
+    assert.equal(calls.length, 1);
+    assert.equal((next.credentials as { accessToken: string }).accessToken, 'AT2');
+  });
+
+  it('uses the pair another process stored when it already rotated the refresh token', async () => {
+    const { fetch, calls } = mockFetch([]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('tiktok', { clientKey: 'k', clientSecret: 's' });
+    store.saveAccount({ ...account, credentials: { ...account.credentials, accessToken: 'AT3', refreshToken: 'RT3' } });
+    const next = await tiktok.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
+    assert.equal(calls.length, 0);
+    assert.equal((next.credentials as { accessToken: string }).accessToken, 'AT3');
+  });
+});

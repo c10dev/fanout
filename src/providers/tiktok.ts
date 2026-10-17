@@ -382,16 +382,29 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
 
   async refresh(ctx, account) {
     const c = creds(account);
-    if (c.expiresAt - ctx.now().getTime() > 120_000) return account;
+    const fresh = (x: TikTokCredentials) => x.expiresAt - ctx.now().getTime() > 120_000;
+    if (fresh(c)) return account;
+    // Another process may have refreshed already, possibly rotating the refresh token: use its pair.
+    // (Only when it holds a different refresh token: doctor refreshes a stale copy on purpose to test it.)
+    const stored = ctx.store.getAccount('tiktok', account.name);
+    if (stored && creds(stored).refreshToken !== c.refreshToken && fresh(creds(stored))) return stored;
+    const sc = stored ? creds(stored) : c;
     const a = app(ctx);
-    const next: Account = {
-      ...account,
-      credentials: {
-        ...(await tokenRequest(ctx, { client_key: a.clientKey, client_secret: a.clientSecret, grant_type: 'refresh_token', refresh_token: c.refreshToken }, c)),
-      },
-    };
-    ctx.store.saveAccount(next);
-    return next;
+    try {
+      const next: Account = {
+        ...(stored ?? account),
+        credentials: {
+          ...(await tokenRequest(ctx, { client_key: a.clientKey, client_secret: a.clientSecret, grant_type: 'refresh_token', refresh_token: sc.refreshToken }, sc)),
+        },
+      };
+      ctx.store.saveAccount(next);
+      return next;
+    } catch (err) {
+      // Lost a race with another process that used the same refresh token and saved the new pair.
+      const again = err instanceof ProviderError && err.kind === 'auth' ? ctx.store.getAccount('tiktok', account.name) : undefined;
+      if (again && creds(again).refreshToken !== sc.refreshToken) return again;
+      throw err;
+    }
   },
 
   validate(post, target) {
