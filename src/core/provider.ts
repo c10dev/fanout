@@ -130,9 +130,10 @@ export interface Provider {
   /**
    * Reply, as the connected account, to one of the post's top-level comments (already checked to
    * be among `comments()`). Called once and never retried by fanout: platforms without an
-   * idempotency key could otherwise end up with the reply twice.
+   * idempotency key could otherwise end up with the reply twice. Call `sending()` right before the
+   * request that creates the reply, so a failure before it isn't reported as "may have posted".
    */
-  reply?(args: StatsArgs & { comment: Comment; text: string }): Promise<{ id: string; url?: string }>;
+  reply?(args: StatsArgs & { comment: Comment; text: string; sending: () => void }): Promise<{ id: string; url?: string }>;
 
   /** Apply an edited title/description/tags (already saved on `post`) to the published post. */
   update?(args: StatsArgs & { post: Post }): Promise<void>;

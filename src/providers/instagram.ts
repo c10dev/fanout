@@ -181,8 +181,9 @@ export const instagram: Provider = {
     return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '(알 수 없음)', text: m.text ?? '', at: m.timestamp, likes: m.like_count }));
   },
 
-  async reply({ ctx, account, comment, text }) {
+  async reply({ ctx, account, comment, text, sending }) {
     const c = pageCreds(account);
+    sending();
     const res = await graph<{ id: string }>(ctx, 'POST', `/${comment.id}/replies`, { message: text, access_token: c.pageToken }).catch((err: unknown) => {
       throw missingScope(err, 'instagram_manage_comments');
     });

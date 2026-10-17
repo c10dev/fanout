@@ -705,7 +705,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const res = await api<{
       items?: Array<{
         id: string;
-        snippet: { totalReplyCount?: number; topLevelComment: { snippet: { authorDisplayName?: string; textOriginal?: string; textDisplay?: string; publishedAt: string; likeCount?: number } } };
+        snippet: { totalReplyCount?: number; topLevelComment: { id?: string; snippet: { authorDisplayName?: string; textOriginal?: string; textDisplay?: string; publishedAt: string; likeCount?: number } } };
       }>;
       // textOriginal is only returned to the comment's own author; textDisplay in plain text otherwise.
     }>(ctx, account, `/commentThreads?part=snippet&order=time&textFormat=plainText&maxResults=${Math.min(limit, 100)}&videoId=${target.remoteId}`).catch((err: unknown) => {
@@ -715,20 +715,23 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     });
     return (res.items ?? []).map((t) => {
       const c = t.snippet.topLevelComment.snippet;
+      // Replies take the top-level comment's id as parentId (in practice the same as the thread's).
+      const id = t.snippet.topLevelComment.id ?? t.id;
       return {
-        id: t.id,
+        id,
         author: c.authorDisplayName ?? '(이름 없음)',
         text: c.textOriginal ?? c.textDisplay ?? '',
         at: c.publishedAt,
         likes: c.likeCount,
         replies: t.snippet.totalReplyCount,
-        url: `https://www.youtube.com/watch?v=${target.remoteId}&lc=${t.id}`,
+        url: `https://www.youtube.com/watch?v=${target.remoteId}&lc=${id}`,
       };
     });
   },
 
   // comments.insert with parentId; the thread id from comments() is the top-level comment's id.
-  async reply({ ctx, account, target, comment, text }) {
+  async reply({ ctx, account, target, comment, text, sending }) {
+    sending();
     const res = await api<{ id: string }>(ctx, account, '/comments?part=snippet', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },

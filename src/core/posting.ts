@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { ProviderError } from './errors.ts';
+import { isStaleOwner } from './lease.ts';
 import { checkMedia, type MediaInfo, type Violation } from './media.ts';
 import { isTerminal } from './state.ts';
 import type { Provider, ProviderContext } from './provider.ts';
@@ -144,8 +145,9 @@ export function priorPosts(store: Store, hash: string | undefined, targets: Targ
     if (p.id === excludePostId) continue;
     for (const t of store.targetsForPost(p.id)) {
       const key = `${t.platform}/${t.account}`;
-      // Failed posts never went out; removed ones were taken down on purpose, so posting again is fine.
-      if (!wanted.has(key) || t.state === 'failed' || t.state === 'removed' || t.state === 'canceled') continue;
+      // Failed posts never went out (unless they stopped not knowing); removed ones were taken down on
+      // purpose and canceled ones confirmed absent, so posting again is fine.
+      if (!wanted.has(key) || t.state === 'removed' || t.state === 'canceled' || (t.state === 'failed' && !mayBeLive(t))) continue;
       out.set(key, [...(out.get(key) ?? []), { postId: p.id, createdAt: p.createdAt, state: t.state, url: t.remoteUrl }]);
     }
   }
@@ -369,14 +371,37 @@ export async function replyToComment(
   const target = { ...t, remoteId: t.remoteId };
   const comment = (await provider.comments({ ctx, account, target, limit: REPLY_LOOKBACK })).find((c) => c.id === commentId);
   if (!comment) throw new Error('이 게시물의 최근 댓글 중에 그 댓글이 없습니다. 댓글을 다시 불러온 뒤 시도하세요');
+  let sent = false;
   try {
-    const out = await provider.reply({ ctx, account, target, comment, text: body });
+    const out = await provider.reply({ ctx, account, target, comment, text: body, sending: () => (sent = true) });
     ctx.log.info(`${t.platform}/${t.account}: 댓글 ${commentId}에 답글 ${out.id}`);
     return out;
   } catch (err) {
     // A refusal is final and nothing was posted; anything else (timeout, 5xx) may have gone through.
-    if (err instanceof ProviderError && (err.kind === 'rejected' || err.kind === 'auth')) throw err;
+    if (!sent || (err instanceof ProviderError && (err.kind === 'rejected' || err.kind === 'auth'))) throw err;
     throw new Error(`답글 응답을 받지 못했습니다(${err instanceof Error ? err.message : String(err)}). 이미 달렸을 수 있으니 댓글을 다시 불러와 확인한 뒤 필요하면 다시 쓰세요`);
+  }
+}
+
+/** Resume keys that mean something was created on the platform, or the final request was sent. */
+const REMOTE_PROGRESS_KEYS = ['posting', 'sessionUri', 'videoId', 'finalSent', 'publishId', 'finished', 'mediaId', 'statusId', 'tweetId', 'containerId', 'rkey', 'postUri'];
+
+/** Why this not-yet-published target might still be (or become) live on the platform, if it might. */
+export function mayBeLive(t: Target): string | undefined {
+  if (t.errorCode && /maybe_posted|media_attached|processing_timeout/.test(t.errorCode)) return `"${t.errorCode}"로 멈췄습니다`;
+  if (t.remoteId) return '플랫폼에 이미 만들어진 항목이 있습니다';
+  const keys = Object.keys(t.resume ?? {}).filter((k) => REMOTE_PROGRESS_KEYS.includes(k));
+  if (keys.length) return `업로드가 중간까지 진행됐습니다 (${keys.join(', ')})`;
+  return undefined;
+}
+
+export class MaybeLiveError extends Error {
+  readonly code = 'maybe_live';
+  constructor(t: Target, reason: string) {
+    super(
+      `${t.platform}/${t.account}: ${reason}. 이미 게시됐거나 나중에 게시될 수 있습니다. ` +
+        '플랫폼에서 올라가지 않은 것을 확인한 뒤에만 취소하세요. 취소하면 다시 시도하거나 삭제할 수 없습니다',
+    );
   }
 }
 
@@ -384,15 +409,19 @@ export async function replyToComment(
  * Give up on a target that hasn't gone out: queued (incl. scheduled for later), failed or
  * needs_reauth. Refuses while a process is working on it, since an upload may be mid-flight.
  */
-export function cancelTarget(store: Store, id: string): Target {
+export function cancelTarget(store: Store, id: string, opts: { confirmedNotPosted?: boolean } = {}): Target {
   const t = store.getTarget(id);
   if (!t) throw new Error(`대상 없음: ${id}`);
   if (!['queued', 'failed', 'needs_reauth'].includes(t.state)) {
     throw new Error(t.state === 'published' ? '이미 게시됐습니다. 지우려면 삭제를 쓰세요' : `${t.state} 상태는 취소할 수 없습니다`);
   }
+  // Canceled targets can't be retried or removed and stop counting as posted, so a target that may
+  // already be on the platform is only canceled once the user has looked and vouched it isn't.
+  const live = mayBeLive(t);
+  if (live && !opts.confirmedNotPosted) throw new MaybeLiveError(t, live);
   // Take the target's lease so no worker can start uploading it between this check and the change.
   const owner = `cancel:${randomUUID()}`;
-  if (!store.claim(id, owner, 30_000)) throw new Error('지금 처리 중이라 취소할 수 없습니다. 잠시 뒤 다시 시도하세요');
+  if (!store.claim(id, owner, 30_000, isStaleOwner)) throw new Error('지금 처리 중이라 취소할 수 없습니다. 잠시 뒤 다시 시도하세요');
   try {
     return store.transition(id, 'canceled', { notBefore: undefined }, 'canceled by user');
   } finally {

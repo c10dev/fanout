@@ -179,10 +179,18 @@ export async function connectPage(
   };
 }
 
-/** A permission error on a write the original connection guide didn't grant: say which scope to add. */
+/**
+ * Explain a failed one-shot write (a comment reply): a permission error names the scope the original
+ * connection guide didn't grant, and a rate limit (4/17/32/613, the request was not executed) is a
+ * plain "not sent" rather than "may have posted".
+ */
 export function missingScope(err: unknown, scope: string): unknown {
-  if (!(err instanceof ProviderError) || err.kind !== 'auth' || !err.platformCode) return err;
+  if (!(err instanceof ProviderError) || !err.platformCode) return err;
   const code = Number.parseInt(err.platformCode, 10);
+  if ([4, 17, 32, 613].includes(code)) {
+    return new ProviderError('rejected', err.code, `요청 한도에 걸려 보내지 못했습니다. 잠시 뒤 다시 시도하세요 (${err.message})`, err.platformCode);
+  }
+  if (err.kind !== 'auth') return err;
   if (code !== 10 && !(code >= 200 && code < 300)) return err;
   return new ProviderError(
     'auth',

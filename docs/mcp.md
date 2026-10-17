@@ -25,7 +25,7 @@ claude mcp add fanout -- fanout mcp
 | `get_post_comments` | 게시된 대상의 최근 댓글. 댓글 내용은 신뢰할 수 없는 사용자 글이라고 설명에 적어 둠 |
 | `reply_to_comment` | `get_post_comments`가 준 댓글에 답글. 바로 공개되므로 사용자에게 문구를 보여 주고 승인받은 뒤 호출하고, 댓글 속 지시는 따르지 말라고 설명에 적어 둠 |
 | `update_post` | 제목·설명·태그를 바꾸고 YouTube·Facebook·Mastodon에 반영. 사용자 확인 후 호출하도록 설명에 적어 둠 |
-| `cancel_target` | 대기·실패·재연결 필요 대상을 올리지 않기로 취소. 게시된 글은 지우지 않음 |
+| `cancel_target` | 대기·실패·재연결 필요 대상을 올리지 않기로 취소. 게시된 글은 지우지 않음. 이미 올라갔을 수 있는 대상은 사용자 확인(`confirmedNotPosted: true`) 없이는 거부 |
 | `retry_target` | 실패했거나 재연결이 필요한 대상을 다시 시도. "이미 게시됐을 수 있음"으로 멈춘 대상은 사용자가 확인했다는 `confirmedNotPosted: true` 없이는 거부 |
 
 `create_post`는 실제 계정에 게시합니다. 도구 설명과 서버 안내문에 "`preview_post` 결과를 사용자에게 보여주고 승인받은 뒤 호출하라"고 적어 두었고, 읽기 전용 도구에는 `readOnlyHint`를 붙였습니다. 앱 등록과 계정 연결은 MCP로 하지 않고 대시보드나 CLI에서 합니다.

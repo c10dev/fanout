@@ -8,7 +8,7 @@ import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
 import { fileHash, probe } from './core/media.ts';
-import { accountLabel, assessMedia, cancelTarget, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel } from './core/posting.ts';
+import { MaybeLiveError, accountLabel, assessMedia, cancelTarget, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
@@ -225,7 +225,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
                                          웹 대시보드 (작업 처리, 6시간마다 자동 정리 포함)
   fanout edit <postId> [--title T] [--description D | --description-file F] [--tags a,b]
                                          제목·설명·태그 수정 (YouTube·Facebook·Mastodon에 반영)
-  fanout cancel <postId> [platform]      아직 안 올라간(대기·예약·실패) 대상 취소
+  fanout cancel <postId> [platform] [--confirmed-not-posted]   아직 안 올라간(대기·예약·실패) 대상 취소
   fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
   fanout comments <postId> [--limit 20]  게시된 대상의 최근 댓글 (YouTube·Facebook·Instagram·Bluesky·Mastodon)
   fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]   댓글에 답글 (comments 의 [id])
@@ -540,7 +540,7 @@ async function cmdEdit(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
   return 0;
 }
 
-function cmdCancel(ctx: ProviderContext, args: Args): number {
+async function cmdCancel(ctx: ProviderContext, args: Args): Promise<number> {
   const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
   if (!post) throw new UsageError('fanout cancel <postId> [platform]');
   const only = args.positionals[2];
@@ -552,7 +552,15 @@ function cmdCancel(ctx: ProviderContext, args: Args): number {
   let failed = 0;
   for (const t of targets) {
     try {
-      cancelTarget(ctx.store, t.id);
+      try {
+        cancelTarget(ctx.store, t.id, { confirmedNotPosted: bool(args, 'confirmed-not-posted') });
+      } catch (err) {
+        // May already be live: only cancel once the user has checked the platform.
+        if (!(err instanceof MaybeLiveError) || !process.stdin.isTTY) throw err;
+        console.log(`  ! ${err.message}`);
+        if (!(await confirm(`  ${t.platform}에서 직접 확인했고 올라가지 않았나요?`))) throw new Error('취소하지 않았습니다');
+        cancelTarget(ctx.store, t.id, { confirmedNotPosted: true });
+      }
       console.log(`  ⊘ ${t.platform}/${t.account} 취소함`);
     } catch (err) {
       failed++;
@@ -804,7 +812,7 @@ export async function main(argv: string[]): Promise<number> {
       case 'remove':
         return await cmdRemove(ctx, deps, args);
       case 'cancel':
-        return cmdCancel(ctx, args);
+        return await cmdCancel(ctx, args);
       case 'edit':
         return await cmdEdit(ctx, deps, args);
       case 'comments':

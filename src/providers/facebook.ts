@@ -214,8 +214,9 @@ export const facebook: Provider = {
   },
 
   // Replying as the Page needs pages_manage_engagement, which posting alone doesn't.
-  async reply({ ctx, account, comment, text }) {
+  async reply({ ctx, account, comment, text, sending }) {
     const c = pageCreds(account);
+    sending();
     const res = await graph<{ id: string }>(ctx, 'POST', `/${comment.id}/comments`, { message: text, access_token: c.pageToken }).catch((err: unknown) => {
       throw missingScope(err, 'pages_manage_engagement');
     });

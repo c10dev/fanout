@@ -163,8 +163,10 @@ const TOOLS = [
   {
     name: 'cancel_target',
     title: 'Cancel a target that has not gone out',
-    description: 'Give up on a queued (including scheduled-for-later), failed or needs_reauth target so it never uploads. Already published posts are not affected.',
-    inputSchema: { type: 'object', required: ['targetId'], properties: { targetId: { type: 'string' } } },
+    description:
+      'Give up on a queued (including scheduled-for-later), failed or needs_reauth target so it never uploads. Already published posts are not affected. ' +
+      'If the upload got far enough that the post may already be live, this is refused: ask the user to check the platform, and only pass confirmedNotPosted: true once they confirm it is not there — a canceled target can no longer be retried or removed.',
+    inputSchema: { type: 'object', required: ['targetId'], properties: { targetId: { type: 'string' }, confirmedNotPosted: { type: 'boolean' } } },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
@@ -339,7 +341,7 @@ export class McpServer {
       }
       case 'cancel_target': {
         try {
-          return { target: publicTarget(cancelTarget(store, String(args.targetId ?? ''))) };
+          return { target: publicTarget(cancelTarget(store, String(args.targetId ?? ''), { confirmedNotPosted: args.confirmedNotPosted === true })) };
         } catch (err) {
           throw new ToolError((err as Error).message);
         }

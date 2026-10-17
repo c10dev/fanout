@@ -40,7 +40,7 @@ async function api(path, opts = {}) {
     headers: { 'x-fanout-token': token, ...(opts.body && !(opts.body instanceof Blob) ? { 'content-type': 'application/json' } : {}), ...opts.headers },
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  if (!res.ok) throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { body });
   return body;
 }
 
@@ -687,7 +687,15 @@ function targetRow(t) {
           onclick: async (e) => {
             if (!confirm(`${t.platform}/${t.account}에 올리는 것을 취소할까요?`)) return;
             e.target.disabled = true;
-            await api(`/targets/${t.id}/cancel`, { method: 'POST' }).catch((err) => alert(err.message));
+            const cancelIt = (confirmedNotPosted) => api(`/targets/${t.id}/cancel`, { method: 'POST', body: JSON.stringify({ confirmedNotPosted }) });
+            try {
+              await cancelIt(false);
+            } catch (err) {
+              // It may already be on the platform: only the user can say it isn't.
+              if (err.body?.needsConfirm && confirm(`${err.message}\n\n${t.platform}에서 직접 확인했고 올라가지 않았나요?`)) {
+                await cancelIt(true).catch((again) => alert(again.message));
+              } else if (!err.body?.needsConfirm) alert(err.message);
+            }
             refreshBoard();
           },
         },
@@ -780,9 +788,13 @@ function commentsPanel(postId) {
                         class: 'small link',
                         type: 'button',
                         onclick: (e) => {
+                          if (editingPost) {
+                            alert('수정 중인 게시물이 있습니다. 저장하거나 닫은 뒤 답글을 쓰세요');
+                            return;
+                          }
                           // One reply box at a time, like the edit form.
                           for (const other of document.querySelectorAll('#board .reply-box')) other.remove();
-                          replyingTo = `${r.targetId}:${c.id}`;
+                          replyingTo = { postId, key: `${r.targetId}:${c.id}` };
                           const box = replyBox(postId, r.targetId, c);
                           e.target.closest('.comment').append(box);
                           box.querySelector('textarea').focus();
@@ -818,14 +830,15 @@ async function loadComments(postId) {
 }
 
 function toggleComments(postId) {
-  if (editingPost) {
-    alert('수정 중인 게시물이 있습니다. 저장하거나 닫은 뒤 댓글을 여세요');
+  // The card being edited isn't re-rendered, so its panel couldn't appear or go away.
+  if (editingPost === postId) {
+    alert('이 게시물을 수정하는 중입니다. 저장하거나 닫은 뒤 댓글을 여세요');
     return;
   }
   if (openComments.has(postId)) {
     openComments.delete(postId);
-    // A reply box in the closing panel goes with it, or the board would keep waiting on it.
-    if (replyingTo) closeReplyBox();
+    // A reply box in the closing panel goes with it; one on another post stays.
+    if (replyingTo?.postId === postId) closeReplyBox();
     refreshBoard();
     return;
   }
@@ -834,7 +847,7 @@ function toggleComments(postId) {
 
 /** Post id whose edit form is open; the board doesn't re-render under it. */
 let editingPost = null;
-/** `${targetId}:${commentId}` whose reply box is open; the board waits for it too. */
+/** The open reply box: its post, and `${targetId}:${commentId}`. That card isn't re-rendered either. */
 let replyingTo = null;
 /** Replies sent from this page, marked under their comment. */
 const repliedComments = new Set();
@@ -845,10 +858,11 @@ function closeReplyBox() {
 }
 
 function replyBox(postId, targetId, comment) {
+  const key = `${targetId}:${comment.id}`;
   const status = h('div', { class: 'msg' });
   const text = h('textarea', { rows: 2, maxlength: 5000, 'aria-label': '답글 내용' });
   const close = () => {
-    replyingTo = null;
+    if (replyingTo?.key === key) replyingTo = null;
     refreshBoard();
   };
   const sendButton = h(
@@ -861,8 +875,10 @@ function replyBox(postId, targetId, comment) {
         message(status, '보내는 중…', true);
         try {
           await api(`/targets/${targetId}/reply`, { method: 'POST', body: JSON.stringify({ commentId: comment.id, text: text.value }) });
-          replyingTo = null;
-          repliedComments.add(`${targetId}:${comment.id}`);
+          repliedComments.add(key);
+          // Another reply box may have been opened while this one was sending: leave that one be.
+          if (replyingTo?.key === key) replyingTo = null;
+          else box.replaceWith(h('div', { class: 'okline' }, '✓ 답글을 달았습니다'));
           loadComments(postId);
         } catch (err) {
           message(status, err.message, false);
@@ -872,7 +888,7 @@ function replyBox(postId, targetId, comment) {
     },
     '답글 달기',
   );
-  return h(
+  const box = h(
     'div',
     { class: 'reply-box' },
     text,
@@ -880,6 +896,7 @@ function replyBox(postId, targetId, comment) {
     h('div', { class: 'row-actions' }, sendButton, h('button', { class: 'small', type: 'button', onclick: close }, '취소')),
     status,
   );
+  return box;
 }
 
 function editForm(post, card) {
@@ -960,7 +977,7 @@ function postCard({ post, targets }) {
   const commentsButton = hasPublished
     ? h('button', { class: 'small', type: 'button', onclick: () => toggleComments(post.id) }, openComments.has(post.id) ? '댓글 닫기' : '댓글')
     : null;
-  const editable = targets.some((t) => t.state !== 'failed' && t.state !== 'removed');
+  const editable = targets.some((t) => !['failed', 'removed', 'canceled'].includes(t.state));
   const editButton = editable
     ? h(
         'button',
@@ -968,9 +985,12 @@ function postCard({ post, targets }) {
           class: 'small',
           type: 'button',
           onclick: (e) => {
+            if (replyingTo) {
+              alert('쓰던 답글이 있습니다. 보내거나 취소한 뒤 수정하세요');
+              return;
+            }
             // One edit form at a time: closing one must not leave another unsaved form to be wiped.
             for (const other of document.querySelectorAll('#board .edit-form')) other.remove();
-            closeReplyBox();
             editingPost = post.id;
             const card = e.target.closest('.post');
             card.querySelector('.edit-form')?.remove();
@@ -996,12 +1016,20 @@ async function refreshBoard() {
   let active = false;
   try {
     const posts = await api('/posts?limit=30');
-    // Don't wipe an edit form or reply the user is typing in; refresh once it's closed.
-    if (editingPost || replyingTo) {
-      boardTimer = setTimeout(refreshBoard, 3000);
-      return;
+    // Don't wipe an edit form or reply the user is typing in: refresh every other card around it, or
+    // wait if the list itself changed.
+    const locked = editingPost ?? replyingTo?.postId;
+    if (locked) {
+      const cards = [...$('#board').children];
+      if (cards.map((c) => c.dataset.post).join() !== posts.map((p) => p.post.id).join()) {
+        $('#board-updated').textContent = '수정·답글을 쓰는 동안 새 게시물 표시를 잠시 미룹니다';
+        boardTimer = setTimeout(refreshBoard, 3000);
+        return;
+      }
+      posts.forEach((p, i) => p.post.id !== locked && cards[i].replaceWith(postCard(p)));
+    } else {
+      $('#board').replaceChildren(...(posts.length ? posts.map(postCard) : [h('p', { class: 'empty' }, '아직 게시물이 없습니다')]));
     }
-    $('#board').replaceChildren(...(posts.length ? posts.map(postCard) : [h('p', { class: 'empty' }, '아직 게시물이 없습니다')]));
     active = posts.some((p) => p.targets.some((t) => !t.terminal));
     $('#board-updated').textContent = `${new Date().toLocaleTimeString('ko-KR')} 갱신`;
   } catch (err) {
