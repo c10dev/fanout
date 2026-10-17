@@ -48,7 +48,10 @@ describe('removing posts', () => {
   }
 
   it('treats an already-deleted post as removed', async () => {
-    const { ctx, id } = published('mastodon', 'S1', { instance: 'https://m.example', token: 'T' }, [['DELETE', '/api/v1/statuses/S1', () => json({ error: 'Record not found' }, 404)]]);
+    const { ctx, id } = published('mastodon', 'S1', { instance: 'https://m.example', token: 'T' }, [
+      ['DELETE', '/api/v1/statuses/S1', () => json({ error: 'Record not found' }, 404)],
+      ['GET', '/api/v1/statuses/S1', () => json({ error: 'Record not found' }, 404)],
+    ]);
     assert.equal((await removeTarget(ctx, providerMap(), id)).state, 'removed');
   });
 

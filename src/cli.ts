@@ -504,14 +504,19 @@ async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   return 0;
 }
 
+/** Comments are other people's text: drop control and format characters (terminal escapes, bidi overrides). */
+export function printable(text: string): string {
+  return text.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '');
+}
+
 async function cmdComments(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
   if (!post) throw new UsageError('fanout comments <postId> [--limit 20]');
   for (const r of await fetchComments(ctx, deps.providers, post.id, num(args, 'limit') ?? 20)) {
     console.log(`\n${r.platform}/${r.account}${r.skipped ? ` — ${r.skipped}` : r.error ? ` — ✗ ${r.error}` : ` — ${r.comments!.length}개`}`);
     for (const c of r.comments ?? []) {
-      console.log(`  ${c.at.slice(0, 16).replace('T', ' ')}  ${c.author}${c.likes ? `  ♥${c.likes}` : ''}${c.replies ? `  ↳${c.replies}` : ''}`);
-      console.log(`    ${c.text.replace(/\s+/g, ' ').slice(0, 200)}`);
+      console.log(`  ${c.at.slice(0, 16).replace('T', ' ')}  ${printable(c.author)}${c.likes ? `  ♥${c.likes}` : ''}${c.replies ? `  ↳${c.replies}` : ''}`);
+      console.log(`    ${printable(c.text).slice(0, 200)}`);
     }
   }
   return 0;

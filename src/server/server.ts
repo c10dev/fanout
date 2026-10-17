@@ -109,6 +109,27 @@ interface Preset {
   description: string;
 }
 
+/**
+ * Choices the platforms require the creator to make for each post, with no default: TikTok's
+ * privacy, interaction, commercial-content and music-consent fields (Content Sharing Guidelines)
+ * and YouTube's visibility and made-for-kids answer. Presets never carry them.
+ */
+const PER_POST_OPTIONS: Record<string, string[]> = {
+  tiktok: ['privacyLevel', 'allowComment', 'allowDuet', 'allowStitch', 'brandOrganic', 'brandedContent', 'musicConsent'],
+  youtube: ['privacy', 'madeForKids'],
+};
+
+export function presetOptions(platform: string, options: unknown): Record<string, unknown> {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) return {};
+  const drop = new Set(PER_POST_OPTIONS[platform] ?? []);
+  return Object.fromEntries(Object.entries(options).filter(([k]) => !drop.has(k)));
+}
+
+/** Presets saved before per-post choices were stripped still hold them; clean on the way out too. */
+function cleanPreset(p: Preset): Preset {
+  return { ...p, targets: p.targets.map((t) => ({ ...t, options: presetOptions(t.platform, t.options) })) };
+}
+
 interface CreatePostBody {
   mediaId?: string;
   title?: string;
@@ -452,7 +473,7 @@ export class Dashboard {
    */
   async #presets(method: string, name: string | undefined, req: IncomingMessage) {
     const { store } = this.#opts.ctx;
-    const all = () => store.getApp<{ items?: Preset[] }>('presets')?.items ?? [];
+    const all = () => (store.getApp<{ items?: Preset[] }>('presets')?.items ?? []).map(cleanPreset);
     if (method === 'GET' && !name) return { presets: all() };
     if (!name || !/^.{1,40}$/u.test(name.trim())) throw new HttpError(400, '프리셋 이름은 1~40자');
     const key = name.trim();
@@ -464,7 +485,7 @@ export class Dashboard {
       const body = await readJson<Partial<Preset>>(req);
       const targets = (Array.isArray(body.targets) ? body.targets : [])
         .filter((t) => t && this.#opts.providers.has(String(t.platform)))
-        .map((t) => ({ platform: String(t.platform), account: String(t.account ?? 'main'), options: t.options && typeof t.options === 'object' ? t.options : {} }));
+        .map((t) => ({ platform: String(t.platform), account: String(t.account ?? 'main'), options: presetOptions(String(t.platform), t.options) }));
       if (!targets.length) throw new HttpError(400, '올릴 곳을 하나 이상 고른 뒤 저장하세요');
       const preset: Preset = {
         name: key,

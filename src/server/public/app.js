@@ -223,12 +223,19 @@ async function loadPresets() {
 function applyPreset(preset) {
   $('#targets').replaceChildren();
   renderTargets();
+  const missing = [];
   for (const t of preset.targets) {
     const block = document.querySelector(`.target[data-platform="${t.platform}"]`);
     const toggle = block?.querySelector('[name="enabled"]');
     if (!block || !toggle || toggle.disabled) continue;
     const select = block.querySelector('select[name="account"]');
-    if (select && [...select.options].some((o) => o.value === t.account)) select.value = t.account;
+    const accounts = select ? [...select.options].map((o) => o.value) : [block.querySelector('[data-account]')?.dataset.account];
+    // Never fall back to another account than the one saved in the preset.
+    if (!accounts.includes(t.account)) {
+      missing.push(`${t.platform}/${t.account}`);
+      continue;
+    }
+    if (select) select.value = t.account;
     toggle.checked = true;
     const body = block.querySelector('.target-body');
     body.hidden = false;
@@ -237,6 +244,7 @@ function applyPreset(preset) {
   if (preset.tags?.length) $('#tags').value = preset.tags.join(', ');
   if (preset.description) $('#description').value = preset.description;
   hideConfirm();
+  $('#form-error').textContent = missing.length ? `연결돼 있지 않아 건너뛴 계정: ${missing.join(', ')}` : '';
 }
 
 $('#preset-select').addEventListener('change', (e) => {
@@ -388,7 +396,8 @@ function wireTikTokMode(body) {
       el.hidden = el.dataset.when === 'inbox' ? direct : !direct;
     }
   };
-  body.addEventListener('change', (e) => e.target.name === 'mode' && sync());
+  // Any change, not just the radio: applyOptions fires one on the block after setting the mode.
+  body.addEventListener('change', sync);
   sync();
 }
 
@@ -738,17 +747,7 @@ const openComments = new Map();
 
 function commentsPanel(postId) {
   const results = openComments.get(postId);
-  const reload = async () => {
-    openComments.set(postId, null);
-    refreshBoard();
-    try {
-      const { results } = await api(`/posts/${postId}/comments?limit=20`);
-      openComments.set(postId, results);
-    } catch (err) {
-      openComments.set(postId, [{ platform: '', account: '', error: err.message }]);
-    }
-    refreshBoard();
-  };
+  const reload = () => loadComments(postId);
   if (results === undefined) return null;
   const body =
     results === null
@@ -785,21 +784,31 @@ function commentsPanel(postId) {
   );
 }
 
-async function toggleComments(postId) {
+async function loadComments(postId) {
+  openComments.set(postId, null);
+  refreshBoard();
+  let results;
+  try {
+    results = (await api(`/posts/${postId}/comments?limit=20`)).results;
+  } catch (err) {
+    results = [{ platform: '', account: '', error: err.message }];
+  }
+  // Closed while loading: leave it closed.
+  if (openComments.has(postId)) openComments.set(postId, results);
+  refreshBoard();
+}
+
+function toggleComments(postId) {
+  if (editingPost) {
+    alert('수정 중인 게시물이 있습니다. 저장하거나 닫은 뒤 댓글을 여세요');
+    return;
+  }
   if (openComments.has(postId)) {
     openComments.delete(postId);
     refreshBoard();
     return;
   }
-  openComments.set(postId, null);
-  refreshBoard();
-  try {
-    const { results } = await api(`/posts/${postId}/comments?limit=20`);
-    if (openComments.has(postId)) openComments.set(postId, results);
-  } catch (err) {
-    if (openComments.has(postId)) openComments.set(postId, [{ platform: '', account: '', error: err.message }]);
-  }
-  refreshBoard();
+  loadComments(postId);
 }
 
 /** Post id whose edit form is open; the board doesn't re-render under it. */
@@ -878,6 +887,8 @@ function postCard({ post, targets }) {
       )
     : null;
   const hasPublished = targets.some((t) => t.state === 'published');
+  // Nothing left to show comments for (e.g. just deleted): drop the panel along with its button.
+  if (!hasPublished) openComments.delete(post.id);
   const commentsButton = hasPublished
     ? h('button', { class: 'small', type: 'button', onclick: () => toggleComments(post.id) }, openComments.has(post.id) ? '댓글 닫기' : '댓글')
     : null;

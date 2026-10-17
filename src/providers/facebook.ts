@@ -55,6 +55,20 @@ export function reelOutcome(videoId: string, s: ReelStatus): PollOutcome {
   return { state: 'processing', remoteId: videoId, remoteUrl: url };
 }
 
+
+async function reelGone(ctx: ProviderContext, pageId: string, pageToken: string, videoId: string): Promise<boolean> {
+  const missing = (err: unknown) => err instanceof ProviderError && Boolean(err.platformCode?.startsWith('100'));
+  try {
+    await graph(ctx, 'GET', `/${videoId}`, { fields: 'id', access_token: pageToken });
+    return false;
+  } catch (err) {
+    if (!missing(err)) throw err;
+  }
+  // Rule out a token that can't see anything any more.
+  await graph(ctx, 'GET', `/${pageId}`, { fields: 'id', access_token: pageToken });
+  return true;
+}
+
 export const facebook: Provider = {
   id: 'facebook',
   displayName: 'Facebook Reels (Page)',
@@ -105,13 +119,13 @@ export const facebook: Provider = {
       const phases = st?.status;
       const published = phases?.publishing_phase?.status && phases.publishing_phase.status !== 'not_started';
       if (published || (phases?.processing_phase?.status && phases.processing_phase.status !== 'not_started')) {
-        saveResume({ videoId: resume.videoId, finished: true });
+        saveResume({ videoId: resume.videoId, finished: true, pageId: c.pageId });
         return { state: 'processing', remoteId: resume.videoId, remoteUrl: `https://www.facebook.com/reel/${resume.videoId}` };
       }
       if (phases?.uploading_phase?.status === 'complete') {
         // Bytes arrived but finish never registered: finish the same video instead of re-uploading.
         await finishReel(ctx, c.pageId, c.pageToken, resume.videoId, post, o);
-        saveResume({ videoId: resume.videoId, finished: true });
+        saveResume({ videoId: resume.videoId, finished: true, pageId: c.pageId });
         return { state: 'processing', remoteId: resume.videoId, remoteUrl: `https://www.facebook.com/reel/${resume.videoId}` };
       }
       // Otherwise the old video never got its bytes and can't publish; start a fresh one.
@@ -121,11 +135,11 @@ export const facebook: Provider = {
       upload_phase: 'start',
       access_token: c.pageToken,
     });
-    saveResume({ videoId: start.video_id, finished: false });
+    saveResume({ videoId: start.video_id, finished: false, pageId: c.pageId });
     await rupload(ctx, start.upload_url, c.pageToken, mediaPath);
 
     await finishReel(ctx, c.pageId, c.pageToken, start.video_id, post, o);
-    saveResume({ videoId: start.video_id, finished: true });
+    saveResume({ videoId: start.video_id, finished: true, pageId: c.pageId });
     return { state: 'processing', remoteId: start.video_id, remoteUrl: `https://www.facebook.com/reel/${start.video_id}` };
   },
 
@@ -169,8 +183,11 @@ export const facebook: Provider = {
     const c = pageCreds(account);
     // Graph's "does not exist" (100/33) also covers "this token can't see it" (e.g. the account was
     // reconnected to another Page), so an error is never taken as "already deleted".
-    await graph<{ success?: boolean }>(ctx, 'DELETE', `/${target.remoteId}`, { access_token: c.pageToken }).catch((err: unknown) => {
+    await graph<{ success?: boolean }>(ctx, 'DELETE', `/${target.remoteId}`, { access_token: c.pageToken }).catch(async (err: unknown) => {
       if (err instanceof ProviderError && err.platformCode?.startsWith('100')) {
+        // The same Page that posted it can always see its own reel, so if that token reads the Page
+        // but not the reel, the reel is gone (deleted elsewhere, or our DELETE's response was lost).
+        if ((target.resume as { pageId?: string } | undefined)?.pageId === c.pageId && (await reelGone(ctx, c.pageId, c.pageToken, target.remoteId))) return;
         throw new ProviderError('rejected', 'facebook.not_found', `지우지 못했습니다: 이 페이지 토큰으로는 영상을 찾을 수 없습니다. 페이지에서 직접 확인해 주세요 (${err.platformCode})`, err.platformCode);
       }
       throw err;
