@@ -55,6 +55,8 @@ export function visibilityLabel(t: TargetInput, scheduledAt?: string): string {
   switch (t.platform) {
     case 'youtube':
       return scheduledAt ? `private → ${scheduledAt}에 public` : String(o.privacy ?? '(미지정)');
+    case 'mastodon':
+      return `${String(o.visibility ?? '(공개 범위 미지정)')}${scheduledAt ? `, ${scheduledAt}에 게시` : ''}`;
     case 'tiktok':
       return o.mode === 'direct' ? `direct, ${String(o.privacyLevel ?? '(공개 범위 미지정)')}` : 'inbox (TikTok 앱에서 마무리)';
     default:
