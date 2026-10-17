@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { ProviderError } from './errors.ts';
 import { isStaleOwner } from './lease.ts';
 import { checkMedia, type MediaInfo, type Violation } from './media.ts';
@@ -114,6 +115,68 @@ export function previewPost(
       transcode: violations.filter((v) => v.fixable).map((v) => v.message),
     };
   });
+}
+
+/** States in which a target already covers its platform account on this post. */
+const COVERING_STATES: ReadonlySet<Target['state']> = new Set(['queued', 'transcoding', 'uploading', 'processing', 'published', 'handed_off']);
+
+export interface AddTargetsPlan {
+  post: Post;
+  preview: TargetPreview[];
+  /** Attachments whose files are gone; they are left off the new targets. */
+  dropped: string[];
+}
+
+/**
+ * Check adding platforms to an existing post. Throws when it can't be done at all (no such post,
+ * original already cleaned up, platform account already on the post); everything else is in the
+ * preview, like a new post's.
+ */
+export function planAddTargets(store: Store, providers: Map<string, Provider>, postId: string, targets: TargetInput[], media: MediaInfo): AddTargetsPlan {
+  const post = store.getPost(postId);
+  if (!post) throw new Error(`게시물 없음: ${postId}`);
+  if (!targets.length) throw new Error('추가할 플랫폼을 하나 이상 고르세요');
+  if (!existsSync(post.mediaPath)) {
+    throw new Error('원본 영상이 이미 정리돼 없습니다(게시가 끝난 원본은 기본 7일 뒤 지워집니다). 영상을 다시 골라 새 게시물로 올리세요');
+  }
+  const existing = store.targetsForPost(postId);
+  const seen = new Set<string>();
+  for (const t of targets) {
+    const key = `${t.platform}/${t.account}`;
+    if (seen.has(key)) throw new Error(`${key}를 두 번 골랐습니다`);
+    seen.add(key);
+    const prev = existing.find((e) => e.platform === t.platform && e.account === t.account && (COVERING_STATES.has(e.state) || (e.state === 'failed' && mayBeLive(e))));
+    if (prev) throw new Error(`${key}는 이 게시물에 이미 있습니다 (${prev.state}${prev.errorCode ? `, ${prev.errorCode}` : ''})`);
+  }
+  // Attachments live beside uploads and may have been cleaned up with them.
+  const dropped: string[] = [];
+  let input: Post = post;
+  if (post.thumbnailPath && !existsSync(post.thumbnailPath)) {
+    dropped.push('썸네일');
+    input = { ...input, thumbnailPath: undefined };
+  }
+  const captions = post.captions.filter((c) => existsSync(c.path));
+  if (captions.length < post.captions.length) {
+    dropped.push(...post.captions.filter((c) => !captions.includes(c)).map((c) => `자막(${c.language})`));
+    input = { ...input, captions };
+  }
+  const preview = previewPost(store, providers, input, targets, media).map((p) =>
+    dropped.length ? { ...p, warnings: [`파일이 없어 빼고 올립니다: ${dropped.join(', ')}`, ...p.warnings] } : p,
+  );
+  return { post: input, preview, dropped };
+}
+
+/** Add platforms to an existing post after the same checks as a new one; refuses if any target is blocked. */
+export function addTargets(store: Store, providers: Map<string, Provider>, postId: string, targets: TargetInput[], media: MediaInfo): Target[] {
+  const plan = planAddTargets(store, providers, postId, targets, media);
+  const blocked = plan.preview.filter((p) => p.errors.length);
+  if (blocked.length) throw new Error(blocked.map((p) => `${p.platform}/${p.account}: ${p.errors.join(', ')}`).join('\n'));
+  if (plan.dropped.length) store.updatePost(postId, { thumbnailPath: plan.post.thumbnailPath, captions: plan.post.captions });
+  // Like a new post: platforms without native scheduling wait for the time, if it is still ahead.
+  const at = plan.post.scheduledAt && Date.parse(plan.post.scheduledAt) > Date.now() ? plan.post.scheduledAt : undefined;
+  const native = targets.filter((t) => providers.get(t.platform)?.capabilities.nativeSchedule);
+  const waiting = targets.filter((t) => !providers.get(t.platform)?.capabilities.nativeSchedule);
+  return [...store.addTargets(postId, native), ...store.addTargets(postId, waiting, at)];
 }
 
 /**

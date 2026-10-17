@@ -3,7 +3,7 @@ import { extname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, cancelTarget, createScheduledPost, editPost, fetchComments, previewPost, refreshStats, replyToComment, retryTarget, type TargetPreview } from '../core/posting.ts';
+import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, createScheduledPost, editPost, fetchComments, planAddTargets, previewPost, refreshStats, replyToComment, retryTarget, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
 import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
@@ -108,6 +108,20 @@ const TOOLS = [
       'Queue the post and start uploading in the background; returns the post id. This publishes to real accounts — ' +
       'only call it after the user approved the preview_post result. Track progress with get_post_status.',
     inputSchema: POST_SCHEMA,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: 'add_to_post',
+    title: 'Add platforms to an existing post',
+    description:
+      'Upload an existing post\'s video (same title, description, schedule and attachments) to more platform accounts. ' +
+      'Call it first with dryRun: true and show the result to the user; this publishes to real accounts, so only call it without dryRun after they approve. ' +
+      'Refused when the original video was already cleaned up or the platform account is already on the post.',
+    inputSchema: {
+      type: 'object',
+      required: ['postId', 'targets'],
+      properties: { postId: { type: 'string', description: 'Full id or unique prefix.' }, targets: TARGETS_SCHEMA, dryRun: { type: 'boolean' } },
+    },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
   {
@@ -293,6 +307,21 @@ export class McpServer {
         this.#deps.worker?.tick();
         return { postId: post.id, targets: created.map(publicTarget), next: 'get_post_status 로 진행 상황을 확인하세요' };
       }
+      case 'add_to_post': {
+        const p = store.findPost(String(args.postId ?? ''));
+        if (!p) throw new ToolError(`게시물 없음: ${String(args.postId)}`);
+        const targets = this.#targetArgs(args.targets);
+        try {
+          if (!existsSync(p.mediaPath)) throw new Error('원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요');
+          const media = await this.#probe(p.mediaPath);
+          if (args.dryRun === true) return { postId: p.id, targets: planAddTargets(store, providers, p.id, targets, media).preview };
+          const created = addTargets(store, providers, p.id, targets, media);
+          this.#deps.worker?.tick();
+          return { postId: p.id, targets: created.map(publicTarget), next: 'get_post_status 로 진행 상황을 확인하세요' };
+        } catch (err) {
+          throw new ToolError((err as Error).message);
+        }
+      }
       case 'get_post_status': {
         const id = typeof args.postId === 'string' ? args.postId : undefined;
         const posts = id ? [store.findPost(id)].filter((p) => p !== undefined) : store.listPosts(10);
@@ -392,20 +421,24 @@ export class McpServer {
     }
   }
 
-  async #postArgs(args: Record<string, unknown>): Promise<{ input: PostInput; targets: TargetInput[]; media: MediaInfo }> {
-    const mediaPath = this.#file(args.path, 'path');
-    const title = typeof args.title === 'string' ? args.title.trim() : '';
-    if (!title) throw new ToolError('title이 필요합니다');
-    if (args.scheduledAt !== undefined && Number.isNaN(Date.parse(String(args.scheduledAt)))) throw new ToolError('scheduledAt은 ISO-8601 시각이어야 합니다');
-    if (!Array.isArray(args.targets) || !args.targets.length) throw new ToolError('targets가 하나 이상 필요합니다');
+  #targetArgs(raw: unknown): TargetInput[] {
+    if (!Array.isArray(raw) || !raw.length) throw new ToolError('targets가 하나 이상 필요합니다');
     const accounts = this.#deps.ctx.store.listAccounts();
-    const targets: TargetInput[] = (args.targets as Array<Record<string, unknown>>).map((t) => {
+    return (raw as Array<Record<string, unknown>>).map((t) => {
       const platform = String(t.platform ?? '');
       if (!this.#deps.providers.has(platform)) throw new ToolError(`알 수 없는 플랫폼: ${platform}`);
       const account = typeof t.account === 'string' && t.account ? t.account : defaultAccountName(accounts, platform);
       const options = t.options && typeof t.options === 'object' ? (t.options as Record<string, unknown>) : {};
       return { platform, account, options: platform === 'tiktok' && !options.mode ? { mode: 'inbox', ...options } : options };
     });
+  }
+
+  async #postArgs(args: Record<string, unknown>): Promise<{ input: PostInput; targets: TargetInput[]; media: MediaInfo }> {
+    const mediaPath = this.#file(args.path, 'path');
+    const title = typeof args.title === 'string' ? args.title.trim() : '';
+    if (!title) throw new ToolError('title이 필요합니다');
+    if (args.scheduledAt !== undefined && Number.isNaN(Date.parse(String(args.scheduledAt)))) throw new ToolError('scheduledAt은 ISO-8601 시각이어야 합니다');
+    const targets = this.#targetArgs(args.targets);
     const captions: CaptionFile[] = Array.isArray(args.captions)
       ? (args.captions as Array<Record<string, unknown>>).map((c, i) => ({ language: String(c.language ?? ''), path: this.#asset(c.path, `captions[${i}].path`, CAPTION_EXT, 5 * 1024 * 1024) }))
       : [];

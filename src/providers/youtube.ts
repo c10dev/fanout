@@ -469,6 +469,12 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     if (typeof o.madeForKids !== 'boolean') {
       issues.push({ severity: 'error', code: 'made_for_kids', message: 'YouTube "아동용 여부"(madeForKids yes/no)를 지정해야 합니다' });
     }
+    // publishAt in the past is refused; e.g. a platform added to a post after its scheduled time. An
+    // upload already under way set publishAt when it started, so resuming it is fine.
+    const started = Boolean((target.resume as { sessionUri?: string; videoId?: string } | undefined)?.sessionUri || (target.resume as { videoId?: string } | undefined)?.videoId);
+    if (post.scheduledAt && !started && Date.parse(post.scheduledAt) <= Date.now()) {
+      issues.push({ severity: 'error', code: 'schedule_past', message: 'YouTube 예약 시각이 이미 지났습니다. 새 게시물로 올리세요' });
+    }
     if (post.scheduledAt && o.privacy && o.privacy !== 'public') {
       issues.push({ severity: 'error', code: 'schedule_privacy', message: 'YouTube 예약 게시는 public으로 공개되는 경우만 지원합니다' });
     }

@@ -243,27 +243,45 @@ export class Store {
     const now = this.#now().toISOString();
     const post: Post = { ...input, id: randomUUID(), createdAt: now };
     const insertPost = this.#db.prepare('INSERT INTO posts (id, body, created_at) VALUES (?, ?, ?)');
-    const insertTarget = this.#db.prepare(
-      `INSERT INTO targets (id, post_id, platform, account, options, state, not_before, updated_at)
-       VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`,
-    );
-    const insertEvent = this.#db.prepare('INSERT INTO events (target_id, at, from_state, to_state) VALUES (?, ?, NULL, ?)');
-    const created: Target[] = [];
+    let created: Target[] = [];
     this.#db.exec('BEGIN IMMEDIATE');
     try {
       insertPost.run(post.id, JSON.stringify(post), now);
-      for (const t of targets) {
-        const id = randomUUID();
-        insertTarget.run(id, post.id, t.platform, t.account, JSON.stringify(t.options), notBefore ?? null, now);
-        insertEvent.run(id, now, 'queued');
-        created.push(this.getTarget(id)!);
-      }
+      created = this.#insertTargets(post.id, targets, notBefore, now);
       this.#db.exec('COMMIT');
     } catch (err) {
       this.#db.exec('ROLLBACK');
       throw err;
     }
     return { post, targets: created };
+  }
+
+  /** Queue more targets on an existing post (e.g. a platform added later). */
+  addTargets(postId: string, targets: TargetInput[], notBefore?: string): Target[] {
+    let created: Target[] = [];
+    this.#db.exec('BEGIN IMMEDIATE');
+    try {
+      created = this.#insertTargets(postId, targets, notBefore, this.#now().toISOString());
+      this.#db.exec('COMMIT');
+    } catch (err) {
+      this.#db.exec('ROLLBACK');
+      throw err;
+    }
+    return created;
+  }
+
+  #insertTargets(postId: string, targets: TargetInput[], notBefore: string | undefined, now: string): Target[] {
+    const insertTarget = this.#db.prepare(
+      `INSERT INTO targets (id, post_id, platform, account, options, state, not_before, updated_at)
+       VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`,
+    );
+    const insertEvent = this.#db.prepare('INSERT INTO events (target_id, at, from_state, to_state) VALUES (?, ?, NULL, ?)');
+    return targets.map((t) => {
+      const id = randomUUID();
+      insertTarget.run(id, postId, t.platform, t.account, JSON.stringify(t.options), notBefore ?? null, now);
+      insertEvent.run(id, now, 'queued');
+      return this.getTarget(id)!;
+    });
   }
 
   /** Posts of the same video (by content hash), newest first. */
@@ -274,7 +292,7 @@ export class Store {
     return rows.map((r) => JSON.parse(r.body) as Post);
   }
 
-  updatePost(id: string, patch: Partial<Pick<Post, 'title' | 'description' | 'tags'>>): Post {
+  updatePost(id: string, patch: Partial<Pick<Post, 'title' | 'description' | 'tags' | 'thumbnailPath' | 'captions'>>): Post {
     const current = this.getPost(id);
     if (!current) throw new Error(`no post ${id}`);
     const next = { ...current, ...patch };
