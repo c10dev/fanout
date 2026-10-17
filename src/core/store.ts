@@ -116,12 +116,55 @@ export class Store {
     this.#db = new DatabaseSync(path);
     this.#db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     this.#db.exec(SCHEMA);
+    this.#migrate();
     this.#box = box;
     this.#now = now;
   }
 
   close(): void {
     this.#db.close();
+  }
+
+  /** Add columns introduced after a database was created. */
+  #migrate(): void {
+    const cols = new Set((this.#db.prepare('PRAGMA table_info(targets)').all() as Array<{ name: string }>).map((c) => c.name));
+    if (!cols.has('lease_owner')) this.#db.exec('ALTER TABLE targets ADD COLUMN lease_owner TEXT');
+    if (!cols.has('lease_until')) this.#db.exec('ALTER TABLE targets ADD COLUMN lease_until TEXT');
+  }
+
+  // ── Leases: one process works on a target at a time ──────────────
+
+  /**
+   * Atomically take the target for `owner` until now + ttl. Succeeds when the target is free, the
+   * lease expired, `owner` already holds it, or `isStale(currentOwner)` says the holder is gone.
+   */
+  claim(id: string, owner: string, ttlMs: number, isStale: (holder: string) => boolean = () => false): boolean {
+    const now = this.#now();
+    const until = new Date(now.getTime() + ttlMs).toISOString();
+    const take = this.#db.prepare(
+      `UPDATE targets SET lease_owner = ?, lease_until = ?
+       WHERE id = ? AND (lease_owner IS NULL OR lease_until IS NULL OR lease_until < ? OR lease_owner = ?)`,
+    );
+    if (take.run(owner, until, id, now.toISOString(), owner).changes > 0) return true;
+    const holder = this.leaseHolder(id);
+    if (!holder || !isStale(holder)) return false;
+    // Steal only if the stale holder still has it (another process may have stolen it first).
+    return (
+      this.#db.prepare('UPDATE targets SET lease_owner = ?, lease_until = ? WHERE id = ? AND lease_owner = ?').run(owner, until, id, holder).changes > 0
+    );
+  }
+
+  release(id: string, owner: string): void {
+    this.#db.prepare('UPDATE targets SET lease_owner = NULL, lease_until = NULL WHERE id = ? AND lease_owner = ?').run(id, owner);
+  }
+
+  /** Current unexpired lease holder, if any. */
+  leaseHolder(id: string): string | undefined {
+    const row = this.#db.prepare('SELECT lease_owner, lease_until FROM targets WHERE id = ?').get(id) as
+      | { lease_owner: string | null; lease_until: string | null }
+      | undefined;
+    if (!row?.lease_owner || !row.lease_until || row.lease_until < this.#now().toISOString()) return undefined;
+    return row.lease_owner;
   }
 
   // ── BYO platform apps ────────────────────────────────────────────

@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { hostname } from 'node:os';
 import { join } from 'node:path';
 import { ProviderError } from './errors.ts';
 import { sleep } from './http.ts';
@@ -7,6 +9,27 @@ import { isTerminal } from './state.ts';
 import type { Target } from './types.ts';
 
 export const MAX_ATTEMPTS = 4;
+/** Long enough for a large upload; a crashed holder on this machine is detected sooner (see isStaleOwner). */
+const LEASE_MS = 2 * 3600_000;
+
+/** Identifies this process in target leases: host, pid and a random suffix. */
+export const PROCESS_OWNER = `${hostname()}:${process.pid}:${randomUUID().slice(0, 8)}`;
+
+/** A lease held by a process on this machine that no longer exists can be taken over at once. */
+export function isStaleOwner(holder: string): boolean {
+  const [host, pidText] = holder.split(':');
+  const pid = Number(pidText);
+  if (host !== hostname() || !Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'ESRCH';
+  }
+}
+
+/** Targets this process is stepping right now (leases are per process, so guard within it too). */
+const inFlight = new Set<string>();
 
 export interface RunnerDeps {
   ctx: ProviderContext;
@@ -14,6 +37,8 @@ export interface RunnerDeps {
   /** Injectable for tests. */
   probe?: (path: string) => Promise<MediaInfo>;
   ensureVariant?: typeof ensureVariant;
+  /** Lease owner id; defaults to this process. */
+  owner?: string;
 }
 
 function backoffMs(attempts: number): number {
@@ -25,11 +50,26 @@ function backoffMs(attempts: number): number {
  * target record (state, platform error code, attempts) instead of disappearing into a log.
  */
 export async function step(deps: RunnerDeps, targetId: string): Promise<Target> {
-  const { ctx, providers } = deps;
-  const { store } = ctx;
-  let target = store.getTarget(targetId);
+  const { store } = deps.ctx;
+  const owner = deps.owner ?? PROCESS_OWNER;
+  const target = store.getTarget(targetId);
   if (!target) throw new Error(`no target ${targetId}`);
   if (isTerminal(target.state)) return target;
+  // Another process (dashboard, CLI, watch, MCP) or another loop here may be on it: leave it alone.
+  if (inFlight.has(targetId) || !store.claim(targetId, owner, LEASE_MS, isStaleOwner)) return target;
+  inFlight.add(targetId);
+  try {
+    return await stepClaimed(deps, targetId);
+  } finally {
+    inFlight.delete(targetId);
+    store.release(targetId, owner);
+  }
+}
+
+async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> {
+  const { ctx, providers } = deps;
+  const { store } = ctx;
+  let target = store.getTarget(targetId)!;
 
   const post = store.getPost(target.postId)!;
   const provider = providers.get(target.platform);
@@ -167,6 +207,9 @@ export async function settle(deps: RunnerDeps, targetIds: string[], opts: Settle
         while (Date.now() < deadline) {
           const current = store.getTarget(id)!;
           if (isTerminal(current.state)) break;
+          // Someone else is working on it; this loop would only spin.
+          const holder = store.leaseHolder(id);
+          if ((holder && holder !== (deps.owner ?? PROCESS_OWNER) && !isStaleOwner(holder)) || inFlight.has(id)) break;
           if (current.state === 'queued' && current.notBefore && new Date(current.notBefore) > deps.ctx.now()) {
             await sleep(Math.min(opts.pollIntervalMs, new Date(current.notBefore).getTime() - Date.now()));
             continue;
