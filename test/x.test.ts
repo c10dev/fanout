@@ -71,7 +71,7 @@ describe('x upload', () => {
     assert.deepEqual(JSON.parse(String(calls[0]!.body)), { media_type: 'video/mp4', total_bytes: size, media_category: 'tweet_video' });
     const appends = calls.filter((c) => c.url.endsWith('/append')).map((c) => [(c.body as FormData).get('segment_index'), ((c.body as FormData).get('media') as Blob).size]);
     assert.deepEqual(appends, [['0', SEGMENT], ['1', SEGMENT], ['2', 100]]);
-    assert.deepEqual(saved.at(-1), { mediaId: 'M1', segment: 3, finalized: true });
+    assert.deepEqual(saved.at(-1), { mediaId: 'M1', segment: 3, finalized: true, expiresAt: NOW.getTime() + 86_400_000 });
   });
 
   it('resumes appending from the saved segment', async () => {

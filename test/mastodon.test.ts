@@ -17,11 +17,12 @@ describe('mastodon basics', () => {
     assert.throws(() => normalizeInstance('http://evil.example'), /https/);
   });
 
-  it('requires an explicit visibility and a schedule at least 5 minutes out', () => {
+  it('requires an explicit visibility and only warns about near schedules', () => {
     const codes = (o: Record<string, unknown>, p = post()) => mastodon.validate(p, target(o), fakeMedia()).map((i) => i.code);
     assert.ok(codes({}).includes('visibility'));
     assert.ok(!codes({ visibility: 'unlisted' }).includes('visibility'));
-    assert.ok(codes({ visibility: 'public' }, post({ scheduledAt: new Date(Date.now() + 60_000).toISOString() })).includes('schedule'));
+    const near = mastodon.validate(post({ scheduledAt: new Date(Date.now() + 60_000).toISOString() }), target({ visibility: 'public' }), fakeMedia());
+    assert.ok(near.some((i) => i.code === 'schedule' && i.severity === 'warning'), 'a near schedule posts now instead of failing');
   });
 
   it('builds status text and drops a long description first', () => {
