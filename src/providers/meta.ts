@@ -42,7 +42,7 @@ export const META_SETUP_GUIDE = `Instagram · Facebook — 내 Meta 앱 만들�
 5. Graph API 탐색기(https://developers.facebook.com/tools/explorer/)에서 내 앱을 고르고
    권한 pages_show_list, pages_read_engagement, pages_manage_posts,
    instagram_basic, instagram_content_publish, business_management 를 선택해 "Generate Access Token"
-   (댓글 모아보기를 쓰려면 instagram_manage_comments 도 선택)
+   (댓글 모아보기·Instagram 답글: instagram_manage_comments, Facebook 답글: pages_manage_engagement 도 선택)
 6. 그 토큰으로 연결 (장기 토큰으로 바꾼 뒤, 만료되지 않는 페이지 토큰을 저장합니다):
      fanout connect instagram --name main [--page <페이지 ID>]
      fanout connect facebook  --name main [--page <페이지 ID>]
@@ -177,6 +177,19 @@ export async function connectPage(
         ? { username: page.instagram_business_account?.username, igUserId: page.instagram_business_account?.id, pageName: page.name }
         : { pageName: page.name, pageId: page.id },
   };
+}
+
+/** A permission error on a write the original connection guide didn't grant: say which scope to add. */
+export function missingScope(err: unknown, scope: string): unknown {
+  if (!(err instanceof ProviderError) || err.kind !== 'auth' || !err.platformCode) return err;
+  const code = Number.parseInt(err.platformCode, 10);
+  if (code !== 10 && !(code >= 200 && code < 300)) return err;
+  return new ProviderError(
+    'auth',
+    err.code,
+    `권한이 없습니다: ${scope} 권한을 더해 Graph API 탐색기에서 토큰을 다시 만들고 다시 연결하세요 (${err.message})`,
+    err.platformCode,
+  );
 }
 
 export function pageCreds(account: Account): MetaPageCredentials {

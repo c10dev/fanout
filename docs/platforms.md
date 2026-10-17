@@ -41,6 +41,21 @@
 | Mastodon | `/statuses/:id/context`의 직접 답글 | 이미 받은 토큰 |
 | X, TikTok | 아직 지원하지 않음(X는 검색 요금, TikTok은 공개 댓글 API 없음) | |
 
+### 답글
+
+같은 다섯 플랫폼에서는 댓글에 답글도 달 수 있습니다: 대시보드 댓글 패널의 "답글", `fanout reply <postId> <platform> <commentId> <내용>`(댓글 ID는 `fanout comments`가 `[…]`로 보여 줌), MCP `reply_to_comment`.
+
+- 그 게시물의 최근 댓글(최대 100개) 중에 있는 댓글에만 답글을 답니다. 다른 글의 댓글 ID를 넣어도 거부합니다.
+- 한 번만 보내고 자동으로 다시 시도하지 않습니다. 응답을 못 받으면 "이미 달렸을 수 있음"으로 알리니 댓글을 다시 불러와 확인하세요. Mastodon은 `Idempotency-Key`를 붙여 같은 답글을 다시 보내도 한 번만 달립니다.
+
+| 플랫폼 | 방법 | 필요한 권한 |
+|---|---|---|
+| YouTube | `comments.insert` (`parentId`) | 이미 받은 `youtube.force-ssl` |
+| Facebook | `POST /{comment-id}/comments` (페이지 이름으로) | 토큰에 `pages_manage_engagement` 추가 필요 |
+| Instagram | `POST /{comment-id}/replies` | `instagram_manage_comments` |
+| Bluesky | 답글 레코드(`reply.root`는 내 게시물, `reply.parent`는 그 댓글), 300자 | 앱 비밀번호 |
+| Mastodon | `in_reply_to_id`. 댓글 쓴 사람을 멘션하고, 댓글이나 원래 글보다 넓은 공개 범위로는 달지 않음 | 이미 받은 토큰 |
+
 ## 게시 후 수정
 
 `fanout edit <postId> --title … --description … --tags …`, 대시보드 "수정", MCP `update_post`로 고칩니다.

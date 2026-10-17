@@ -2,7 +2,7 @@ import { ProviderError } from '../core/errors.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue } from '../core/types.ts';
-import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, pageCreds, rupload } from './meta.ts';
+import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, missingScope, pageCreds, rupload } from './meta.ts';
 
 export interface InstagramOptions {
   caption?: string;
@@ -179,5 +179,13 @@ export const instagram: Provider = {
       { fields: 'id,text,username,timestamp,like_count', limit: Math.min(limit, 50), access_token: c.pageToken },
     );
     return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '(알 수 없음)', text: m.text ?? '', at: m.timestamp, likes: m.like_count }));
+  },
+
+  async reply({ ctx, account, comment, text }) {
+    const c = pageCreds(account);
+    const res = await graph<{ id: string }>(ctx, 'POST', `/${comment.id}/replies`, { message: text, access_token: c.pageToken }).catch((err: unknown) => {
+      throw missingScope(err, 'instagram_manage_comments');
+    });
+    return { id: res.id };
   },
 };

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { openAsBlob, statSync } from 'node:fs';
 import { basename } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -68,6 +69,9 @@ function assertPublisher(account: Account, target: { resume?: Record<string, unk
     throw new ProviderError('rejected', 'mastodon.not_owner', `이 글은 지금 연결된 계정(${who})이 올린 글이 아닙니다`);
   }
 }
+
+type Visibility = 'public' | 'unlisted' | 'private' | 'direct';
+const VISIBILITY_ORDER: Visibility[] = ['public', 'unlisted', 'private', 'direct'];
 
 // A scheduled post's id is a ScheduledStatus id; the status it becomes gets a new id we never learn.
 const SCHEDULED_NOTE = '예약해 둔 글은 게시된 뒤의 글 번호를 알 수 없어 반응·댓글을 가져올 수 없습니다';
@@ -393,5 +397,26 @@ export const mastodon: Provider = {
       }))
       .sort((a, b) => b.at.localeCompare(a.at))
       .slice(0, limit);
+  },
+
+  async reply({ ctx, account, target, comment, text }) {
+    assertPublisher(account, target);
+    if (isScheduled(target)) throw new ProviderError('rejected', 'mastodon.scheduled', SCHEDULED_NOTE);
+    const c = creds(account);
+    type Status = { id: string; visibility: Visibility; account: { id: string; acct: string } };
+    const { body: parent } = await api<Status>(ctx, c, `/api/v1/statuses/${comment.id}`);
+    // Mastodon notifies people it mentions, not people it replies to: mention them as the web UI does.
+    const mention = parent.account.id === account.profile.accountId ? '' : `@${parent.account.acct}`;
+    const status = !mention || text.includes(mention) ? text : `${mention} ${text}`;
+    // Never more public than the comment or the post itself, like the web UI.
+    const own = (target.options as Partial<MastodonOptions>).visibility ?? 'public';
+    const visibility = VISIBILITY_ORDER[Math.max(VISIBILITY_ORDER.indexOf(parent.visibility), VISIBILITY_ORDER.indexOf(own))] ?? 'unlisted';
+    const key = createHash('sha256').update(`${target.id}\n${comment.id}\n${status}`).digest('hex').slice(0, 32);
+    const { body } = await api<{ id: string; url?: string }>(ctx, c, '/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': `fanout-reply-${key}` },
+      body: JSON.stringify({ status, in_reply_to_id: parent.id, visibility }),
+    });
+    return { id: body.id, url: body.url };
   },
 };

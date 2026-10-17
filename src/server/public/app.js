@@ -772,6 +772,25 @@ function commentsPanel(postId) {
                   c.url ? h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer', class: 'comment-link' }, '열기') : null,
                 ),
                 h('div', { class: 'comment-text' }, c.text),
+                repliedComments.has(`${r.targetId}:${c.id}`) ? h('div', { class: 'okline' }, '✓ 답글을 달았습니다') : null,
+                r.canReply
+                  ? h(
+                      'button',
+                      {
+                        class: 'small link',
+                        type: 'button',
+                        onclick: (e) => {
+                          // One reply box at a time, like the edit form.
+                          for (const other of document.querySelectorAll('#board .reply-box')) other.remove();
+                          replyingTo = `${r.targetId}:${c.id}`;
+                          const box = replyBox(postId, r.targetId, c);
+                          e.target.closest('.comment').append(box);
+                          box.querySelector('textarea').focus();
+                        },
+                      },
+                      '답글',
+                    )
+                  : null,
               ),
             ),
           ),
@@ -813,6 +832,48 @@ function toggleComments(postId) {
 
 /** Post id whose edit form is open; the board doesn't re-render under it. */
 let editingPost = null;
+/** `${targetId}:${commentId}` whose reply box is open; the board waits for it too. */
+let replyingTo = null;
+/** Replies sent from this page, marked under their comment. */
+const repliedComments = new Set();
+
+function replyBox(postId, targetId, comment) {
+  const status = h('div', { class: 'msg' });
+  const text = h('textarea', { rows: 2, maxlength: 5000, 'aria-label': '답글 내용' });
+  const close = () => {
+    replyingTo = null;
+    refreshBoard();
+  };
+  const sendButton = h(
+    'button',
+    {
+      class: 'small primary',
+      type: 'button',
+      onclick: async () => {
+        sendButton.disabled = true;
+        message(status, '보내는 중…', true);
+        try {
+          await api(`/targets/${targetId}/reply`, { method: 'POST', body: JSON.stringify({ commentId: comment.id, text: text.value }) });
+          replyingTo = null;
+          repliedComments.add(`${targetId}:${comment.id}`);
+          loadComments(postId);
+        } catch (err) {
+          message(status, err.message, false);
+          sendButton.disabled = false;
+        }
+      },
+    },
+    '답글 달기',
+  );
+  return h(
+    'div',
+    { class: 'reply-box' },
+    text,
+    h('p', { class: 'note' }, '연결된 계정 이름으로 바로 공개됩니다.'),
+    h('div', { class: 'row-actions' }, sendButton, h('button', { class: 'small', type: 'button', onclick: close }, '취소')),
+    status,
+  );
+}
 
 function editForm(post, card) {
   const status = h('div', { class: 'msg' });
@@ -927,8 +988,8 @@ async function refreshBoard() {
   let active = false;
   try {
     const posts = await api('/posts?limit=30');
-    // Don't wipe an edit form the user is typing in; refresh once it's closed.
-    if (editingPost) {
+    // Don't wipe an edit form or reply the user is typing in; refresh once it's closed.
+    if (editingPost || replyingTo) {
       boardTimer = setTimeout(refreshBoard, 3000);
       return;
     }

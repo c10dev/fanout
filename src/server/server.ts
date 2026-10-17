@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, cancelTarget, createScheduledPost, editPost, fetchComments, previewPost, refreshStats, removeTarget, retryTarget } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, cancelTarget, createScheduledPost, editPost, fetchComments, previewPost, refreshStats, removeTarget, replyToComment, retryTarget } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import { DEFAULT_EVENTS, detectFormat, notifyConfig, send as sendWebhook, validWebhookUrl, type NotifyConfig } from '../core/notify.ts';
@@ -267,6 +267,16 @@ export class Dashboard {
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'remove') {
       try {
         return send(res, 200, this.#publicTarget(await removeTarget(this.#opts.ctx, this.#opts.providers, parts[1])));
+      } catch (err) {
+        if (err instanceof ProviderError) throw err;
+        throw new HttpError(409, err instanceof Error ? err.message : String(err));
+      }
+    }
+    if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'reply') {
+      const body = await readJson<{ commentId?: unknown; text?: unknown }>(req);
+      if (typeof body.commentId !== 'string' || typeof body.text !== 'string') throw new HttpError(400, 'commentId와 text가 필요합니다');
+      try {
+        return send(res, 200, await replyToComment(this.#opts.ctx, this.#opts.providers, parts[1], body.commentId, body.text));
       } catch (err) {
         if (err instanceof ProviderError) throw err;
         throw new HttpError(409, err instanceof Error ? err.message : String(err));

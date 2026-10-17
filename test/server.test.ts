@@ -223,6 +223,14 @@ describe('dashboard server', () => {
     assert.ok(Array.isArray(body.results), 'comments endpoint, not the post detail');
   });
 
+  it('validates replies and reports refusals as conflicts', async () => {
+    const reply = (id: string, body: unknown) => fetch(`${base}/api/targets/${id}/reply`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal((await reply('nope', { text: 'hi' })).status, 400);
+    const res = await reply('nope', { commentId: 'c', text: 'hi' });
+    assert.equal(res.status, 409);
+    assert.match(((await res.json()) as { error: string }).error, /대상 없음/);
+  });
+
   it('saves, lists and deletes presets', async () => {
     const put = (name: string, body: unknown) => fetch(`${base}/api/presets/${encodeURIComponent(name)}`, { method: 'PUT', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await put('빈 것', { targets: [] })).status, 400);

@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { ProviderError } from './errors.ts';
 import { checkMedia, type MediaInfo, type Violation } from './media.ts';
 import { isTerminal } from './state.ts';
 import type { Provider, ProviderContext } from './provider.ts';
@@ -304,6 +305,8 @@ export interface CommentsResult {
   platform: string;
   account: string;
   comments?: Comment[];
+  /** The platform lets fanout reply to these comments. */
+  canReply?: boolean;
   skipped?: string;
   error?: string;
 }
@@ -327,12 +330,54 @@ export async function fetchComments(baseCtx: ProviderContext, providers: Map<str
       let account = ctx.store.getAccount(t.platform, t.account);
       if (!account) throw new Error('연결된 계정이 없습니다');
       account = await provider.refresh(ctx, account);
-      out.push({ ...base, comments: await provider.comments({ ctx, account, target: { ...t, remoteId: t.remoteId }, limit }) });
+      out.push({ ...base, comments: await provider.comments({ ctx, account, target: { ...t, remoteId: t.remoteId }, limit }), canReply: Boolean(provider.reply) });
     } catch (err) {
       out.push({ ...base, error: err instanceof Error ? err.message : String(err) });
     }
   }
   return out;
+}
+
+export const REPLY_MAX_CHARS = 5000;
+/** How far back a reply's comment is looked up; older comments can be answered on the platform itself. */
+const REPLY_LOOKBACK = 100;
+
+/**
+ * Reply to a top-level comment on a published target, as the connected account. The comment must
+ * be among the post's recent comments, so a stray or injected id can't make fanout answer some
+ * other thread. Exactly one attempt: a reply whose response was lost may already be up.
+ */
+export async function replyToComment(
+  baseCtx: ProviderContext,
+  providers: Map<string, Provider>,
+  targetId: string,
+  commentId: string,
+  text: string,
+): Promise<{ id: string; url?: string }> {
+  const ctx = withTimeout(baseCtx);
+  const t = ctx.store.getTarget(targetId);
+  if (!t) throw new Error(`대상 없음: ${targetId}`);
+  if (t.state !== 'published' || !t.remoteId) throw new Error('게시된 대상의 댓글에만 답글을 달 수 있습니다');
+  const provider = providers.get(t.platform);
+  if (!provider?.reply || !provider.comments) throw new Error(`${provider?.displayName ?? t.platform}에는 아직 답글을 달 수 없습니다`);
+  const body = text.trim();
+  if (!body) throw new Error('답글 내용을 입력하세요');
+  if (body.length > REPLY_MAX_CHARS) throw new Error(`답글은 ${REPLY_MAX_CHARS}자 이하로 써 주세요`);
+  let account = ctx.store.getAccount(t.platform, t.account);
+  if (!account) throw new Error(`연결된 계정이 없습니다: ${t.platform}/${t.account}`);
+  account = await provider.refresh(ctx, account);
+  const target = { ...t, remoteId: t.remoteId };
+  const comment = (await provider.comments({ ctx, account, target, limit: REPLY_LOOKBACK })).find((c) => c.id === commentId);
+  if (!comment) throw new Error('이 게시물의 최근 댓글 중에 그 댓글이 없습니다. 댓글을 다시 불러온 뒤 시도하세요');
+  try {
+    const out = await provider.reply({ ctx, account, target, comment, text: body });
+    ctx.log.info(`${t.platform}/${t.account}: 댓글 ${commentId}에 답글 ${out.id}`);
+    return out;
+  } catch (err) {
+    // A refusal is final and nothing was posted; anything else (timeout, 5xx) may have gone through.
+    if (err instanceof ProviderError && (err.kind === 'rejected' || err.kind === 'auth')) throw err;
+    throw new Error(`답글 응답을 받지 못했습니다(${err instanceof Error ? err.message : String(err)}). 이미 달렸을 수 있으니 댓글을 다시 불러와 확인한 뒤 필요하면 다시 쓰세요`);
+  }
 }
 
 /**

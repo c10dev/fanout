@@ -2,7 +2,7 @@ import { ProviderError } from '../core/errors.ts';
 import type { DoctorCheck, PollOutcome, Provider, PublishOutcome } from '../core/provider.ts';
 import type { ProviderContext } from '../core/provider.ts';
 import type { Issue, Post } from '../core/types.ts';
-import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, pageCreds, rupload } from './meta.ts';
+import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, missingScope, pageCreds, rupload } from './meta.ts';
 
 export interface FacebookOptions {
   caption?: string;
@@ -211,5 +211,14 @@ export const facebook: Provider = {
       { fields: 'from{name},message,created_time,like_count,comment_count', order: 'reverse_chronological', limit: Math.min(limit, 100), access_token: c.pageToken },
     );
     return (res.data ?? []).map((m) => ({ id: m.id, author: m.from?.name ?? '(이름 없음)', text: m.message ?? '', at: m.created_time, likes: m.like_count, replies: m.comment_count }));
+  },
+
+  // Replying as the Page needs pages_manage_engagement, which posting alone doesn't.
+  async reply({ ctx, account, comment, text }) {
+    const c = pageCreds(account);
+    const res = await graph<{ id: string }>(ctx, 'POST', `/${comment.id}/comments`, { message: text, access_token: c.pageToken }).catch((err: unknown) => {
+      throw missingScope(err, 'pages_manage_engagement');
+    });
+    return { id: res.id };
   },
 };
