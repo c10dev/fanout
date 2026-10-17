@@ -272,7 +272,7 @@ export class Dashboard {
     if (method === 'POST' && parts[0] === 'media' && parts.length === 1) return send(res, 201, await this.#upload(req));
     if (method === 'POST' && parts[0] === 'assets' && (parts[1] === 'thumbnail' || parts[1] === 'caption')) return send(res, 201, await this.#uploadAsset(req, parts[1]));
     if (method === 'GET' && parts[0] === 'posts' && parts.length === 1) {
-      return send(res, 200, this.#listPosts(Number(url.searchParams.get('limit') ?? 20), url.searchParams.get('q') ?? undefined));
+      return send(res, 200, this.#listPosts(Number(url.searchParams.get('limit') ?? 20), url.searchParams.get('q') ?? undefined, url.searchParams.get('scheduled') === '1'));
     }
     if (method === 'POST' && parts[0] === 'posts' && parts.length === 1) return send(res, 201, await this.#createPost(req));
     if (method === 'POST' && parts[0] === 'preview' && parts.length === 1) return send(res, 200, await this.#preview(req));
@@ -746,9 +746,12 @@ export class Dashboard {
     return { post: this.#publicPost(created.post), targets: created.targets.map((t) => this.#publicTarget(t)) };
   }
 
-  #listPosts(limit: number, query?: string) {
+  #listPosts(limit: number, query?: string, scheduled = false) {
     const { store } = this.#opts.ctx;
-    return store.listPosts(Math.min(Math.max(Math.floor(limit) || 20, 1), 300), query?.slice(0, 100)).map((p) => ({
+    const n = Math.min(Math.max(Math.floor(limit) || 20, 1), 300);
+    // Upcoming only: what is still to go out, soonest first.
+    const posts = scheduled ? store.listScheduled(this.#opts.ctx.now().toISOString(), n) : store.listPosts(n, query?.slice(0, 100));
+    return posts.map((p) => ({
       post: this.#publicPost(p),
       targets: store.targetsForPost(p.id).map((t) => this.#publicTarget(t)),
     }));

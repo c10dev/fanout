@@ -117,3 +117,16 @@ describe('post search', () => {
     assert.equal(store.listPosts(10, '').length, 3);
   });
 });
+
+describe('upcoming scheduled posts', () => {
+  it('lists posts scheduled from now on, soonest first', async () => {
+    const { makeCtx } = await import('./helpers.ts');
+    const { store } = makeCtx();
+    const base = { mediaPath: '/v.mp4', description: '', tags: [], captions: [], containsSyntheticMedia: false };
+    store.createPost({ ...base, title: 'later', scheduledAt: '2026-10-20T10:00:00.000Z' }, []);
+    store.createPost({ ...base, title: 'past', scheduledAt: '2026-10-01T10:00:00.000Z' }, []);
+    store.createPost({ ...base, title: 'now' }, []);
+    store.createPost({ ...base, title: 'sooner', scheduledAt: '2026-10-18T10:00:00.000Z' }, []);
+    assert.deepEqual(store.listScheduled('2026-10-17T00:00:00.000Z').map((p) => p.title), ['sooner', 'later']);
+  });
+});

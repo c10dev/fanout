@@ -244,6 +244,13 @@ describe('dashboard server', () => {
     env.store.removeAccount('beta', 'main');
   });
 
+  it('lists only upcoming scheduled posts with scheduled=1', async () => {
+    const res = await fetch(`${base}/api/posts?scheduled=1&limit=10`, { headers: auth });
+    assert.equal(res.status, 200);
+    const posts = (await res.json()) as Array<{ post: { scheduledAt?: string } }>;
+    assert.ok(posts.every((p) => p.post.scheduledAt && Date.parse(p.post.scheduledAt) >= Date.now() - 60_000));
+  });
+
   it('validates replies and reports refusals as conflicts', async () => {
     const reply = (id: string, body: unknown) => fetch(`${base}/api/targets/${id}/reply`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await reply('nope', { text: 'hi' })).status, 400);
