@@ -2,7 +2,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { jsonOrThrow, openBrowser, pkcePair, readChunk, sleep, startLoopback } from '../core/http.ts';
+import { imageMime, jsonOrThrow, openBrowser, pkcePair, readChunk, sleep, startLoopback } from '../core/http.ts';
 import { makeTestClip, probe, type MediaInfo, type MediaSpec } from '../core/media.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
@@ -256,11 +256,6 @@ async function uploadBytes(
   throw new ProviderError('retryable', 'youtube.incomplete', '업로드가 완료되지 않았습니다. 세션에서 다시 이어 올립니다.');
 }
 
-function mimeFor(path: string): string {
-  const ext = extname(path).toLowerCase();
-  return ext === '.png' ? 'image/png' : 'image/jpeg';
-}
-
 /**
  * Thumbnail, captions and playlist, each attempted at most once per video: `done` lists what earlier
  * attempts already sent (captions and playlist items would duplicate if re-sent), and a failure here
@@ -299,7 +294,7 @@ async function applyExtras(
       () =>
         ctx.fetch(`${UPLOAD_API}/thumbnails/set?videoId=${videoId}&uploadType=media`, {
           method: 'POST',
-          headers: { authorization: `Bearer ${token}`, 'content-type': mimeFor(path) },
+          headers: { authorization: `Bearer ${token}`, 'content-type': imageMime(path) },
           body: readFileSync(path),
         }),
       (status) => (status === 403 ? ' — 맞춤 썸네일은 전화번호 인증된 채널만 가능합니다' : ''),

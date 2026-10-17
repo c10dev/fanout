@@ -60,7 +60,8 @@ describe('mastodon upload', () => {
     const form = calls.find((c) => c.url.endsWith('/api/v2/media'))!.body as FormData;
     assert.equal((form.get('file') as Blob).size, 1000);
     assert.equal(form.get('description'), '설명 텍스트');
-    assert.ok(form.get('thumbnail'));
+    // Mastodon checks the part's MIME type; an untyped blob is refused as a thumbnail.
+    assert.match((form.get('thumbnail') as Blob).type, /^image\//);
     assert.deepEqual(saved[0], { mediaId: 'm1' });
   });
 

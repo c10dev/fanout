@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { extname } from 'node:path';
 import { ProviderError, kindForStatus } from './errors.ts';
 
 /** Read a JSON body; turn non-2xx into ProviderError using `describe` to extract platform codes. */
@@ -98,4 +99,10 @@ export async function readChunk(path: string, offset: number, length: number): P
 
 export function sleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** MIME type for a thumbnail image by extension; platforms check the part's type, not the file name. */
+export function imageMime(path: string): string {
+  const ext = extname(path).toLowerCase();
+  return ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
 }

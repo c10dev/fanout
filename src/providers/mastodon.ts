@@ -3,6 +3,7 @@ import { openAsBlob, statSync } from 'node:fs';
 import { basename } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
+import { imageMime } from '../core/http.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
@@ -218,7 +219,7 @@ export const mastodon: Provider = {
     const form = new FormData();
     form.set('file', await openAsBlob(mediaPath, { type: 'video/mp4' }), basename(mediaPath));
     if (o.alt) form.set('description', o.alt);
-    if (post.thumbnailPath) form.set('thumbnail', await openAsBlob(post.thumbnailPath), basename(post.thumbnailPath));
+    if (post.thumbnailPath) form.set('thumbnail', await openAsBlob(post.thumbnailPath, { type: imageMime(post.thumbnailPath) }), basename(post.thumbnailPath));
     const { body } = await api<{ id: string }>(ctx, c, '/api/v2/media', { method: 'POST', body: form });
     saveResume({ mediaId: body.id });
     return { state: 'processing', remoteId: body.id };
