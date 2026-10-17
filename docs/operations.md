@@ -53,7 +53,14 @@ fanout backup ~/fanout-backups --without-key
 
 - 대시보드나 worker가 돌고 있어도 안전합니다(SQLite `VACUUM INTO`로 일관된 스냅샷을 만듭니다).
 - `secret.key`가 함께 들어가므로 백업 폴더가 있으면 모든 계정 토큰을 풀 수 있습니다. 안전한 곳에 두세요. 키를 `FANOUT_SECRET_KEY`로 주고 있다면 백업에 넣지 않으니 따로 보관하세요.
-- **복원**: 모든 fanout 프로세스를 멈추고, 백업의 `fanout.db`와 `secret.key`를 `FANOUT_HOME`(기본 `~/.fanout`)에 복사한 뒤 다시 켭니다. 원래 있던 `fanout.db-wal`, `fanout.db-shm`은 지우세요.
+- **복원**: 대시보드·worker·watch·mcp를 모두 끈 뒤 `fanout restore <백업 폴더>`로 되돌립니다. fanout이 하는 일은 다음과 같습니다.
+  - 백업 DB가 온전한지, 저장된 토큰을 쓸 키(백업의 `secret.key` 또는 `FANOUT_SECRET_KEY`)로 풀 수 있는지 먼저 확인합니다.
+  - 다른 fanout 프로세스가 작업 중이면 거부합니다(`--force`로 무시).
+  - 지금 데이터(`fanout.db`, WAL 파일, `secret.key`)는 지우지 않고 `FANOUT_HOME/before-restore-<시각>/`으로 옮겨 둡니다.
+
+  ```bash
+  fanout restore ~/fanout-backups/fanout-2026-10-17T03-00-00-000Z
+  ```
 
 ## 게시 기록 내보내기
 
