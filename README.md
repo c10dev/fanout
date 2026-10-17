@@ -26,10 +26,10 @@
 **GitHub에서 바로 설치** (npm 레지스트리에는 아직 올리지 않았습니다)
 
 ```bash
-npm install -g github:c10dev/fanout
+npm install -g --allow-git=all github:c10dev/fanout
 ```
 
-설치하면 `fanout` 명령이 생깁니다. 아래 예시의 `node src/cli.ts`를 `fanout`으로 바꿔 쓰면 됩니다.
+npm 12부터 git 저장소에서 설치하는 것이 기본으로 막혀 있어 `--allow-git=all`이 필요합니다(npm 11 이하는 없어도 됩니다). 설치하면 `fanout` 명령이 생깁니다. 아래 예시의 `node src/cli.ts`를 `fanout`으로 바꿔 쓰면 됩니다.
 
 **Docker**
 
