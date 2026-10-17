@@ -1,6 +1,6 @@
 # fanout
 
-영상 하나를 YouTube · TikTok · Instagram Reels · Facebook Reels · Bluesky · Mastodon에 한 번에 올리는 **영상 중심(video-first) 셀프호스팅 업로더**입니다. 모든 플랫폼에 공식 API만 사용합니다.
+영상 하나를 YouTube · TikTok · Instagram Reels · Facebook Reels · X · Bluesky · Mastodon에 한 번에 올리는 **영상 중심(video-first) 셀프호스팅 업로더**입니다. 모든 플랫폼에 공식 API만 사용합니다.
 
 > **상태: v0.1 실험 단계.** 업로드 흐름은 플랫폼 공식 문서를 기준으로 구현했고 HTTP mock 테스트로 검증했습니다. 실제 계정으로 확인한 범위(2026-10-17)는 다음과 같습니다.
 >
@@ -84,6 +84,7 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
   - YouTube: 앱 정보를 넣거나 Google에서 받은 JSON 파일을 올린 뒤 "Google 계정으로 연결". 데스크톱 앱 클라이언트라 Redirect URI를 따로 등록하지 않아도 됩니다.
   - TikTok: 설정 탭에 보이는 Redirect URI(`http://127.0.0.1:8780/oauth/tiktok/callback`)를 TikTok 개발자 포털에 등록해야 합니다. CLI의 `fanout connect tiktok`은 다른 주소(`http://127.0.0.1:8723/callback`)를 쓰므로, 둘 다 쓰려면 둘 다 등록하세요.
   - Instagram·Facebook: Graph API 탐색기에서 만든 토큰을 붙여넣으면 장기 토큰으로 바꾼 뒤 페이지 토큰을 저장합니다.
+  - X: Client ID(와 confidential 앱이면 Secret)를 저장하고, X 개발자 포털에 설정 탭에 보이는 Redirect URI를 등록한 뒤 "X 계정으로 연결".
   - Mastodon: 인스턴스 주소와, 환경설정 → 개발에서 만든 액세스 토큰(`read:accounts`, `write:media`, `write:statuses`)을 넣습니다.
   - Bluesky: 핸들과 앱 비밀번호를 넣습니다. 앱 비밀번호는 저장하지 않고, 로그인해서 받은 토큰만 보관하며 자동으로 갱신합니다.
   - "실제 업로드로 점검"은 `doctor --live`와 같습니다. 테스트 영상을 실제로 올리므로 실행 전에 한 번 더 확인을 받습니다.
@@ -195,6 +196,7 @@ node src/cli.ts prune --days 7
 | TikTok | Content Posting API `FILE_UPLOAD` | **inbox**: TikTok 앱 수신함으로 보내고 앱에서 마무리 | fanout worker | 심사 전 direct는 비공개 계정 SELF_ONLY만, 24시간 5명. direct 모드는 TikTok이 요구하는 UX 필드(공개 범위 기본값 없음, 댓글·듀엣·이어찍기 기본 끔, 음악 사용 동의, 브랜디드 콘텐츠)를 요구 |
 | Instagram Reels | 컨테이너 → rupload → `media_publish` | 프로페셔널 계정 + 연결된 Facebook 페이지 | fanout worker | 3초~15분, 300MB. 24시간 한도는 매번 `content_publishing_limit`로 조회 |
 | Facebook Reels | `video_reels` start → rupload → finish | 페이지만 가능 | 네이티브 (10분~29일) | 9:16, 3~90초 |
+| X | v2 `initialize` → 4MB `append` → `finalize` → STATUS → `POST /2/tweets` | 내 X 앱(OAuth 2.0 PKCE), **종량제 크레딧 필요** | fanout worker | 기본 20분·8GB(Premium은 더 김). 글은 가중치 280(한글 2). URL이 들어가면 요금이 높음. 게시 응답을 잃으면 중복을 피하려고 멈추고 확인을 요청 |
 | Bluesky | 영상 서비스 `uploadVideo` → 처리 완료 blob → `createRecord` | 앱 비밀번호로 연결 (개발자 앱 필요 없음) | fanout worker | mp4 최대 300MB, 글 300자, 자막은 VTT만(20KB 이하). 이메일 인증된 계정만 영상 가능, 하루 한도는 `getUploadLimits`로 조회 |
 | Mastodon | `POST /api/v2/media`(썸네일 포함) → 처리 대기 → `POST /api/v1/statuses` | 인스턴스에서 만든 액세스 토큰 (개발자 앱 심사 없음) | 네이티브 `scheduled_at` (5분 뒤부터) | 공개 범위 직접 지정. 영상 크기는 인스턴스마다 다르며(기본 99MB) 올리기 전에 조회. `Idempotency-Key`로 중복 게시 방지 |
 
@@ -252,7 +254,7 @@ npm run typecheck
 
 ## 로드맵
 
-- X, Threads(공개 URL 필요), LinkedIn, PeerTube
+- Threads(공개 URL 필요), LinkedIn, PeerTube
 - TikTok: 심사를 통과한 앱 연결 모드, Upload-Post·Ayrshare 어댑터
 - 네이버 클립 실험 플러그인 (별도 저장소, 사용자가 직접 로그인한 브라우저 프로필만 사용)
 - 여러 대상을 위한 Postgres 큐(pg-boss) 옵션

@@ -6,7 +6,7 @@ import { openContext, stderrLogger } from './core/context.ts';
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { probe } from './core/media.ts';
-import { accountLabel, assessMedia, createScheduledPost, visibilityLabel } from './core/posting.ts';
+import { accountLabel, assessMedia, createScheduledPost, retryTarget, visibilityLabel } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
@@ -116,6 +116,8 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
       });
     case 'facebook':
       return drop({ caption: str(args, 'fb-caption') });
+    case 'x':
+      return drop({ text: str(args, 'x-text') });
     case 'mastodon':
       return drop({ visibility: str(args, 'md-visibility'), text: str(args, 'md-text'), alt: str(args, 'md-alt'), language: str(args, 'md-lang'), spoilerText: str(args, 'md-cw') });
     case 'bluesky':
@@ -238,6 +240,7 @@ post 공통 옵션
              --tt-brand-organic yes  --tt-branded yes  --tt-caption 텍스트  --tt-cover-ms 1000
   Instagram  --ig-caption 텍스트  --ig-no-feed  --ig-thumb-ms 1000
   Facebook   --fb-caption 텍스트
+  X          --x-text 텍스트 (가중치 280 이하, 한글은 2로 셈)
   Bluesky    --bsky-text 텍스트(300자 이하)  --bsky-alt 대체텍스트  --bsky-lang ko,en
   Mastodon   --md-visibility public|unlisted|private (필수)  --md-text 텍스트  --md-alt 대체텍스트
              --md-lang ko  --md-cw 내용경고
@@ -515,7 +518,7 @@ async function cmdRetry(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   const ids: string[] = [];
   for (const t of ctx.store.targetsForPost(post.id)) {
     if ((t.state === 'failed' || t.state === 'needs_reauth') && (!only || t.platform === only)) {
-      ctx.store.transition(t.id, 'queued', { attempts: 0, errorCode: undefined, errorMessage: undefined, notBefore: undefined }, 'manual retry');
+      retryTarget(ctx.store, t.id, 'manual retry');
       ids.push(t.id);
     }
   }
