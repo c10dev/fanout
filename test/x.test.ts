@@ -150,3 +150,35 @@ describe('x upload', () => {
     await assert.rejects(x.poll({ ctx, post: post(), target: { ...target({}, { mediaId: 'M1' }), remoteId: 'M1' }, account }), (e: ProviderError) => e.platformCode === 'InvalidMedia');
   });
 });
+
+describe('x refresh race', () => {
+  it('a refresh token another process already used: take the pair it stored', async () => {
+    let env!: ReturnType<typeof makeCtx>;
+    const { fetch } = mockFetch([
+      [
+        'POST',
+        '/2/oauth2/token',
+        () => {
+          // The other process wins: it used RT and saved its new pair before our request is answered.
+          env.store.saveAccount({ ...account, credentials: { ...account.credentials, accessToken: 'AT2', refreshToken: 'RT2', expiresAt: NOW.getTime() + 7200_000 } });
+          return json({ error: 'invalid_request', error_description: 'Value passed for the token was invalid.' }, 400);
+        },
+      ],
+    ]);
+    env = makeCtx(fetch, () => NOW);
+    env.store.setApp('x', { clientId: 'cid' });
+    const expired = { ...account, credentials: { ...account.credentials, expiresAt: 0 } };
+    env.store.saveAccount(expired);
+    const next = await x.refresh(env.ctx, expired);
+    assert.equal((next.credentials as { accessToken: string }).accessToken, 'AT2');
+  });
+
+  it('an account already refreshed elsewhere is used without spending the token again', async () => {
+    const { fetch, calls } = mockFetch([]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.saveAccount({ ...account, credentials: { ...account.credentials, accessToken: 'AT3', refreshToken: 'RT3' } });
+    const next = await x.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
+    assert.equal((next.credentials as { accessToken: string }).accessToken, 'AT3');
+    assert.equal(calls.length, 0);
+  });
+});

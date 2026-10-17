@@ -39,8 +39,13 @@ function assertNotInUse(path: string, now: Date, force?: boolean): void {
     if (busy > 0) throw new RestoreError(`다른 fanout 프로세스가 작업 중입니다 (대상 ${busy}개). 대시보드·worker·watch·mcp 를 모두 끈 뒤 다시 하세요 (--force 로 무시)`);
     try {
       db.exec('PRAGMA journal_mode = DELETE');
-    } catch {
-      throw new RestoreError('다른 fanout 프로세스(대시보드·worker·watch·mcp)가 데이터베이스를 열고 있습니다. 모두 끈 뒤 다시 하세요 (--force 로 무시)');
+    } catch (err) {
+      const code = (err as { errcode?: number }).errcode;
+      // SQLITE_BUSY / SQLITE_LOCKED: someone else has it open. Anything else (a corrupt file) is its own problem.
+      if (code === 5 || code === 6) {
+        throw new RestoreError('다른 fanout 프로세스(대시보드·worker·watch·mcp)가 데이터베이스를 열고 있습니다. 모두 끈 뒤 다시 하세요 (--force 로 무시)');
+      }
+      throw new RestoreError(`지금 데이터베이스를 확인할 수 없습니다: ${(err as Error).message}. 손상된 파일이라면 --force 로 복원하세요 (이전 파일은 따로 보관됩니다)`);
     }
   } finally {
     db.close();

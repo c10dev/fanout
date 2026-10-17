@@ -1269,6 +1269,15 @@ function platformBlock(p, appReady) {
 
 /** Each account row's read-only check, for "모든 계정 점검". */
 const accountChecks = new Map();
+/** A "check all" run is going; a re-rendered settings view must not start another. */
+let checkingAll = false;
+/** Its progress or last summary, kept so a re-rendered card shows it too. */
+let checkAllText = '';
+const setCheckAll = (text) => {
+  checkAllText = text;
+  const el = document.getElementById('check-all-status');
+  if (el) el.textContent = text;
+};
 
 function accountRow(p, a) {
   const results = h('ul', { class: 'checks', hidden: true });
@@ -1433,22 +1442,32 @@ async function loadSettings() {
 
 /** One button to run every connected account's read-only check, one after another. */
 function checkAllCard() {
-  const status = h('span', { class: 'muted' });
+  const status = h('span', { class: 'muted', id: 'check-all-status' }, checkAllText);
   const button = h(
     'button',
     {
       class: 'small',
       type: 'button',
+      id: 'check-all',
+      disabled: checkingAll,
       onclick: async () => {
+        if (checkingAll) return;
+        checkingAll = true;
         button.disabled = true;
+        // The accounts as they are now: the view may re-render (and refill the map) meanwhile.
+        const checks = [...accountChecks];
         const failed = [];
-        let i = 0;
-        for (const [key, check] of accountChecks) {
-          status.textContent = ` ${++i}/${accountChecks.size} ${key} 점검 중…`;
-          if (!(await check())) failed.push(key);
+        try {
+          for (const [i, [key, check]] of checks.entries()) {
+            setCheckAll(` ${i + 1}/${checks.length} ${key} 점검 중…`);
+            if (!(await check())) failed.push(key);
+          }
+        } finally {
+          checkingAll = false;
+          // The card on screen may be a newer one than this button's.
+          for (const b of document.querySelectorAll('#check-all')) b.disabled = false;
         }
-        status.textContent = accountChecks.size ? ` ${accountChecks.size}개 계정 점검${failed.length ? `, 문제 있음: ${failed.join(', ')}` : ', 모두 정상'}` : ' 연결된 계정이 없습니다';
-        button.disabled = false;
+        setCheckAll(checks.length ? ` ${checks.length}개 계정 점검${failed.length ? `, 문제 있음: ${failed.join(', ')}` : ', 모두 정상'}` : ' 연결된 계정이 없습니다');
       },
     },
     '모든 계정 점검',

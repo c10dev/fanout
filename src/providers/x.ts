@@ -207,10 +207,21 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     const c = creds(account);
     if (c.expiresAt - ctx.now().getTime() > 120_000) return account;
     if (!c.refreshToken) throw new ProviderError('auth', 'x.no_refresh', 'X 토큰이 만료됐습니다 — 다시 연결하세요');
-    const tok = await tokenRequest(ctx, { grant_type: 'refresh_token', refresh_token: c.refreshToken }, c);
-    const next: Account = { ...account, credentials: { ...c, ...tok } };
-    ctx.store.saveAccount(next);
-    return next;
+    // Another process may have refreshed already (X refresh tokens are single-use): take its pair.
+    const stored = ctx.store.getAccount('x', account.name);
+    const sc = stored ? creds(stored) : c;
+    if (stored && sc.refreshToken !== c.refreshToken && sc.expiresAt - ctx.now().getTime() > 120_000) return stored;
+    try {
+      const tok = await tokenRequest(ctx, { grant_type: 'refresh_token', refresh_token: sc.refreshToken }, sc);
+      const next: Account = { ...(stored ?? account), credentials: { ...sc, ...tok } };
+      ctx.store.saveAccount(next);
+      return next;
+    } catch (err) {
+      // Lost a race: someone else used the token first and saved the new pair.
+      const again = err instanceof ProviderError && err.kind === 'auth' ? ctx.store.getAccount('x', account.name) : undefined;
+      if (again && creds(again).refreshToken !== sc.refreshToken) return again;
+      throw err;
+    }
   },
 
   validate(post, target) {

@@ -329,6 +329,7 @@ async function cmdDoctor(ctx: ProviderContext, provider: Provider, args: Args): 
 /** `fanout doctor` with no platform: check every connected account (never --live, which posts). */
 async function cmdDoctorAll(ctx: ProviderContext, providers: Map<string, Provider>, args: Args): Promise<number> {
   if (args.flags.live) throw new UsageError('--live 는 테스트 게시물을 실제로 올리므로 플랫폼을 지정해서 하나씩 실행하세요: fanout doctor <platform> --live');
+  if (args.flags.account) throw new UsageError('--account 는 플랫폼과 함께 쓰세요: fanout doctor <platform> --account <이름>');
   const accounts = ctx.store.listAccounts();
   if (!accounts.length) {
     console.log('연결된 계정이 없습니다. fanout setup <platform> 부터 시작하세요');
