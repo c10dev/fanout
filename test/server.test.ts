@@ -251,6 +251,14 @@ describe('dashboard server', () => {
     assert.ok(posts.every((p) => p.post.scheduledAt && Date.parse(p.post.scheduledAt) >= Date.now() - 60_000));
   });
 
+  it('serves the translations next to the app', async () => {
+    const res = await fetch(`${base}/i18n.js`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type') ?? '', /javascript/);
+    assert.match(await res.text(), /MESSAGES_EN/);
+    assert.match(await (await fetch(`${base}/`)).text(), /<script src="\/i18n\.js" defer><\/script>\s*<script src="\/app\.js"/);
+  });
+
   it('validates replies and reports refusals as conflicts', async () => {
     const reply = (id: string, body: unknown) => fetch(`${base}/api/targets/${id}/reply`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await reply('nope', { text: 'hi' })).status, 400);

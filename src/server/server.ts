@@ -61,6 +61,7 @@ export interface DashboardOptions {
 const PUBLIC_DIR = join(import.meta.dirname, 'public');
 const STATIC: Record<string, string> = {
   '/app.js': 'text/javascript; charset=utf-8',
+  '/i18n.js': 'text/javascript; charset=utf-8',
   '/style.css': 'text/css; charset=utf-8',
 };
 const MEDIA_ID = /^[0-9a-f-]{36}\.[a-z0-9]{1,5}$/;
