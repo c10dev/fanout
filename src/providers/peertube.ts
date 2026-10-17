@@ -8,6 +8,7 @@ import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcom
 import type { Account } from '../core/store.ts';
 import type { Comment, Issue, Post } from '../core/types.ts';
 import { htmlToText } from './mastodon.ts';
+import { msg } from '../core/i18n.ts';
 
 // Docs: https://docs.joinpeertube.org/api-rest-reference.html (OpenAPI: support/doc/api/openapi.yaml)
 //       https://docs.joinpeertube.org/api/rest-getting-started (OAuth client + password grant)
@@ -29,7 +30,7 @@ const COMMENTS_POLICY = { enabled: 1, disabled: 2, approval: 3 } as const;
 /** state.id values (packages/models/src/videos/video-state.enum.ts). */
 const STATE_PUBLISHED = 1;
 const STATE_WORKING = new Set([2, 3, 6, 9, 10]);
-const STATE_FAILED: Record<number, string> = { 7: '트랜스코딩 실패', 8: '외부 저장소 이동 실패', 11: '파일 시스템 이동 실패', 12: '가져오기 실패' };
+const STATE_FAILED: Record<number, string> = { 7: msg('트랜스코딩 실패'), 8: msg('외부 저장소 이동 실패'), 11: msg('파일 시스템 이동 실패'), 12: msg('가져오기 실패') };
 
 export interface PeerTubeCredentials {
   instance: string;
@@ -83,7 +84,7 @@ function creds(account: Account): PeerTubeCredentials {
 export function normalizePeerTubeInstance(raw: string): string {
   const url = new URL(/^https?:\/\//.test(raw) ? raw : `https://${raw}`);
   if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
-    throw new ProviderError('rejected', 'peertube.insecure', '인스턴스 주소는 https여야 합니다');
+    throw new ProviderError('rejected', 'peertube.insecure', msg('인스턴스 주소는 https여야 합니다'));
   }
   return url.origin;
 }
@@ -132,9 +133,9 @@ async function tokenRequest(ctx: ProviderContext, instance: string, form: Record
   const body = (await res.json().catch(() => ({}))) as ApiError & { access_token?: string; refresh_token?: string; expires_in?: number };
   if (res.ok && body.access_token && body.refresh_token) return body as { access_token: string; refresh_token: string; expires_in?: number };
   const code = body.code ?? (typeof body.error === 'string' ? body.error : body.error?.code);
-  if (code === 'missing_two_factor') throw new ProviderError('rejected', 'peertube.otp', '2단계 인증이 켜진 계정입니다. 인증 앱의 코드(otp)를 함께 넣어 주세요');
+  if (code === 'missing_two_factor') throw new ProviderError('rejected', 'peertube.otp', msg('2단계 인증이 켜진 계정입니다. 인증 앱의 코드(otp)를 함께 넣어 주세요'));
   if (code === 'invalid_grant' || code === 'invalid_token' || res.status === 400 || res.status === 401) {
-    throw new ProviderError('auth', `peertube.${code ?? 'invalid_grant'}`, `PeerTube 로그인이 만료됐거나 거부됐습니다. 다시 연결하세요 (${body.detail ?? code ?? res.status})`, code);
+    throw new ProviderError('auth', `peertube.${code ?? 'invalid_grant'}`, msg('PeerTube 로그인이 만료됐거나 거부됐습니다. 다시 연결하세요 ({body})', { body: body.detail ?? code ?? res.status }), code);
   }
   throw apiError(res.status, body, 'token');
 }
@@ -207,11 +208,11 @@ function assertOwner(account: Account, target: { resume?: Record<string, unknown
   const r = (target.resume ?? {}) as PeerTubeResume;
   const c = creds(account);
   if (r.instance && r.instance !== c.instance) {
-    throw new ProviderError('rejected', 'peertube.other_instance', `이 영상은 ${r.instance} 에 올렸는데 지금 ${account.name} 계정은 ${c.instance} 에 연결돼 있습니다`);
+    throw new ProviderError('rejected', 'peertube.other_instance', msg('이 영상은 {instance} 에 올렸는데 지금 {name} 계정은 {instance2} 에 연결돼 있습니다', { instance: r.instance, name: account.name, instance2: c.instance }));
   }
   const userId = account.profile.userId as number | undefined;
   if (r.userId && userId && r.userId !== userId) {
-    throw new ProviderError('rejected', 'peertube.not_owner', `이 영상은 지금 연결된 계정(${String(account.profile.username ?? account.name)})이 올린 영상이 아닙니다`);
+    throw new ProviderError('rejected', 'peertube.not_owner', msg('이 영상은 지금 연결된 계정({account})이 올린 영상이 아닙니다', { account: String(account.profile.username ?? account.name) }));
   }
 }
 
@@ -229,14 +230,14 @@ async function applyExtras(ctx: ProviderContext, c: PeerTubeCredentials, post: P
     const form = new FormData();
     // PeerTube checks the part's MIME type, not just the file name.
     form.set('thumbnailfile', await openAsBlob(post.thumbnailPath, { type: imageMime(post.thumbnailPath) }), basename(post.thumbnailPath));
-    await api(ctx, c, `/api/v1/videos/${videoId}`, { method: 'PUT', body: form }).catch((err: Error) => warnings.push(`썸네일을 올리지 못했습니다: ${err.message}`));
+    await api(ctx, c, `/api/v1/videos/${videoId}`, { method: 'PUT', body: form }).catch((err: Error) => warnings.push(msg('썸네일을 올리지 못했습니다: {message}', { message: err.message })));
   }
   for (const cap of post.captions) {
     const form = new FormData();
     const type = extname(cap.path).toLowerCase() === '.srt' ? 'application/x-subrip' : 'text/vtt';
     form.set('captionfile', await openAsBlob(cap.path, { type }), basename(cap.path));
     await api(ctx, c, `/api/v1/videos/${videoId}/captions/${encodeURIComponent(cap.language)}`, { method: 'PUT', body: form }).catch((err: Error) =>
-      warnings.push(`자막(${cap.language})을 올리지 못했습니다: ${err.message}`),
+      warnings.push(msg('자막({language})을 올리지 못했습니다: {message}', { language: cap.language, message: err.message })),
     );
   }
   return warnings;
@@ -271,14 +272,14 @@ export const peertube: Provider = {
   appFields: [],
   connectMethod: 'token',
   connectFields: [
-    { key: 'instance', label: '인스턴스 주소 (예: peertube.example)', secret: false },
-    { key: 'username', label: '사용자 이름', secret: false },
-    { key: 'password', label: '비밀번호 (저장하지 않고 토큰만 받습니다)', secret: true },
-    { key: 'otp', label: '2단계 인증 코드 (켜 둔 경우)', secret: false, optional: true },
+    { key: 'instance', label: msg('인스턴스 주소 (예: peertube.example)'), secret: false },
+    { key: 'username', label: msg('사용자 이름'), secret: false },
+    { key: 'password', label: msg('비밀번호 (저장하지 않고 토큰만 받습니다)'), secret: true },
+    { key: 'otp', label: msg('2단계 인증 코드 (켜 둔 경우)'), secret: false, optional: true },
   ],
 
   setupGuide() {
-    return `PeerTube — 인스턴스 계정으로 연결 (개발자 앱 등록·심사 없음)
+    return msg(`PeerTube — 인스턴스 계정으로 연결 (개발자 앱 등록·심사 없음)
 
 1. 영상을 올릴 수 있는 PeerTube 계정과 채널이 있어야 합니다
 2. fanout connect peertube --name main --instance peertube.example --username <이름> --password <비밀번호> [--otp <코드>]
@@ -289,7 +290,7 @@ export const peertube: Provider = {
    fanout doctor peertube --live 는 비공개 테스트 영상을 실제로 올리고, 처리를 기다렸다가 지웁니다
 
 공개 범위(privacy)는 매번 직접 고릅니다: public, unlisted, private, internal(인스턴스 사용자만).
-로그인은 인스턴스 설정에 따라 2~4주 동안 쓰지 않으면 만료되니 그때 다시 연결하세요.`;
+로그인은 인스턴스 설정에 따라 2~4주 동안 쓰지 않으면 만료되니 그때 다시 연결하세요.`);
   },
 
   async connect(ctx, name, flags) {
@@ -303,15 +304,15 @@ export const peertube: Provider = {
         rl.close();
       }
     };
-    const instance = normalizePeerTubeInstance(await ask('instance', '인스턴스 주소'));
-    const username = await ask('username', '사용자 이름');
-    const password = typeof flags.password === 'string' ? flags.password : await ask('password', '비밀번호');
+    const instance = normalizePeerTubeInstance(await ask('instance', msg('인스턴스 주소')));
+    const username = await ask('username', msg('사용자 이름'));
+    const password = typeof flags.password === 'string' ? flags.password : await ask('password', msg('비밀번호'));
     const otp = typeof flags.otp === 'string' && flags.otp.trim() ? flags.otp.trim() : undefined;
     // The instance's own web client credentials; nothing is shipped with fanout.
     const clientRes = await ctx.fetch(`${instance}/api/v1/oauth-clients/local`);
     const client = (await clientRes.json().catch(() => ({}))) as ApiError & { client_id?: string; client_secret?: string };
     if (!clientRes.ok || !client.client_id || !client.client_secret) {
-      throw new ProviderError('rejected', 'peertube.client', `PeerTube 로그인 클라이언트를 받지 못했습니다. 인스턴스의 공개 주소로 연결했는지 확인하세요 (${client.detail ?? clientRes.status})`);
+      throw new ProviderError('rejected', 'peertube.client', msg('PeerTube 로그인 클라이언트를 받지 못했습니다. 인스턴스의 공개 주소로 연결했는지 확인하세요 ({client})', { client: client.detail ?? clientRes.status }));
     }
     const base = { instance, clientId: client.client_id, clientSecret: client.client_secret };
     const tok = await tokenRequest(ctx, instance, { client_id: base.clientId, client_secret: base.clientSecret, grant_type: 'password', username, password }, otp);
@@ -340,22 +341,22 @@ export const peertube: Provider = {
     const issues: Issue[] = [];
     const o = target.options as Partial<PeerTubeOptions>;
     if (!o.privacy || !(o.privacy in PRIVACY)) {
-      issues.push({ severity: 'error', code: 'privacy', message: 'PeerTube 공개 범위(public/unlisted/private/internal)를 직접 지정해야 합니다' });
+      issues.push({ severity: 'error', code: 'privacy', message: msg('PeerTube 공개 범위(public/unlisted/private/internal)를 직접 지정해야 합니다') });
     }
     const name = post.title.trim();
     if (chars(name) < NAME_MIN || chars(name) > NAME_MAX) {
-      issues.push({ severity: 'error', code: 'title', message: `PeerTube 제목은 ${NAME_MIN}~${NAME_MAX}자여야 합니다 (현재 ${chars(name)})` });
+      issues.push({ severity: 'error', code: 'title', message: msg('PeerTube 제목은 {NAME_MIN}~{NAME_MAX}자여야 합니다 (현재 {chars})', { NAME_MIN, NAME_MAX, chars: chars(name) }) });
     }
-    if (chars(post.description) > DESCRIPTION_MAX) issues.push({ severity: 'warning', code: 'description', message: `PeerTube 설명은 ${DESCRIPTION_MAX}자까지만 올라갑니다` });
+    if (chars(post.description) > DESCRIPTION_MAX) issues.push({ severity: 'warning', code: 'description', message: msg('PeerTube 설명은 {DESCRIPTION_MAX}자까지만 올라갑니다', { DESCRIPTION_MAX }) });
     const kept = peertubeTags(post.tags);
     if (kept.length < post.tags.length) {
-      issues.push({ severity: 'warning', code: 'tags', message: `PeerTube 태그는 ${TAGS_MAX}개까지, 각 ${TAG_MIN}~${TAG_MAX}자만 올라갑니다: ${kept.join(', ') || '(없음)'}` });
+      issues.push({ severity: 'warning', code: 'tags', message: msg('PeerTube 태그는 {TAGS_MAX}개까지, 각 {TAG_MIN}~{TAG_MAX}자만 올라갑니다: {kept}', { TAGS_MAX, TAG_MIN, TAG_MAX, kept: kept.join(', ') || msg('(없음)') }) });
     }
-    if (o.commentsPolicy && !(o.commentsPolicy in COMMENTS_POLICY)) issues.push({ severity: 'error', code: 'comments', message: 'commentsPolicy는 enabled, disabled, approval 중 하나' });
+    if (o.commentsPolicy && !(o.commentsPolicy in COMMENTS_POLICY)) issues.push({ severity: 'error', code: 'comments', message: msg('commentsPolicy는 enabled, disabled, approval 중 하나') });
     if (post.scheduledAt && o.privacy && o.privacy !== 'public' && o.privacy !== 'unlisted' && o.privacy !== 'internal') {
-      issues.push({ severity: 'error', code: 'schedule', message: 'PeerTube 예약 공개는 public·unlisted·internal로만 바꿀 수 있습니다' });
+      issues.push({ severity: 'error', code: 'schedule', message: msg('PeerTube 예약 공개는 public·unlisted·internal로만 바꿀 수 있습니다') });
     }
-    if (post.containsSyntheticMedia) issues.push({ severity: 'warning', code: 'synthetic', message: 'PeerTube에는 AI 콘텐츠 표시가 없습니다. 필요하면 설명에 적어 주세요' });
+    if (post.containsSyntheticMedia) issues.push({ severity: 'warning', code: 'synthetic', message: msg('PeerTube에는 AI 콘텐츠 표시가 없습니다. 필요하면 설명에 적어 주세요') });
     return issues;
   },
 
@@ -402,7 +403,7 @@ export const peertube: Provider = {
         const found = await findUploaded();
         if (found) return finishUpload(found);
         if (found === undefined) {
-          throw new ProviderError('rejected', 'peertube.maybe_posted', `업로드 세션이 끝났는데 마지막 조각은 이미 보냈습니다. ${c.instance} 에서 영상이 있는지 확인한 뒤, 없으면 다시 시도하세요`, '404', { keepResume: true });
+          throw new ProviderError('rejected', 'peertube.maybe_posted', msg('업로드 세션이 끝났는데 마지막 조각은 이미 보냈습니다. {instance} 에서 영상이 있는지 확인한 뒤, 없으면 다시 시도하세요', { instance: c.instance }), '404', { keepResume: true });
         }
       }
       save({ ...r, location: undefined, finalSent: undefined });
@@ -412,14 +413,14 @@ export const peertube: Provider = {
     const o = target.options as unknown as PeerTubeOptions;
     const { body: me } = await api<Me>(ctx, c, '/api/v1/users/me');
     const channel = channelFor(account, o, me.videoChannels ?? []);
-    if (!channel) throw new ProviderError('rejected', 'peertube.channel', `채널 ${o.channel ?? ''}을(를) 찾을 수 없습니다. 가능: ${(me.videoChannels ?? []).map((ch) => ch.name).join(', ') || '(없음)'}`);
+    if (!channel) throw new ProviderError('rejected', 'peertube.channel', msg('채널 {channel}을(를) 찾을 수 없습니다. 가능: {channels}', { channel: o.channel ?? '', channels: (me.videoChannels ?? []).map((ch) => ch.name).join(', ') || msg('(없음)') }));
     const { body: used } = await api<{ videoQuotaUsed?: number; videoQuotaUsedDaily?: number }>(ctx, c, '/api/v1/users/me/video-quota-used');
     for (const [limit, spent, label] of [
-      [me.videoQuota, used.videoQuotaUsed, '전체'],
-      [me.videoQuotaDaily, used.videoQuotaUsedDaily, '하루'],
+      [me.videoQuota, used.videoQuotaUsed, msg('전체')],
+      [me.videoQuotaDaily, used.videoQuotaUsedDaily, msg('하루')],
     ] as const) {
       if (limit !== undefined && limit >= 0 && (spent ?? 0) + total > limit) {
-        throw new ProviderError('rejected', 'peertube.quota', `PeerTube ${label} 저장 용량이 모자랍니다 (남은 ${Math.max(0, (limit - (spent ?? 0)) / 1024 / 1024).toFixed(0)}MB, 파일 ${(total / 1024 / 1024).toFixed(0)}MB)`);
+        throw new ProviderError('rejected', 'peertube.quota', msg('PeerTube {label} 저장 용량이 모자랍니다 (남은 {max}MB, 파일 {total}MB)', { label, max: Math.max(0, (limit - (spent ?? 0)) / 1024 / 1024).toFixed(0), total: (total / 1024 / 1024).toFixed(0) }));
       }
     }
     const version = await serverVersion(ctx, c);
@@ -448,7 +449,7 @@ export const peertube: Provider = {
       allow: [200, 201],
     });
     const loc = init.headers.get('location');
-    if (!loc) throw new ProviderError('retryable', 'peertube.no_session', 'PeerTube가 업로드 세션 주소를 주지 않았습니다');
+    if (!loc) throw new ProviderError('retryable', 'peertube.no_session', msg('PeerTube가 업로드 세션 주소를 주지 않았습니다'));
     // The server's clock, not ours: the lookup after a lost answer compares it with createdAt.
     const serverNow = Date.parse(init.headers.get('date') ?? '');
     save({
@@ -493,7 +494,7 @@ export const peertube: Provider = {
       // Everything was there already; the status query returns the video.
       const at = await uploadOffset(put, total);
       if (typeof at === 'object') return finishUpload(at);
-      throw new ProviderError('retryable', 'peertube.incomplete', `PeerTube가 ${at}/${total}바이트만 받았다고 합니다`);
+      throw new ProviderError('retryable', 'peertube.incomplete', msg('PeerTube가 {at}/{total}바이트만 받았다고 합니다', { at, total }));
     }
 
     /**
@@ -545,11 +546,11 @@ export const peertube: Provider = {
     const url = watchUrl(c.instance, v.shortUUID ?? r.shortUUID, id);
     const stateId = v.state?.id ?? 0;
     if (STATE_FAILED[stateId]) {
-      throw new ProviderError('rejected', 'peertube.processing_failed', `PeerTube ${STATE_FAILED[stateId]}. ${url} 에서 확인하세요`, String(stateId), { keepResume: true });
+      throw new ProviderError('rejected', 'peertube.processing_failed', msg('PeerTube {failure}. {url} 에서 확인하세요', { failure: STATE_FAILED[stateId], url }), String(stateId), { keepResume: true });
     }
     if (stateId !== STATE_PUBLISHED && (STATE_WORKING.has(stateId) || !stateId)) return { state: 'processing', remoteId: String(id), remoteUrl: url, warnings };
-    if (v.blacklisted) warnings.push('인스턴스 관리자가 이 영상을 숨겼습니다');
-    if (v.scheduledUpdate?.updateAt) warnings.push(`예약 공개: ${v.scheduledUpdate.updateAt}`);
+    if (v.blacklisted) warnings.push(msg('인스턴스 관리자가 이 영상을 숨겼습니다'));
+    if (v.scheduledUpdate?.updateAt) warnings.push(msg('예약 공개: {updateAt}', { updateAt: v.scheduledUpdate.updateAt }));
     return { state: 'published', remoteId: String(id), remoteUrl: url, warnings };
   },
 
@@ -562,19 +563,19 @@ export const peertube: Provider = {
       c = creds(fresh);
       const { body: me } = await api<Me>(ctx, c, '/api/v1/users/me');
       const channels = me.videoChannels ?? [];
-      checks.push({ name: '계정', status: 'ok', detail: `${me.username} (${c.instance})` });
-      checks.push({ name: '채널', status: channels.length ? 'ok' : 'fail', detail: channels.length ? channels.map((ch) => `${ch.name}(${ch.id})`).join(', ') : '영상을 올릴 채널이 없습니다' });
+      checks.push({ name: msg('계정'), status: 'ok', detail: `${me.username} (${c.instance})` });
+      checks.push({ name: msg('채널'), status: channels.length ? 'ok' : 'fail', detail: channels.length ? channels.map((ch) => `${ch.name}(${ch.id})`).join(', ') : msg('영상을 올릴 채널이 없습니다') });
       const { body: used } = await api<{ videoQuotaUsed?: number; videoQuotaUsedDaily?: number }>(ctx, c, '/api/v1/users/me/video-quota-used');
-      const mb = (n?: number) => (n === undefined ? '?' : n < 0 ? '무제한' : `${(n / 1024 / 1024).toFixed(0)}MB`);
-      checks.push({ name: '저장 용량', status: 'info', detail: `전체 ${mb(used.videoQuotaUsed)} / ${mb(me.videoQuota)}, 오늘 ${mb(used.videoQuotaUsedDaily)} / ${mb(me.videoQuotaDaily)}` });
+      const mb = (n?: number) => (n === undefined ? '?' : n < 0 ? msg('무제한') : `${(n / 1024 / 1024).toFixed(0)}MB`);
+      checks.push({ name: msg('저장 용량'), status: 'info', detail: msg('전체 {mb} / {mb2}, 오늘 {mb3} / {mb4}', { mb: mb(used.videoQuotaUsed), mb2: mb(me.videoQuota), mb3: mb(used.videoQuotaUsedDaily), mb4: mb(me.videoQuotaDaily) }) });
     } catch (err) {
-      checks.push({ name: '계정', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('계정'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
     const version = await serverVersion(ctx, c);
-    checks.push({ name: '서버 버전', status: version ? 'info' : 'warn', detail: version ? version.join('.') : '알 수 없음' });
+    checks.push({ name: msg('서버 버전'), status: version ? 'info' : 'warn', detail: version ? version.join('.') : msg('알 수 없음') });
     if (live) checks.push(...(await liveRoundTrip(ctx, peertube, fresh, { options: { privacy: 'private' }, timeoutMs: 300_000 })));
-    else checks.push({ name: '실제 업로드 점검', status: 'info', detail: '확인하려면 --live 로 다시 실행 (비공개 테스트 영상을 올리고 지웁니다)' });
+    else checks.push({ name: msg('실제 업로드 점검'), status: 'info', detail: msg('확인하려면 --live 로 다시 실행 (비공개 테스트 영상을 올리고 지웁니다)') });
     return checks;
   },
 
@@ -582,7 +583,7 @@ export const peertube: Provider = {
     // Video ids are per instance: never read another instance's video with the same number.
     assertOwner(account, target);
     const { body: v } = await api<{ views?: number; likes?: number; dislikes?: number; comments?: number }>(ctx, creds(account), `/api/v1/videos/${target.remoteId}`);
-    return { views: v.views, likes: v.likes, comments: v.comments, ...(v.dislikes ? { note: `싫어요 ${v.dislikes}` } : {}) };
+    return { views: v.views, likes: v.likes, comments: v.comments, ...(v.dislikes ? { note: msg('싫어요 {dislikes}', { dislikes: v.dislikes }) } : {}) };
   },
 
   async remove({ ctx, account, target }) {
@@ -600,7 +601,7 @@ export const peertube: Provider = {
           throw e;
         },
       );
-      if (still) throw new ProviderError('rejected', 'peertube.not_owner', '이 영상을 지울 권한이 없습니다');
+      if (still) throw new ProviderError('rejected', 'peertube.not_owner', msg('이 영상을 지울 권한이 없습니다'));
     }
   },
 

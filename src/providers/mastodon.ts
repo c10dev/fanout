@@ -8,6 +8,7 @@ import { liveRoundTrip } from '../core/livecheck.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
+import { msg } from '../core/i18n.ts';
 
 // Docs: https://docs.joinmastodon.org/methods/media/ (POST /api/v2/media, async processing),
 //       https://docs.joinmastodon.org/methods/statuses/ (Idempotency-Key, scheduled_at),
@@ -64,11 +65,11 @@ function assertPublisher(account: Account, target: { resume?: Record<string, unk
   }
   const who = account.profile.username ?? account.name;
   if (instance && instance !== c.instance) {
-    throw new ProviderError('rejected', 'mastodon.other_instance', `이 글은 ${instance} 에 올렸는데 지금 ${account.name} 계정은 ${c.instance} 에 연결돼 있습니다`);
+    throw new ProviderError('rejected', 'mastodon.other_instance', msg('이 글은 {instance} 에 올렸는데 지금 {name} 계정은 {instance2} 에 연결돼 있습니다', { instance, name: account.name, instance2: c.instance }));
   }
   const accountId = account.profile.accountId as string | undefined;
   if (r.accountId && accountId && r.accountId !== accountId) {
-    throw new ProviderError('rejected', 'mastodon.not_owner', `이 글은 지금 연결된 계정(${who})이 올린 글이 아닙니다`);
+    throw new ProviderError('rejected', 'mastodon.not_owner', msg('이 글은 지금 연결된 계정({who})이 올린 글이 아닙니다', { who }));
   }
 }
 
@@ -76,7 +77,7 @@ type Visibility = 'public' | 'unlisted' | 'private' | 'direct';
 const VISIBILITY_ORDER: Visibility[] = ['public', 'unlisted', 'private', 'direct'];
 
 // A scheduled post's id is a ScheduledStatus id; the status it becomes gets a new id we never learn.
-const SCHEDULED_NOTE = '예약해 둔 글은 게시된 뒤의 글 번호를 알 수 없어 반응·댓글을 가져올 수 없습니다';
+const SCHEDULED_NOTE = msg('예약해 둔 글은 게시된 뒤의 글 번호를 알 수 없어 반응·댓글을 가져올 수 없습니다');
 
 function isScheduled(target: { resume?: Record<string, unknown> }): boolean {
   return Boolean((target.resume as { scheduled?: boolean } | undefined)?.scheduled);
@@ -86,7 +87,7 @@ export function normalizeInstance(raw: string): string {
   const withScheme = /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
   const url = new URL(withScheme);
   if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
-    throw new ProviderError('rejected', 'mastodon.insecure', '인스턴스 주소는 https여야 합니다');
+    throw new ProviderError('rejected', 'mastodon.insecure', msg('인스턴스 주소는 https여야 합니다'));
   }
   return url.origin;
 }
@@ -149,12 +150,12 @@ export const mastodon: Provider = {
   appFields: [],
   connectMethod: 'token',
   connectFields: [
-    { key: 'instance', label: '인스턴스 주소 (예: mastodon.social)', secret: false },
-    { key: 'token', label: '액세스 토큰', secret: true },
+    { key: 'instance', label: msg('인스턴스 주소 (예: mastodon.social)'), secret: false },
+    { key: 'token', label: msg('액세스 토큰'), secret: true },
   ],
 
   setupGuide() {
-    return `Mastodon — 인스턴스에서 액세스 토큰 만들기 (개발자 앱 등록·심사 없음)
+    return msg(`Mastodon — 인스턴스에서 액세스 토큰 만들기 (개발자 앱 등록·심사 없음)
 
 1. 내 인스턴스 → 환경설정 → 개발 → 새 애플리케이션
 2. 이름: fanout, 권한: read:accounts, write:media, write:statuses 만 체크
@@ -164,7 +165,7 @@ export const mastodon: Provider = {
 5. fanout doctor mastodon 으로 인스턴스의 영상 크기·글자 수 한도를 확인
    fanout doctor mastodon --live 는 나만 보이는(direct) 테스트 글을 실제로 올렸다가 지웁니다
 
-공개 범위(visibility)는 매번 직접 고릅니다: public, unlisted(조용히 공개), private(팔로워만).`;
+공개 범위(visibility)는 매번 직접 고릅니다: public, unlisted(조용히 공개), private(팔로워만).`);
   },
 
   async connect(ctx, name, flags) {
@@ -173,8 +174,8 @@ export const mastodon: Provider = {
     if (!instance || !token) {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       try {
-        if (!instance) instance = (await rl.question('인스턴스 주소: ')).trim();
-        if (!token) token = (await rl.question('액세스 토큰: ')).trim();
+        if (!instance) instance = (await rl.question(msg('인스턴스 주소: '))).trim();
+        if (!token) token = (await rl.question(msg('액세스 토큰: '))).trim();
       } finally {
         rl.close();
       }
@@ -192,17 +193,17 @@ export const mastodon: Provider = {
     const issues: Issue[] = [];
     const o = target.options as Partial<MastodonOptions>;
     if (!o.visibility || !['public', 'unlisted', 'private'].includes(o.visibility)) {
-      issues.push({ severity: 'error', code: 'visibility', message: 'Mastodon 공개 범위(public/unlisted/private)를 직접 지정해야 합니다' });
+      issues.push({ severity: 'error', code: 'visibility', message: msg('Mastodon 공개 범위(public/unlisted/private)를 직접 지정해야 합니다') });
     }
     const text = statusText(post, o);
     if ([...text].length > DEFAULT_MAX_CHARS) {
-      issues.push({ severity: 'warning', code: 'text', message: `Mastodon 글이 ${[...text].length}자입니다. 기본 한도 ${DEFAULT_MAX_CHARS}자를 넘으면 인스턴스에 따라 거부됩니다` });
+      issues.push({ severity: 'warning', code: 'text', message: msg('Mastodon 글이 {text}자입니다. 기본 한도 {DEFAULT_MAX_CHARS}자를 넘으면 인스턴스에 따라 거부됩니다', { text: [...text].length, DEFAULT_MAX_CHARS }) });
     }
     if (post.scheduledAt && new Date(post.scheduledAt).getTime() - Date.now() < SCHEDULE_MIN_MS) {
       // Mastodon refuses schedules under 5 minutes away; post right away instead of failing forever.
-      issues.push({ severity: 'warning', code: 'schedule', message: 'Mastodon 예약은 5분 뒤부터 가능해, 예약 시각이 가까우면 바로 게시합니다' });
+      issues.push({ severity: 'warning', code: 'schedule', message: msg('Mastodon 예약은 5분 뒤부터 가능해, 예약 시각이 가까우면 바로 게시합니다') });
     }
-    if (post.captions.length) issues.push({ severity: 'warning', code: 'captions', message: 'Mastodon은 자막 파일을 받지 않아 무시됩니다' });
+    if (post.captions.length) issues.push({ severity: 'warning', code: 'captions', message: msg('Mastodon은 자막 파일을 받지 않아 무시됩니다') });
     return issues;
   },
 
@@ -215,7 +216,7 @@ export const mastodon: Provider = {
     const limit = (await instanceConfig(ctx, c).catch(() => ({}) as InstanceConfig)).configuration?.media_attachments?.video_size_limit;
     const size = statSync(mediaPath).size;
     if (limit && size > limit) {
-      throw new ProviderError('rejected', 'mastodon.too_large', `이 인스턴스의 영상 한도는 ${(limit / 1024 / 1024).toFixed(0)}MB입니다 (파일 ${(size / 1024 / 1024).toFixed(0)}MB)`);
+      throw new ProviderError('rejected', 'mastodon.too_large', msg('이 인스턴스의 영상 한도는 {limit}MB입니다 (파일 {size}MB)', { limit: (limit / 1024 / 1024).toFixed(0), size: (size / 1024 / 1024).toFixed(0) }));
     }
     const o = target.options as unknown as MastodonOptions;
     const form = new FormData();
@@ -241,7 +242,7 @@ export const mastodon: Provider = {
         throw new ProviderError(
           'rejected',
           'mastodon.maybe_posted',
-          `이전 시도에서 이미 게시됐을 수 있습니다. ${c.instance} 에서 확인한 뒤, 없으면 다시 시도하세요`,
+          msg('이전 시도에서 이미 게시됐을 수 있습니다. {instance} 에서 확인한 뒤, 없으면 다시 시도하세요', { instance: c.instance }),
           undefined,
           { keepResume: true },
         );
@@ -251,7 +252,7 @@ export const mastodon: Provider = {
       // status — i.e. an earlier attempt already posted it.
       const media = await api<{ id: string; url: string | null }>(ctx, c, `/api/v1/media/${mediaId}`, { allow: [206] }).catch((err: unknown) => {
         if (err instanceof ProviderError && err.code === 'mastodon.http_404' && resume.postingAt) {
-          throw new ProviderError('rejected', 'mastodon.media_attached', `영상이 이미 게시물에 붙어 있습니다. ${c.instance} 에서 게시물을 확인하세요`, undefined, { keepResume: true });
+          throw new ProviderError('rejected', 'mastodon.media_attached', msg('영상이 이미 게시물에 붙어 있습니다. {instance} 에서 게시물을 확인하세요', { instance: c.instance }), undefined, { keepResume: true });
         }
         throw err;
       });
@@ -269,7 +270,7 @@ export const mastodon: Provider = {
     const warnings: string[] = [];
     if (post.scheduledAt) {
       if (Date.parse(post.scheduledAt) - ctx.now().getTime() >= SCHEDULE_MIN_MS) payload.scheduled_at = new Date(post.scheduledAt).toISOString();
-      else warnings.push('예약 시각이 5분 안으로 다가와 바로 게시했습니다');
+      else warnings.push(msg('예약 시각이 5분 안으로 다가와 바로 게시했습니다'));
     }
     const postingAt = resume.posting && resume.postingAt ? resume.postingAt : ctx.now().toISOString();
     ctx.store.updateTarget(target.id, { resume: { ...resume, posting: true, postingAt } });
@@ -295,7 +296,7 @@ export const mastodon: Provider = {
         ...(body.scheduled_at ? { scheduled: true } : {}),
       },
     });
-    if (body.scheduled_at) warnings.push(`예약 게시: ${body.scheduled_at}`);
+    if (body.scheduled_at) warnings.push(msg('예약 게시: {scheduled_at}', { scheduled_at: body.scheduled_at }));
     return { state: 'published', remoteId: body.id, remoteUrl: body.url, warnings };
   },
 
@@ -304,32 +305,36 @@ export const mastodon: Provider = {
     const checks: DoctorCheck[] = [];
     try {
       const { body: me } = await api<{ acct: string }>(ctx, c, '/api/v1/accounts/verify_credentials');
-      checks.push({ name: '계정', status: 'ok', detail: `@${me.acct} (${c.instance})` });
+      checks.push({ name: msg('계정'), status: 'ok', detail: `@${me.acct} (${c.instance})` });
     } catch (err) {
-      checks.push({ name: '계정', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('계정'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
     try {
       const cfg = (await instanceConfig(ctx, c)).configuration;
       const m = cfg?.media_attachments;
       checks.push({
-        name: '인스턴스 한도',
+        name: msg('인스턴스 한도'),
         status: 'info',
-        detail: `영상 ${m?.video_size_limit ? `${(m.video_size_limit / 1024 / 1024).toFixed(0)}MB` : '?'}, ${m?.video_frame_rate_limit ?? '?'}fps, 글 ${cfg?.statuses?.max_characters ?? '?'}자`,
+        detail: msg('영상 {size}, {fps}fps, 글 {chars}자', {
+          size: m?.video_size_limit ? `${(m.video_size_limit / 1024 / 1024).toFixed(0)}MB` : '?',
+          fps: m?.video_frame_rate_limit ?? '?',
+          chars: cfg?.statuses?.max_characters ?? '?',
+        }),
       });
     } catch (err) {
-      checks.push({ name: '인스턴스 한도', status: 'warn', detail: (err as Error).message });
+      checks.push({ name: msg('인스턴스 한도'), status: 'warn', detail: (err as Error).message });
     }
     // "direct" with nobody mentioned: a status only this account can see.
     if (live) checks.push(...(await liveRoundTrip(ctx, mastodon, account, { options: { visibility: 'direct' } })));
-    else checks.push({ name: '실제 게시 점검', status: 'info', detail: '확인하려면 --live 로 다시 실행 (나만 보이는 테스트 글을 올리고 지웁니다)' });
+    else checks.push({ name: msg('실제 게시 점검'), status: 'info', detail: msg('확인하려면 --live 로 다시 실행 (나만 보이는 테스트 글을 올리고 지웁니다)') });
     return checks;
   },
 
   async stats({ ctx, account, target }) {
     if (isScheduled(target)) return { note: SCHEDULED_NOTE };
     const { body } = await api<{ favourites_count?: number; replies_count?: number; reblogs_count?: number }>(ctx, creds(account), `/api/v1/statuses/${target.remoteId}`);
-    return { likes: body.favourites_count, comments: body.replies_count, shares: body.reblogs_count, note: 'Mastodon은 조회수를 제공하지 않습니다' };
+    return { likes: body.favourites_count, comments: body.replies_count, shares: body.reblogs_count, note: msg('Mastodon은 조회수를 제공하지 않습니다') };
   },
 
   async remove({ ctx, account, target }) {
@@ -343,7 +348,7 @@ export const mastodon: Provider = {
         return;
       } catch (err) {
         if (err instanceof ProviderError && err.code === 'mastodon.http_404') {
-          throw new ProviderError('rejected', 'mastodon.scheduled_fired', `예약 시각이 지나 이미 게시됐을 수 있습니다. ${c.instance} 에서 직접 지워 주세요`);
+          throw new ProviderError('rejected', 'mastodon.scheduled_fired', msg('예약 시각이 지나 이미 게시됐을 수 있습니다. {instance} 에서 직접 지워 주세요', { instance: c.instance }));
         }
         throw err;
       }
@@ -362,7 +367,7 @@ export const mastodon: Provider = {
           throw e;
         },
       );
-      if (still) throw new ProviderError('rejected', 'mastodon.not_owner', `이 게시물은 지금 연결된 계정(${account.profile.username ?? account.name})의 것이 아니라 지울 수 없습니다`);
+      if (still) throw new ProviderError('rejected', 'mastodon.not_owner', msg('이 게시물은 지금 연결된 계정({account})의 것이 아니라 지울 수 없습니다', { account: account.profile.username ?? account.name }));
     }
   },
 
@@ -370,7 +375,7 @@ export const mastodon: Provider = {
   async update({ ctx, account, target, post }) {
     assertPublisher(account, target);
     if (isScheduled(target)) {
-      throw new ProviderError('rejected', 'mastodon.scheduled', '예약된 글은 API로 내용을 고칠 수 없습니다. 지우고 다시 예약하세요');
+      throw new ProviderError('rejected', 'mastodon.scheduled', msg('예약된 글은 API로 내용을 고칠 수 없습니다. 지우고 다시 예약하세요'));
     }
     const resume = (target.resume ?? {}) as { mediaId?: string };
     const o = target.options as unknown as MastodonOptions;

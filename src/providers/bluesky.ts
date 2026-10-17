@@ -5,6 +5,7 @@ import { ProviderError, kindForStatus } from '../core/errors.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
+import { msg } from '../core/i18n.ts';
 
 // Docs: https://docs.bsky.app/docs/tutorials/video (recommended method: upload to the video
 // service, poll the job for a blob, then create the post). Lexicons: app.bsky.video.*,
@@ -180,12 +181,12 @@ async function createPostRecord(
   const captions: Array<{ lang: string; file: BlobRef }> = [];
   for (const cap of post.captions) {
     if (extname(cap.path).toLowerCase() !== '.vtt') {
-      warnings.push(`Bluesky 자막은 VTT만 받습니다 — ${basename(cap.path)} 건너뜀`);
+      warnings.push(msg('Bluesky 자막은 VTT만 받습니다 — {basename} 건너뜀', { basename: basename(cap.path) }));
       continue;
     }
     const data = readFileSync(cap.path);
     if (data.length > 20_000) {
-      warnings.push(`Bluesky 자막은 20KB 이하 — ${basename(cap.path)} 건너뜀`);
+      warnings.push(msg('Bluesky 자막은 20KB 이하 — {basename} 건너뜀', { basename: basename(cap.path) }));
       continue;
     }
     const up = await xrpc<{ blob: BlobRef }>(ctx, c.pds, 'com.atproto.repo.uploadBlob', { token: c.accessJwt, body: data, contentType: 'text/vtt' });
@@ -228,13 +229,13 @@ export const bluesky: Provider = {
   appFields: [],
   connectMethod: 'token',
   connectFields: [
-    { key: 'handle', label: '핸들 (예: name.bsky.social)', secret: false },
-    { key: 'token', label: '앱 비밀번호', secret: true },
-    { key: 'service', label: `PDS 주소 (기본 ${DEFAULT_SERVICE})`, secret: false, optional: true },
+    { key: 'handle', label: msg('핸들 (예: name.bsky.social)'), secret: false },
+    { key: 'token', label: msg('앱 비밀번호'), secret: true },
+    { key: 'service', label: msg('PDS 주소 (기본 {DEFAULT_SERVICE})', { DEFAULT_SERVICE }), secret: false, optional: true },
   ],
 
   setupGuide() {
-    return `Bluesky — 앱 비밀번호로 연결 (개발자 앱 필요 없음)
+    return msg(`Bluesky — 앱 비밀번호로 연결 (개발자 앱 필요 없음)
 
 1. Bluesky 앱 → 설정 → 개인정보 및 보안 → 앱 비밀번호 → 새로 만들기
    (fanout 전용으로 하나 만들고, DM 접근은 켜지 마세요)
@@ -245,7 +246,7 @@ export const bluesky: Provider = {
 4. fanout doctor bluesky 로 오늘 남은 영상 업로드 한도를 확인
 
 fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 토큰만 암호화해 보관하고 자동으로 갱신합니다.
-토큰이 만료되면(오래 쓰지 않았을 때) 다시 연결하세요. 영상은 mp4, 최대 300MB입니다.`;
+토큰이 만료되면(오래 쓰지 않았을 때) 다시 연결하세요. 영상은 mp4, 최대 300MB입니다.`);
   },
 
   async connect(ctx, name, flags) {
@@ -254,8 +255,8 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
     if (!handle || !password) {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
       try {
-        if (!handle) handle = (await rl.question('Bluesky 핸들: ')).trim().replace(/^@/, '');
-        if (!password) password = (await rl.question('앱 비밀번호: ')).trim();
+        if (!handle) handle = (await rl.question(msg('Bluesky 핸들: '))).trim().replace(/^@/, '');
+        if (!password) password = (await rl.question(msg('앱 비밀번호: '))).trim();
       } finally {
         rl.close();
       }
@@ -268,7 +269,7 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
       { json: { identifier: handle, password } },
     );
     const credentials: BlueskyCredentials = { pds: pdsFromDidDoc(s.didDoc) ?? service, did: s.did, handle: s.handle, accessJwt: s.accessJwt, refreshJwt: s.refreshJwt };
-    if (s.emailConfirmed === false) ctx.log.warn('Bluesky 계정 이메일이 인증되지 않아 영상을 올릴 수 없습니다. 앱에서 이메일 인증을 마치세요.');
+    if (s.emailConfirmed === false) ctx.log.warn(msg('Bluesky 계정 이메일이 인증되지 않아 영상을 올릴 수 없습니다. 앱에서 이메일 인증을 마치세요.'));
     return { platform: 'bluesky', name, credentials: { ...credentials }, profile: { handle: s.handle, username: s.handle, did: s.did } };
   },
 
@@ -281,7 +282,7 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
     }).catch((err: unknown) => {
       // Network trouble or a PDS outage is retryable; only a refused refresh token means reconnecting.
       if (!(err instanceof ProviderError) || err.kind === 'retryable') throw err;
-      throw new ProviderError('auth', 'bluesky.session_expired', `Bluesky 세션이 만료됐습니다 — 다시 연결하세요 (${err.platformCode ?? err.message})`, err.platformCode);
+      throw new ProviderError('auth', 'bluesky.session_expired', msg('Bluesky 세션이 만료됐습니다 — 다시 연결하세요 ({err})', { err: err.platformCode ?? err.message }), err.platformCode);
     });
     const next: Account = {
       ...account,
@@ -294,9 +295,9 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
   validate(post, target) {
     const issues: Issue[] = [];
     const text = postText(post, target.options as BlueskyOptions);
-    if (graphemes(text) > TEXT_MAX) issues.push({ severity: 'error', code: 'text', message: `Bluesky 글은 ${TEXT_MAX}자 이하 (현재 ${graphemes(text)}) — options.text로 줄이세요` });
-    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: 'Bluesky는 썸네일을 받지 않아 무시됩니다' });
-    if (post.scheduledAt) issues.push({ severity: 'warning', code: 'schedule', message: 'Bluesky는 예약 게시가 없어 fanout이 예약 시각에 올립니다 (fanout worker 필요)' });
+    if (graphemes(text) > TEXT_MAX) issues.push({ severity: 'error', code: 'text', message: msg('Bluesky 글은 {TEXT_MAX}자 이하 (현재 {graphemes}) — options.text로 줄이세요', { TEXT_MAX, graphemes: graphemes(text) }) });
+    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: msg('Bluesky는 썸네일을 받지 않아 무시됩니다') });
+    if (post.scheduledAt) issues.push({ severity: 'warning', code: 'schedule', message: msg('Bluesky는 예약 게시가 없어 fanout이 예약 시각에 올립니다 (fanout worker 필요)') });
     return issues;
   },
 
@@ -308,7 +309,7 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
 
     const limits = await uploadLimits(ctx, c);
     if (!limits.canUpload) {
-      throw new ProviderError('rejected', 'bluesky.upload_limit', `Bluesky 영상 업로드 불가: ${limits.message ?? limits.error ?? '한도 초과'}`, limits.error);
+      throw new ProviderError('rejected', 'bluesky.upload_limit', msg('Bluesky 영상 업로드 불가: {reason}', { reason: limits.message ?? limits.error ?? msg('한도 초과') }), limits.error);
     }
     const pdsHost = new URL(c.pds).host;
     const token = await serviceAuth(ctx, c, `did:web:${pdsHost}`, 'com.atproto.repo.uploadBlob');
@@ -330,8 +331,8 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
       job = prior;
     }
     saveResume({ jobId: job.jobId, width: media.video.width, height: media.video.height });
-    ctx.log.info(`bluesky: ${(size / 1024 / 1024).toFixed(1)}MB 업로드, 처리 대기 (job ${job.jobId})`);
-    return { state: 'processing', remoteId: job.jobId, warnings: limits.remainingDailyVideos !== undefined ? [`Bluesky 오늘 남은 영상 ${limits.remainingDailyVideos - 1}개`] : [] };
+    ctx.log.info(msg('bluesky: {size}MB 업로드, 처리 대기 (job {jobId})', { size: (size / 1024 / 1024).toFixed(1), jobId: job.jobId }));
+    return { state: 'processing', remoteId: job.jobId, warnings: limits.remainingDailyVideos !== undefined ? [msg('Bluesky 오늘 남은 영상 {limits}개', { limits: limits.remainingDailyVideos - 1 })] : [] };
   },
 
   async poll({ ctx, post, target, account }): Promise<PollOutcome> {
@@ -358,7 +359,7 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
     // A blob can arrive even on "failure" (already_exists), so check for it first.
     if (!jobStatus.blob) {
       if (jobStatus.state === 'JOB_STATE_FAILED') {
-        throw new ProviderError('rejected', `bluesky.${jobStatus.failureCode ?? 'job_failed'}`, `Bluesky 영상 처리 실패: ${jobStatus.message ?? jobStatus.error ?? jobStatus.failureCode ?? 'unknown'}`, jobStatus.failureCode);
+        throw new ProviderError('rejected', `bluesky.${jobStatus.failureCode ?? 'job_failed'}`, msg('Bluesky 영상 처리 실패: {jobStatus}', { jobStatus: jobStatus.message ?? jobStatus.error ?? jobStatus.failureCode ?? 'unknown' }), jobStatus.failureCode);
       }
       return { state: 'processing', remoteId: jobId };
     }
@@ -382,32 +383,32 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
     let acct = account;
     try {
       acct = await bluesky.refresh(ctx, { ...account, credentials: { ...account.credentials, accessJwt: '' } });
-      checks.push({ name: '세션 갱신', status: 'ok', detail: `@${creds(acct).handle} (${creds(acct).pds})` });
+      checks.push({ name: msg('세션 갱신'), status: 'ok', detail: `@${creds(acct).handle} (${creds(acct).pds})` });
     } catch (err) {
-      checks.push({ name: '세션 갱신', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('세션 갱신'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
     try {
       const s = await xrpc<{ emailConfirmed?: boolean }>(ctx, creds(acct).pds, 'com.atproto.server.getSession', { token: creds(acct).accessJwt });
       checks.push(
         s.emailConfirmed === false
-          ? { name: '이메일 인증', status: 'fail', detail: '영상 업로드에는 이메일 인증이 필요합니다' }
-          : { name: '이메일 인증', status: 'ok', detail: '인증됨' },
+          ? { name: msg('이메일 인증'), status: 'fail', detail: msg('영상 업로드에는 이메일 인증이 필요합니다') }
+          : { name: msg('이메일 인증'), status: 'ok', detail: msg('인증됨') },
       );
     } catch (err) {
-      checks.push({ name: '이메일 인증', status: 'warn', detail: (err as Error).message });
+      checks.push({ name: msg('이메일 인증'), status: 'warn', detail: (err as Error).message });
     }
     try {
       const l = await uploadLimits(ctx, creds(acct));
       checks.push({
-        name: '영상 업로드 한도',
+        name: msg('영상 업로드 한도'),
         status: l.canUpload ? 'ok' : 'fail',
         detail: l.canUpload
-          ? `오늘 남은 영상 ${l.remainingDailyVideos ?? '?'}개, ${l.remainingDailyBytes !== undefined ? `${(l.remainingDailyBytes / 1e9).toFixed(1)}GB` : '?'}`
-          : (l.message ?? l.error ?? '업로드 불가'),
+          ? msg('오늘 남은 영상 {videos}개, {size}', { videos: l.remainingDailyVideos ?? '?', size: l.remainingDailyBytes !== undefined ? `${(l.remainingDailyBytes / 1e9).toFixed(1)}GB` : '?' })
+          : (l.message ?? l.error ?? msg('업로드 불가')),
       });
     } catch (err) {
-      checks.push({ name: '영상 업로드 한도', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('영상 업로드 한도'), status: 'fail', detail: (err as Error).message });
     }
     return checks;
   },
@@ -420,15 +421,15 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
       { query: { uris: target.remoteId } },
     );
     const p = res.posts?.[0];
-    if (!p) return { note: '게시물을 찾을 수 없습니다 (삭제됨?)' };
-    return { likes: p.likeCount, comments: p.replyCount, shares: (p.repostCount ?? 0) + (p.quoteCount ?? 0), note: 'Bluesky는 조회수를 공개하지 않습니다' };
+    if (!p) return { note: msg('게시물을 찾을 수 없습니다 (삭제됨?)') };
+    return { likes: p.likeCount, comments: p.replyCount, shares: (p.repostCount ?? 0) + (p.quoteCount ?? 0), note: msg('Bluesky는 조회수를 공개하지 않습니다') };
   },
 
   async remove({ ctx, account, target }) {
     const c = creds(account);
     // at://<did>/app.bsky.feed.post/<rkey>: only delete from the repo the post actually lives in.
     const [, , repo, , rkey] = target.remoteId.split('/');
-    if (repo !== c.did) throw new ProviderError('rejected', 'bluesky.not_owner', `이 게시물은 지금 연결된 계정(@${c.handle})의 것이 아니라 지울 수 없습니다`);
+    if (repo !== c.did) throw new ProviderError('rejected', 'bluesky.not_owner', msg('이 게시물은 지금 연결된 계정(@{handle})의 것이 아니라 지울 수 없습니다', { handle: c.handle }));
     await xrpc(ctx, c.pds, 'com.atproto.repo.deleteRecord', { token: c.accessJwt, json: { repo, collection: 'app.bsky.feed.post', rkey } });
   },
 
@@ -453,15 +454,15 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
   },
 
   async reply({ ctx, account, target, comment, text, sending }) {
-    if (graphemes(text) > TEXT_MAX) throw new ProviderError('rejected', 'bluesky.text', `Bluesky 답글은 ${TEXT_MAX}자 이하 (현재 ${graphemes(text)})`);
+    if (graphemes(text) > TEXT_MAX) throw new ProviderError('rejected', 'bluesky.text', msg('Bluesky 답글은 {TEXT_MAX}자 이하 (현재 {graphemes})', { TEXT_MAX, graphemes: graphemes(text) }));
     const c = creds(account);
     type Ref = { uri: string; cid: string };
     const { posts } = await xrpc<{ posts?: Array<Ref & { record?: { reply?: { root?: Ref } } }> }>(ctx, PUBLIC_APPVIEW, 'app.bsky.feed.getPosts', { query: { uris: comment.id } });
     const parent = posts?.[0];
-    if (!parent) throw new ProviderError('rejected', 'bluesky.reply_gone', '답글을 달 댓글을 찾을 수 없습니다 (지워졌을 수 있습니다)');
+    if (!parent) throw new ProviderError('rejected', 'bluesky.reply_gone', msg('답글을 달 댓글을 찾을 수 없습니다 (지워졌을 수 있습니다)'));
     // A reply names the thread's root as well as its parent; ours is the root of its own thread.
     const root = parent.record?.reply?.root;
-    if (!root || root.uri !== target.remoteId) throw new ProviderError('rejected', 'bluesky.reply_thread', '이 게시물의 댓글이 아닙니다');
+    if (!root || root.uri !== target.remoteId) throw new ProviderError('rejected', 'bluesky.reply_thread', msg('이 게시물의 댓글이 아닙니다'));
     sending();
     const res = await xrpc<{ uri: string }>(ctx, c.pds, 'com.atproto.repo.createRecord', {
       token: c.accessJwt,

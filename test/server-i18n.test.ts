@@ -20,6 +20,10 @@ const CONVERTED = [
   'src/providers/meta.ts',
   'src/providers/instagram.ts',
   'src/providers/facebook.ts',
+  'src/providers/x.ts',
+  'src/providers/bluesky.ts',
+  'src/providers/mastodon.ts',
+  'src/providers/peertube.ts',
 ];
 const LITERAL = /'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
 
