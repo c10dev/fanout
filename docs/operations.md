@@ -25,3 +25,19 @@ node src/cli.ts prune --days 7
 - 잠금을 쥔 프로세스가 같은 컴퓨터에서 죽었으면 바로 넘겨받습니다. 재시작한 컨테이너에서 pid가 같아도 마찬가지입니다.
 - 다른 프로세스의 쓰기는 최대 10초 기다립니다.
 - 플랫폼에서 24시간 넘게 처리가 끝나지 않으면 `processing_timeout`으로 실패 처리합니다.
+
+## 알림
+
+감시 폴더나 백그라운드 작업이 사람 없이 돌 때, 게시가 끝나거나 실패하면 webhook으로 알립니다.
+
+```bash
+fanout notify set https://hooks.slack.com/services/…      # 또는 Discord webhook, 아무 HTTPS URL
+fanout notify set <URL> --events failed,needs_reauth       # 실패만 받기
+fanout notify test
+fanout notify off
+```
+
+- Slack·Discord webhook 주소는 알아보고 그 형식으로 보냅니다. 그 밖의 주소에는 `{ event, state, platform, account, postId, targetId, title, url, error, text }` JSON을 보냅니다.
+- 기본으로 알리는 상태: 게시됨, 앱에서 마무리 필요(TikTok 수신함), 실패, 재연결 필요.
+- webhook 주소는 암호화해서 저장합니다. 환경 변수 `FANOUT_WEBHOOK_URL`이 있으면 그쪽을 씁니다.
+- 알림은 5초 안에 보내지 못하면 포기하고 경고만 남깁니다. 업로드를 막거나 늦추지 않습니다.

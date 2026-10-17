@@ -72,7 +72,7 @@ node src/cli.ts status
 | 감시 폴더: 폴더에 영상을 넣으면 정해 둔 대로 자동 게시 | [docs/watch-folder.md](docs/watch-folder.md) |
 | AI 에이전트(MCP): Claude 등이 영상 검사·미리보기·게시 | [docs/mcp.md](docs/mcp.md) |
 | 플랫폼별 방식·제약·실제 확인 결과·정책 | [docs/platforms.md](docs/platforms.md) |
-| 디스크 정리, 여러 프로세스 함께 쓰기 | [docs/operations.md](docs/operations.md) |
+| 알림(Slack·Discord webhook), 디스크 정리, 여러 프로세스 함께 쓰기 | [docs/operations.md](docs/operations.md) |
 | 구조, 테스트, 중복 게시를 막는 규칙 | [docs/development.md](docs/development.md) |
 
 ## 지원 플랫폼

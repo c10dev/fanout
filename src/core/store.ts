@@ -113,6 +113,7 @@ export class Store {
   readonly #db: DatabaseSync;
   readonly #box: SecretBox;
   readonly #now: () => Date;
+  readonly #listeners: Array<(target: Target, from: TargetState) => void> = [];
 
   constructor(path: string, box: SecretBox, now: () => Date = () => new Date()) {
     // Other fanout processes (dashboard, CLI, watch, MCP) write to the same file: wait for their
@@ -340,7 +341,20 @@ export class Store {
       this.#db.exec('ROLLBACK');
       throw err;
     }
-    return Object.keys(patch).length ? this.updateTarget(id, patch) : this.getTarget(id)!;
+    const next = Object.keys(patch).length ? this.updateTarget(id, patch) : this.getTarget(id)!;
+    for (const listener of this.#listeners) {
+      try {
+        listener(next, current.state);
+      } catch {
+        // A listener (e.g. notifications) must never break a state change.
+      }
+    }
+    return next;
+  }
+
+  /** Called after every state change with the updated target and the state it came from. */
+  onTransition(listener: (target: Target, from: TargetState) => void): void {
+    this.#listeners.push(listener);
   }
 
   /** When the target last entered `state`, from its event log. */
