@@ -9,7 +9,7 @@ if (!token || token === '__FANOUT_TOKEN__') {
   } catch {
     token = '';
   }
-  if (!token) token = prompt('대시보드 토큰 (fanout serve 출력 참고)') || '';
+  if (!token) token = prompt(tr('대시보드 토큰 (fanout serve 출력 참고)')) || '';
   try {
     sessionStorage.setItem('fanoutToken', token);
   } catch {
@@ -47,23 +47,23 @@ async function api(path, opts = {}) {
 // ── Labels ───────────────────────────────────────────────────────
 
 const STATE = {
-  queued: ['대기', 'info'],
-  transcoding: ['변환 중', 'info'],
-  uploading: ['업로드 중', 'info'],
-  processing: ['처리 중', 'info'],
-  published: ['게시됨', 'ok'],
-  handed_off: ['앱에서 마무리', 'warn'],
-  failed: ['실패', 'bad'],
-  needs_reauth: ['재연결 필요', 'bad'],
-  removed: ['삭제됨', 'info'],
-  canceled: ['취소됨', 'info'],
+  queued: [tr('대기'), 'info'],
+  transcoding: [tr('변환 중'), 'info'],
+  uploading: [tr('업로드 중'), 'info'],
+  processing: [tr('처리 중'), 'info'],
+  published: [tr('게시됨'), 'ok'],
+  handed_off: [tr('앱에서 마무리'), 'warn'],
+  failed: [tr('실패'), 'bad'],
+  needs_reauth: [tr('재연결 필요'), 'bad'],
+  removed: [tr('삭제됨'), 'info'],
+  canceled: [tr('취소됨'), 'info'],
 };
 const VERDICT = {
-  as_is: ['원본 그대로', 'ok'],
-  transcode: ['변환 후 업로드', 'warn'],
-  blocked: ['올릴 수 없음', 'bad'],
+  as_is: [tr('원본 그대로'), 'ok'],
+  transcode: [tr('변환 후 업로드'), 'warn'],
+  blocked: [tr('올릴 수 없음'), 'bad'],
 };
-const fmtTime = (iso) => new Date(iso).toLocaleString('ko-KR', { dateStyle: 'short', timeStyle: 'short' });
+const fmtTime = (iso) => new Date(iso).toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' });
 const badge = ([text, kind]) => h('span', { class: `badge ${kind}` }, text);
 
 // ── Per-platform option forms ────────────────────────────────────
@@ -92,54 +92,54 @@ const group = (label, control, wide = false) => h('div', { class: `opt${wide ? '
 
 const OPTION_FORMS = {
   youtube: () => [
-    opt('공개 범위', select('privacy', [['public', '공개'], ['unlisted', '일부 공개'], ['private', '비공개']], { placeholder: '선택하세요' })),
-    group('아동용 영상인가요?', radios('madeForKids', [['no', '아니요'], ['yes', '예']])),
-    opt('카테고리', select('categoryId', [['22', '인물/블로그', true], ['24', '엔터테인먼트'], ['10', '음악'], ['20', '게임'], ['26', '노하우/스타일'], ['27', '교육'], ['28', '과학기술'], ['19', '여행/이벤트'], ['17', '스포츠'], ['15', '동물']])),
-    opt('재생목록 ID (선택)', h('input', { type: 'text', name: 'playlistId', autocomplete: 'off' })),
-    checkbox('notifySubscribers', '구독자에게 알림', true),
+    opt(tr('공개 범위'), select('privacy', [['public', tr('공개')], ['unlisted', tr('일부 공개')], ['private', tr('비공개')]], { placeholder: tr('선택하세요') })),
+    group(tr('아동용 영상인가요?'), radios('madeForKids', [['no', tr('아니요')], ['yes', tr('예')]])),
+    opt(tr('카테고리'), select('categoryId', [['22', tr('인물/블로그'), true], ['24', tr('엔터테인먼트')], ['10', tr('음악')], ['20', tr('게임')], ['26', tr('노하우/스타일')], ['27', tr('교육')], ['28', tr('과학기술')], ['19', tr('여행/이벤트')], ['17', tr('스포츠')], ['15', tr('동물')]])),
+    opt(tr('재생목록 ID (선택)'), h('input', { type: 'text', name: 'playlistId', autocomplete: 'off' })),
+    checkbox('notifySubscribers', tr('구독자에게 알림'), true),
   ],
   tiktok: () => [
-    group('게시 방식', radios('mode', [['inbox', 'TikTok 앱 수신함으로 보내기', true], ['direct', '바로 게시 (Direct Post)']]), true),
-    h('p', { class: 'note', 'data-when': 'inbox' }, '업로드 후 TikTok 앱 알림에서 캡션과 공개 범위를 정해 게시를 마무리합니다.'),
-    opt('공개 범위', select('privacyLevel', [['PUBLIC_TO_EVERYONE', '모두'], ['MUTUAL_FOLLOW_FRIENDS', '맞팔로우 친구'], ['FOLLOWER_OF_CREATOR', '팔로워'], ['SELF_ONLY', '나만 보기']], { placeholder: '선택하세요' })),
-    group('허용할 상호작용', h('div', { class: 'choices' }, checkbox('allowComment', '댓글'), checkbox('allowDuet', '듀엣'), checkbox('allowStitch', '이어찍기'))),
-    group('콘텐츠 공개', h('div', { class: 'choices' }, checkbox('brandOrganic', '내 브랜드 홍보'), checkbox('brandedContent', '브랜디드 콘텐츠 (유료 협찬)'))),
-    opt('캡션 (비우면 제목·설명·태그로 만듦)', h('textarea', { name: 'caption', rows: 2 }), true),
-    h('div', { class: 'opt wide' }, checkbox('musicConsent', '게시하면 TikTok 음악 사용 확인(Music Usage Confirmation)에 동의합니다')),
-    h('p', { class: 'note' }, '심사 전 앱은 비공개 계정에 "나만 보기"로만 바로 게시할 수 있습니다.'),
+    group(tr('게시 방식'), radios('mode', [['inbox', tr('TikTok 앱 수신함으로 보내기'), true], ['direct', tr('바로 게시 (Direct Post)')]]), true),
+    h('p', { class: 'note', 'data-when': 'inbox' }, tr('업로드 후 TikTok 앱 알림에서 캡션과 공개 범위를 정해 게시를 마무리합니다.')),
+    opt(tr('공개 범위'), select('privacyLevel', [['PUBLIC_TO_EVERYONE', tr('모두')], ['MUTUAL_FOLLOW_FRIENDS', tr('맞팔로우 친구')], ['FOLLOWER_OF_CREATOR', tr('팔로워')], ['SELF_ONLY', tr('나만 보기')]], { placeholder: tr('선택하세요') })),
+    group(tr('허용할 상호작용'), h('div', { class: 'choices' }, checkbox('allowComment', tr('댓글')), checkbox('allowDuet', tr('듀엣')), checkbox('allowStitch', tr('이어찍기')))),
+    group(tr('콘텐츠 공개'), h('div', { class: 'choices' }, checkbox('brandOrganic', tr('내 브랜드 홍보')), checkbox('brandedContent', tr('브랜디드 콘텐츠 (유료 협찬)')))),
+    opt(tr('캡션 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
+    h('div', { class: 'opt wide' }, checkbox('musicConsent', tr('게시하면 TikTok 음악 사용 확인(Music Usage Confirmation)에 동의합니다'))),
+    h('p', { class: 'note' }, tr('심사 전 앱은 비공개 계정에 "나만 보기"로만 바로 게시할 수 있습니다.')),
   ],
   instagram: () => [
-    checkbox('shareToFeed', '프로필 피드에도 표시', true),
-    opt('캡션 (비우면 제목·설명·태그로 만듦)', h('textarea', { name: 'caption', rows: 2 }), true),
+    checkbox('shareToFeed', tr('프로필 피드에도 표시'), true),
+    opt(tr('캡션 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
   ],
   facebook: () => [
-    opt('설명 (비우면 제목·설명·태그로 만듦)', h('textarea', { name: 'caption', rows: 2 }), true),
-    h('p', { class: 'note' }, 'Facebook Reels는 9:16, 3~90초 영상만 받습니다.'),
+    opt(tr('설명 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
+    h('p', { class: 'note' }, tr('Facebook Reels는 9:16, 3~90초 영상만 받습니다.')),
   ],
   x: () => [
-    opt('글 (비우면 제목·설명·태그로 만듦, 가중치 280 이하·한글은 2로 셈)', h('textarea', { name: 'text', rows: 2 }), true),
-    h('p', { class: 'note' }, 'X API는 종량제입니다. URL이 들어간 게시물은 요금이 훨씬 비쌉니다.'),
+    opt(tr('글 (비우면 제목·설명·태그로 만듦, 가중치 280 이하·한글은 2로 셈)'), h('textarea', { name: 'text', rows: 2 }), true),
+    h('p', { class: 'note' }, tr('X API는 종량제입니다. URL이 들어간 게시물은 요금이 훨씬 비쌉니다.')),
   ],
   mastodon: () => [
-    opt('공개 범위', select('visibility', [['public', '공개'], ['unlisted', '조용히 공개'], ['private', '팔로워만']], { placeholder: '선택하세요' })),
-    opt('글 (비우면 제목·설명·태그로 만듦)', h('textarea', { name: 'text', rows: 2 }), true),
-    opt('영상 대체 텍스트 (선택)', h('input', { type: 'text', name: 'alt', autocomplete: 'off' })),
-    opt('언어 (선택, 예: ko)', h('input', { type: 'text', name: 'language', autocomplete: 'off' })),
-    opt('내용 경고 (선택)', h('input', { type: 'text', name: 'spoilerText', autocomplete: 'off' })),
+    opt(tr('공개 범위'), select('visibility', [['public', tr('공개')], ['unlisted', tr('조용히 공개')], ['private', tr('팔로워만')]], { placeholder: tr('선택하세요') })),
+    opt(tr('글 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'text', rows: 2 }), true),
+    opt(tr('영상 대체 텍스트 (선택)'), h('input', { type: 'text', name: 'alt', autocomplete: 'off' })),
+    opt(tr('언어 (선택, 예: ko)'), h('input', { type: 'text', name: 'language', autocomplete: 'off' })),
+    opt(tr('내용 경고 (선택)'), h('input', { type: 'text', name: 'spoilerText', autocomplete: 'off' })),
   ],
   peertube: () => [
-    opt('공개 범위', select('privacy', [['public', '공개'], ['unlisted', '링크가 있는 사람만'], ['private', '비공개'], ['internal', '인스턴스 사용자만']], { placeholder: '선택하세요' })),
-    opt('채널 (선택, 비우면 첫 채널)', h('input', { type: 'text', name: 'channel', autocomplete: 'off' })),
-    opt('댓글', select('commentsPolicy', [['', '인스턴스 기본'], ['enabled', '허용'], ['approval', '승인 후 공개'], ['disabled', '막기']])),
-    opt('언어 (선택, 예: ko)', h('input', { type: 'text', name: 'language', autocomplete: 'off' })),
-    checkbox('nsfw', '민감한 콘텐츠(NSFW)'),
-    h('p', { class: 'note' }, 'PeerTube 제목은 3~120자, 태그는 5개까지(각 2~30자)만 올라갑니다. 예약하면 비공개로 올렸다가 그 시각에 공개 범위를 바꿉니다.'),
+    opt(tr('공개 범위'), select('privacy', [['public', tr('공개')], ['unlisted', tr('링크가 있는 사람만')], ['private', tr('비공개')], ['internal', tr('인스턴스 사용자만')]], { placeholder: tr('선택하세요') })),
+    opt(tr('채널 (선택, 비우면 첫 채널)'), h('input', { type: 'text', name: 'channel', autocomplete: 'off' })),
+    opt(tr('댓글'), select('commentsPolicy', [['', tr('인스턴스 기본')], ['enabled', tr('허용')], ['approval', tr('승인 후 공개')], ['disabled', tr('막기')]])),
+    opt(tr('언어 (선택, 예: ko)'), h('input', { type: 'text', name: 'language', autocomplete: 'off' })),
+    checkbox('nsfw', tr('민감한 콘텐츠(NSFW)')),
+    h('p', { class: 'note' }, tr('PeerTube 제목은 3~120자, 태그는 5개까지(각 2~30자)만 올라갑니다. 예약하면 비공개로 올렸다가 그 시각에 공개 범위를 바꿉니다.')),
   ],
   bluesky: () => [
-    opt('글 (비우면 제목·설명·태그로 만듦, 300자 이하)', h('textarea', { name: 'text', rows: 2 }), true),
-    opt('영상 대체 텍스트 (선택)', h('input', { type: 'text', name: 'alt', autocomplete: 'off' })),
-    opt('글 언어 (선택, 예: ko)', h('input', { type: 'text', name: 'langs', autocomplete: 'off' })),
-    h('p', { class: 'note' }, 'Bluesky는 mp4 최대 300MB, 자막은 VTT 파일만 붙습니다.'),
+    opt(tr('글 (비우면 제목·설명·태그로 만듦, 300자 이하)'), h('textarea', { name: 'text', rows: 2 }), true),
+    opt(tr('영상 대체 텍스트 (선택)'), h('input', { type: 'text', name: 'alt', autocomplete: 'off' })),
+    opt(tr('글 언어 (선택, 예: ko)'), h('input', { type: 'text', name: 'langs', autocomplete: 'off' })),
+    h('p', { class: 'note' }, tr('Bluesky는 mp4 최대 300MB, 자막은 VTT 파일만 붙습니다.')),
   ],
 };
 
@@ -217,7 +217,7 @@ let presets = [];
 function renderPresets() {
   const sel = $('#preset-select');
   const current = sel.value;
-  sel.replaceChildren(h('option', { value: '' }, '프리셋 불러오기…'), ...presets.map((p) => h('option', { value: p.name, selected: p.name === current }, p.name)));
+  sel.replaceChildren(h('option', { value: '' }, tr('프리셋 불러오기…')), ...presets.map((p) => h('option', { value: p.name, selected: p.name === current }, p.name)));
   $('#preset-delete').hidden = !sel.value;
 }
 
@@ -255,7 +255,7 @@ function applyPreset(preset) {
   if (!addingTo && preset.tags?.length) $('#tags').value = preset.tags.join(', ');
   if (!addingTo && preset.description) $('#description').value = preset.description;
   hideConfirm();
-  $('#form-error').textContent = missing.length ? `연결돼 있지 않아 건너뛴 계정: ${missing.join(', ')}` : '';
+  $('#form-error').textContent = missing.length ? tr('연결돼 있지 않아 건너뛴 계정: {list}', { list: missing.join(', ') }) : '';
 }
 
 $('#preset-select').addEventListener('change', (e) => {
@@ -274,10 +274,10 @@ $('#preset-save').addEventListener('click', async () => {
     targets.push({ platform, account, options: JSON.parse(JSON.stringify(readOptions(platform, block.querySelector('.target-body')))) });
   }
   if (!targets.length) {
-    $('#form-error').textContent = '프리셋에 넣을 플랫폼을 먼저 고르세요';
+    $('#form-error').textContent = tr('프리셋에 넣을 플랫폼을 먼저 고르세요');
     return;
   }
-  const name = prompt('프리셋 이름 (같은 이름이면 덮어씁니다)', $('#preset-select').value || '');
+  const name = prompt(tr('프리셋 이름 (같은 이름이면 덮어씁니다)'), $('#preset-select').value || '');
   if (!name?.trim()) return;
   try {
     presets = (
@@ -296,7 +296,7 @@ $('#preset-save').addEventListener('click', async () => {
 
 $('#preset-delete').addEventListener('click', async () => {
   const name = $('#preset-select').value;
-  if (!name || !confirm(`프리셋 "${name}"을 지울까요?`)) return;
+  if (!name || !confirm(tr('프리셋 "{name}"을 지울까요?', { name }))) return;
   presets = (await api(`/presets/${encodeURIComponent(name)}`, { method: 'DELETE' })).presets;
   $('#preset-select').value = '';
   renderPresets();
@@ -306,15 +306,15 @@ $('#preset-delete').addEventListener('click', async () => {
 function missingChoices(platform, o) {
   const out = [];
   if (platform === 'youtube') {
-    if (!o.privacy) out.push('YouTube 공개 범위를 고르세요');
-    if (o.madeForKids === undefined) out.push('YouTube 아동용 여부를 고르세요');
+    if (!o.privacy) out.push(tr('YouTube 공개 범위를 고르세요'));
+    if (o.madeForKids === undefined) out.push(tr('YouTube 아동용 여부를 고르세요'));
   }
-  if (platform === 'mastodon' && !o.visibility) out.push('Mastodon 공개 범위를 고르세요');
-  if (platform === 'peertube' && !o.privacy) out.push('PeerTube 공개 범위를 고르세요');
+  if (platform === 'mastodon' && !o.visibility) out.push(tr('Mastodon 공개 범위를 고르세요'));
+  if (platform === 'peertube' && !o.privacy) out.push(tr('PeerTube 공개 범위를 고르세요'));
   if (platform === 'tiktok' && o.mode === 'direct') {
-    if (!o.privacyLevel) out.push('TikTok 공개 범위를 고르세요');
-    if (!o.musicConsent) out.push('TikTok 음악 사용 확인에 동의해야 바로 게시할 수 있습니다');
-    if (o.brandedContent && o.privacyLevel === 'SELF_ONLY') out.push('TikTok 브랜디드 콘텐츠는 "나만 보기"로 올릴 수 없습니다');
+    if (!o.privacyLevel) out.push(tr('TikTok 공개 범위를 고르세요'));
+    if (!o.musicConsent) out.push(tr('TikTok 음악 사용 확인에 동의해야 바로 게시할 수 있습니다'));
+    if (o.brandedContent && o.privacyLevel === 'SELF_ONLY') out.push(tr('TikTok 브랜디드 콘텐츠는 "나만 보기"로 올릴 수 없습니다'));
   }
   return out;
 }
@@ -327,7 +327,7 @@ let media = null; // { id, name, media, isShort, assessments }
 function renderAccounts() {
   $('#accounts').replaceChildren(
     ...overview.platforms.map((p) =>
-      h('li', { class: `chip${p.accounts.length ? ' on' : ''}`, title: p.accounts.length ? '' : `fanout connect ${p.id}` }, p.displayName, p.accounts.length ? ` · ${p.accounts.map((a) => a.label).join(', ')}` : ' · 연결 안 됨'),
+      h('li', { class: `chip${p.accounts.length ? ' on' : ''}`, title: p.accounts.length ? '' : `fanout connect ${p.id}` }, p.displayName, p.accounts.length ? ` · ${p.accounts.map((a) => a.label).join(', ')}` : tr(' · 연결 안 됨')),
     ),
   );
 }
@@ -377,9 +377,9 @@ function renderTargets() {
       });
       const account = connected
         ? p.accounts.length > 1
-          ? h('select', { name: 'account', 'aria-label': `${p.displayName} 계정` }, p.accounts.map((a) => h('option', { value: a.name }, a.label)))
+          ? h('select', { name: 'account', 'aria-label': tr('{platform} 계정', { platform: p.displayName }) }, p.accounts.map((a) => h('option', { value: a.name }, a.label)))
           : h('span', { class: 'muted', 'data-account': p.accounts[0].name }, `→ ${p.accounts[0].label}`)
-        : h('span', { class: 'muted' }, `연결 안 됨 · 터미널에서 fanout setup ${p.id}`);
+        : h('span', { class: 'muted' }, tr('연결 안 됨 · 터미널에서 fanout setup {id}', { id: p.id }));
       const head = h(
         'div',
         { class: 'target-head' },
@@ -389,7 +389,7 @@ function renderTargets() {
         p.id === 'youtube' && media?.isShort ? badge(['Shorts', 'info']) : null,
       );
       const reasons = assessment?.violations.length
-        ? h('p', { class: 'note' }, assessment.violations.map((v) => `${v.fixable ? '변환' : '불가'}: ${v.message}`).join(' · '))
+        ? h('p', { class: 'note' }, assessment.violations.map((v) => `${v.fixable ? tr('변환') : tr('불가')}: ${v.message}`).join(' · '))
         : null;
       const block = h('div', { class: `target${connected && !blocked ? '' : ' disabled'}`, 'data-platform': p.id }, head, reasons, body);
       if (p.id === 'tiktok') wireTikTokMode(body);
@@ -454,11 +454,11 @@ async function startAddMode(postId) {
   $('#captions').replaceChildren();
   $('#ai').checked = Boolean(m.post.containsSyntheticMedia);
   for (const q of LOCKED_FIELDS) $(q).disabled = true;
-  $('#drop-label').textContent = `${m.name} (이 게시물의 영상)`;
+  $('#drop-label').textContent = tr('{name} (이 게시물의 영상)', { name: m.name });
   const banner = $('#add-banner');
   banner.replaceChildren(
-    h('span', {}, '게시물 ', h('strong', {}, `"${m.post.title}"`), '에 플랫폼을 추가합니다. 제목·설명·예약·첨부는 원래 게시물 그대로입니다.'),
-    h('button', { type: 'button', class: 'small', onclick: exitAddMode }, '그만두기'),
+    h('span', {}, tr('게시물 '), h('strong', {}, `"${m.post.title}"`), tr('에 플랫폼을 추가합니다. 제목·설명·예약·첨부는 원래 게시물 그대로입니다.')),
+    h('button', { type: 'button', class: 'small', onclick: exitAddMode }, tr('그만두기')),
   );
   banner.hidden = false;
   $('#form-error').textContent = '';
@@ -473,7 +473,7 @@ function exitAddMode() {
   $('#add-banner').hidden = true;
   $('#post-form').reset();
   $('#captions').replaceChildren();
-  $('#drop-label').textContent = '영상 파일을 고르거나 여기에 끌어다 놓으세요';
+  $('#drop-label').textContent = tr('영상 파일을 고르거나 여기에 끌어다 놓으세요');
   $('#form-error').textContent = '';
   hideConfirm();
   media = null;
@@ -509,7 +509,7 @@ function renderMedia() {
     h(
       'div',
       { class: 'spec' },
-      `${v.width}×${v.height} · ${v.codec} · ${v.fps.toFixed(0)}fps · ${m.durationSec.toFixed(1)}초 · ${(m.sizeBytes / 1048576).toFixed(1)}MB · ${m.audio ? `${m.audio.codec} ${m.audio.sampleRate / 1000}kHz` : '오디오 없음'}`,
+      `${v.width}×${v.height} · ${v.codec} · ${v.fps.toFixed(0)}fps · ${tr('{n}초', { n: m.durationSec.toFixed(1) })} · ${(m.sizeBytes / 1048576).toFixed(1)}MB · ${m.audio ? `${m.audio.codec} ${m.audio.sampleRate / 1000}kHz` : tr('오디오 없음')}`,
     ),
   );
 }
@@ -518,14 +518,14 @@ function renderMedia() {
 
 function uploadFile(file) {
   if (addingTo) {
-    $('#form-error').textContent = '플랫폼 추가 중입니다. 새 영상을 올리려면 먼저 "그만두기"를 누르세요';
+    $('#form-error').textContent = tr('플랫폼 추가 중입니다. 새 영상을 올리려면 먼저 "그만두기"를 누르세요');
     return;
   }
   const bar = $('#upload-progress');
   const label = $('#drop-label');
   bar.hidden = false;
   bar.value = 0;
-  label.textContent = `${file.name} 올리는 중…`;
+  label.textContent = tr('{name} 올리는 중…', { name: file.name });
   $('#form-error').textContent = '';
   media = null;
   renderMedia();
@@ -543,19 +543,19 @@ function uploadFile(file) {
       body = JSON.parse(xhr.responseText);
     } catch {}
     if (xhr.status >= 300) {
-      label.textContent = '영상 파일을 고르거나 여기에 끌어다 놓으세요';
-      $('#form-error').textContent = body.error || `업로드 실패 (HTTP ${xhr.status})`;
+      label.textContent = tr('영상 파일을 고르거나 여기에 끌어다 놓으세요');
+      $('#form-error').textContent = body.error || tr('업로드 실패 (HTTP {status})', { status: xhr.status });
       return;
     }
     media = body;
-    label.textContent = `${file.name} · 다른 파일로 바꾸려면 다시 고르세요`;
+    label.textContent = tr('{name} · 다른 파일로 바꾸려면 다시 고르세요', { name: file.name });
     if (!$('#title').value) $('#title').value = file.name.replace(/\.[^.]+$/, '').slice(0, 100);
     renderMedia();
     renderTargets();
   };
   xhr.onerror = () => {
     bar.hidden = true;
-    $('#form-error').textContent = '업로드 중 연결이 끊겼습니다';
+    $('#form-error').textContent = tr('업로드 중 연결이 끊겼습니다');
   };
   xhr.send(file);
 }
@@ -572,9 +572,9 @@ function addCaptionRow(language = 'ko') {
   const row = h(
     'div',
     { class: 'caption-row' },
-    h('input', { name: 'language', value: language, 'aria-label': '자막 언어 코드', placeholder: 'ko' }),
-    h('input', { type: 'file', name: 'file', accept: '.srt,.vtt,.sbv,.scc,.ttml,.dfxp', 'aria-label': '자막 파일' }),
-    h('button', { type: 'button', class: 'small', onclick: () => { row.remove(); hideConfirm(); } }, '빼기'),
+    h('input', { name: 'language', value: language, 'aria-label': tr('자막 언어 코드'), placeholder: 'ko' }),
+    h('input', { type: 'file', name: 'file', accept: '.srt,.vtt,.sbv,.scc,.ttml,.dfxp', 'aria-label': tr('자막 파일') }),
+    h('button', { type: 'button', class: 'small', onclick: () => { row.remove(); hideConfirm(); } }, tr('빼기')),
   );
   $('#captions').append(row);
 }
@@ -596,9 +596,9 @@ async function uploadAsset(kind, file) {
 /** Read and check the form; returns errors, or everything needed to preview and post. */
 function collectForm() {
   const errors = [];
-  if (!media) errors.push('먼저 영상을 고르세요');
+  if (!media) errors.push(tr('먼저 영상을 고르세요'));
   const title = $('#title').value.trim();
-  if (!title) errors.push('제목을 입력하세요');
+  if (!title) errors.push(tr('제목을 입력하세요'));
   const targets = [];
   for (const block of document.querySelectorAll('.target')) {
     if (!block.querySelector('[name="enabled"]').checked) continue;
@@ -608,18 +608,18 @@ function collectForm() {
     errors.push(...missingChoices(platform, options));
     targets.push({ platform, account, options: JSON.parse(JSON.stringify(options)) });
   }
-  if (!targets.length) errors.push('올릴 곳을 하나 이상 고르세요');
+  if (!targets.length) errors.push(tr('올릴 곳을 하나 이상 고르세요'));
   const scheduled = $('#scheduled').value;
   const thumbnail = $('#thumbnail').files[0];
-  if (thumbnail && thumbnail.size > 2 * 1024 * 1024) errors.push('썸네일은 2MB 이하여야 합니다');
+  if (thumbnail && thumbnail.size > 2 * 1024 * 1024) errors.push(tr('썸네일은 2MB 이하여야 합니다'));
   const captionRows = [...document.querySelectorAll('.caption-row')]
     .map((r) => ({ language: r.querySelector('[name="language"]').value.trim(), file: r.querySelector('[name="file"]').files[0] }))
     .filter((c) => c.file || c.language);
-  for (const c of captionRows) if (!c.file || !c.language) errors.push('자막은 언어 코드와 파일을 모두 넣어 주세요');
+  for (const c of captionRows) if (!c.file || !c.language) errors.push(tr('자막은 언어 코드와 파일을 모두 넣어 주세요'));
   // Which platforms actually use these files (capabilities in the providers).
   const uses = (list) => targets.some((t) => list.includes(t.platform));
-  if (thumbnail && !uses(['youtube', 'mastodon', 'peertube'])) errors.push('썸네일은 YouTube·Mastodon·PeerTube에만 적용됩니다. 해당 플랫폼을 고르거나 썸네일을 비워 주세요');
-  if (captionRows.length && !uses(['youtube', 'bluesky', 'peertube'])) errors.push('자막은 YouTube·Bluesky·PeerTube에만 적용됩니다. 해당 플랫폼을 고르거나 자막을 비워 주세요');
+  if (thumbnail && !uses(['youtube', 'mastodon', 'peertube'])) errors.push(tr('썸네일은 YouTube·Mastodon·PeerTube에만 적용됩니다. 해당 플랫폼을 고르거나 썸네일을 비워 주세요'));
+  if (captionRows.length && !uses(['youtube', 'bluesky', 'peertube'])) errors.push(tr('자막은 YouTube·Bluesky·PeerTube에만 적용됩니다. 해당 플랫폼을 고르거나 자막을 비워 주세요'));
   const payload = {
     mediaId: media?.id,
     title,
@@ -682,18 +682,18 @@ function renderConfirm(previews, form) {
       h('div', { class: 'confirm-head' }, h('strong', {}, p.platform), ` → ${p.accountLabel ?? p.account}`, h('span', { class: 'muted' }, ` · ${p.visibility}`), badge(VERDICT[p.verdict])),
       p.errors.map((m) => h('div', { class: 'err' }, `✗ ${m}`)),
       p.warnings.map((m) => h('div', { class: 'warnline' }, `⚠ ${m}`)),
-      p.transcode.length ? h('div', { class: 'muted' }, `변환: ${p.transcode.join(', ')}`) : null,
+      p.transcode.length ? h('div', { class: 'muted' }, tr('변환: {list}', { list: p.transcode.join(', ') })) : null,
     ),
   );
   const box = $('#confirm');
   box.replaceChildren(
-    h('h3', { class: 'sub' }, blocked ? '이대로는 올릴 수 없습니다' : '이렇게 올립니다'),
+    h('h3', { class: 'sub' }, blocked ? tr('이대로는 올릴 수 없습니다') : tr('이렇게 올립니다')),
     h('ul', { class: 'confirm-list' }, rows),
     h(
       'div',
       { class: 'actions' },
-      blocked ? null : h('button', { type: 'button', class: 'primary', id: 'confirm-post', onclick: () => post(form) }, '이대로 업로드'),
-      h('button', { type: 'button', class: 'small', onclick: hideConfirm }, blocked ? '고치기' : '취소'),
+      blocked ? null : h('button', { type: 'button', class: 'primary', id: 'confirm-post', onclick: () => post(form) }, tr('이대로 업로드')),
+      h('button', { type: 'button', class: 'small', onclick: hideConfirm }, blocked ? tr('고치기') : tr('취소')),
     ),
   );
   box.hidden = false;
@@ -715,7 +715,7 @@ async function post(form) {
     await api('/posts', { method: 'POST', body: JSON.stringify(form.payload) });
     $('#post-form').reset();
     $('#captions').replaceChildren();
-    $('#drop-label').textContent = '영상 파일을 고르거나 여기에 끌어다 놓으세요';
+    $('#drop-label').textContent = tr('영상 파일을 고르거나 여기에 끌어다 놓으세요');
     $('#form-error').textContent = '';
     hideConfirm();
     media = null;
@@ -730,22 +730,22 @@ async function post(form) {
 
 // ── Status board ─────────────────────────────────────────────────
 
-const fmtNum = (n) => (n === undefined || n === null ? '-' : Number(n).toLocaleString('ko-KR'));
+const fmtNum = (n) => (n === undefined || n === null ? '-' : Number(n).toLocaleString(LOCALE));
 
 function statsLine(st, trend) {
   const parts = [
-    ['조회', st.views, trend?.views],
-    ['좋아요', st.likes, trend?.likes],
-    ['댓글', st.comments, trend?.comments],
-    ['공유', st.shares, trend?.shares],
+    [tr('조회'), st.views, trend?.views],
+    [tr('좋아요'), st.likes, trend?.likes],
+    [tr('댓글'), st.comments, trend?.comments],
+    [tr('공유'), st.shares, trend?.shares],
   ].filter(([, v]) => v !== undefined && v !== null);
   // Growth since the reading a day ago (the worker records one every few hours).
   const delta = (d) => (d === undefined || d === null || d === 0 ? null : h('span', { class: d > 0 ? 'up' : 'down' }, ` ${d > 0 ? '+' : ''}${fmtNum(d)}`));
   return h(
     'div',
-    { class: 'stats', title: [trend ? `+/- 숫자: ${fmtTime(trend.since)} 이후 변화` : '', st.note ?? ''].filter(Boolean).join('\n') },
+    { class: 'stats', title: [trend ? tr('+/- 숫자: {time} 이후 변화', { time: fmtTime(trend.since) }) : '', st.note ?? ''].filter(Boolean).join('\n') },
     parts.map(([k, v, d]) => h('span', {}, `${k} `, h('strong', {}, fmtNum(v)), delta(d))),
-    h('span', { class: 'muted' }, ` · ${fmtTime(st.fetchedAt)} 기준`),
+    h('span', { class: 'muted' }, ` · ${tr('{time} 기준', { time: fmtTime(st.fetchedAt) })}`),
     st.note && !parts.length ? h('span', { class: 'muted' }, ` · ${st.note}`) : null,
   );
 }
@@ -753,10 +753,10 @@ function statsLine(st, trend) {
 function targetRow(t) {
   const detail = h('div', { class: 'tdetail' });
   if (t.remoteUrl) detail.append(h('a', { href: t.remoteUrl, target: '_blank', rel: 'noopener noreferrer' }, t.remoteUrl));
-  else if (t.state === 'queued' && t.notBefore) detail.append(h('span', { class: 'muted' }, `${fmtTime(t.notBefore)}에 시작`));
+  else if (t.state === 'queued' && t.notBefore) detail.append(h('span', { class: 'muted' }, tr('{time}에 시작', { time: fmtTime(t.notBefore) })));
   if (t.errorCode) detail.append(h('div', { class: 'err' }, `${t.errorCode}: ${t.errorMessage ?? ''}`));
   for (const w of t.warnings) detail.append(h('div', { class: 'warnline' }, `⚠ ${w}`));
-  if (t.attempts > 1) detail.append(h('div', { class: 'muted' }, `시도 ${t.attempts}회`));
+  if (t.attempts > 1) detail.append(h('div', { class: 'muted' }, tr('시도 {n}회', { n: t.attempts })));
   if (t.stats) detail.append(statsLine(t.stats, t.trend));
   if (t.state === 'published' && t.statsCost) {
     detail.append(
@@ -767,13 +767,13 @@ function targetRow(t) {
           type: 'button',
           title: t.statsCost,
           onclick: async (e) => {
-            if (!confirm(`${t.statsCost}. 이 게시물의 반응을 가져올까요?`)) return;
+            if (!confirm(tr('{cost}. 이 게시물의 반응을 가져올까요?', { cost: t.statsCost }))) return;
             e.target.disabled = true;
             await api(`/posts/${t.postId}/stats`, { method: 'POST', body: JSON.stringify({ includePaid: true, platform: t.platform }) }).catch((err) => alert(err.message));
             refreshBoard();
           },
         },
-        '반응 가져오기 (요금)',
+        tr('반응 가져오기 (요금)'),
       ),
     );
   }
@@ -785,13 +785,13 @@ function targetRow(t) {
           class: 'small danger',
           type: 'button',
           onclick: async (e) => {
-            if (!confirm(`${t.platform}/${t.account}에서 이 게시물을 삭제할까요?\n플랫폼에서 지워지며 되돌릴 수 없습니다.`)) return;
+            if (!confirm(tr('{target}에서 이 게시물을 삭제할까요?\n플랫폼에서 지워지며 되돌릴 수 없습니다.', { target: `${t.platform}/${t.account}` }))) return;
             e.target.disabled = true;
             await api(`/targets/${t.id}/remove`, { method: 'POST' }).catch((err) => alert(err.message));
             refreshBoard();
           },
         },
-        '삭제',
+        tr('삭제'),
       )
     : null;
   const cancel = ['queued', 'failed', 'needs_reauth'].includes(t.state)
@@ -801,21 +801,21 @@ function targetRow(t) {
           class: 'small',
           type: 'button',
           onclick: async (e) => {
-            if (!confirm(`${t.platform}/${t.account}에 올리는 것을 취소할까요?`)) return;
+            if (!confirm(tr('{target}에 올리는 것을 취소할까요?', { target: `${t.platform}/${t.account}` }))) return;
             e.target.disabled = true;
             const cancelIt = (confirmedNotPosted) => api(`/targets/${t.id}/cancel`, { method: 'POST', body: JSON.stringify({ confirmedNotPosted }) });
             try {
               await cancelIt(false);
             } catch (err) {
               // It may already be on the platform: only the user can say it isn't.
-              if (err.body?.needsConfirm && confirm(`${err.message}\n\n${t.platform}에서 직접 확인했고 올라가지 않았나요?`)) {
+              if (err.body?.needsConfirm && confirm(`${err.message}\n\n${tr('{platform}에서 직접 확인했고 올라가지 않았나요?', { platform: t.platform })}`)) {
                 await cancelIt(true).catch((again) => alert(again.message));
               } else if (!err.body?.needsConfirm) alert(err.message);
             }
             refreshBoard();
           },
         },
-        '취소',
+        tr('취소'),
       )
     : null;
   const retry =
@@ -835,7 +835,7 @@ function targetRow(t) {
               refreshBoard();
             },
           },
-          '다시 시도',
+          tr('다시 시도'),
         )
       : null;
   const actions = h('div', { class: 'row-actions' }, retry, cancel, remove);
@@ -875,15 +875,15 @@ function commentsPanel(postId) {
   if (results === undefined) return null;
   const body =
     results === null
-      ? [h('p', { class: 'muted' }, '댓글을 불러오는 중…')]
+      ? [h('p', { class: 'muted' }, tr('댓글을 불러오는 중…'))]
       : results.map((r) =>
           h(
             'div',
             { class: 'comment-group' },
-            r.platform ? h('div', { class: 'comment-src' }, `${r.platform}/${r.account}`, h('span', { class: 'muted' }, r.comments ? ` · ${r.comments.length}개` : '')) : null,
+            r.platform ? h('div', { class: 'comment-src' }, `${r.platform}/${r.account}`, h('span', { class: 'muted' }, r.comments ? ` · ${tr('{n}개', { n: r.comments.length })}` : '')) : null,
             r.skipped ? h('p', { class: 'muted' }, r.skipped) : null,
             r.error ? h('p', { class: 'err' }, r.error) : null,
-            r.comments && !r.comments.length ? h('p', { class: 'muted' }, '아직 댓글이 없습니다') : null,
+            r.comments && !r.comments.length ? h('p', { class: 'muted' }, tr('아직 댓글이 없습니다')) : null,
             (r.comments ?? []).map((c) =>
               h(
                 'div',
@@ -892,11 +892,11 @@ function commentsPanel(postId) {
                   'div',
                   { class: 'comment-meta' },
                   h('strong', {}, c.author),
-                  h('span', { class: 'muted' }, ` · ${c.at ? fmtTime(c.at) : ''}${c.likes ? ` · ♥ ${fmtNum(c.likes)}` : ''}${c.replies ? ` · 답글 ${fmtNum(c.replies)}` : ''}`),
-                  c.url ? h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer', class: 'comment-link' }, '열기') : null,
+                  h('span', { class: 'muted' }, ` · ${c.at ? fmtTime(c.at) : ''}${c.likes ? ` · ♥ ${fmtNum(c.likes)}` : ''}${c.replies ? ` · ${tr('답글 {n}', { n: fmtNum(c.replies) })}` : ''}`),
+                  c.url ? h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer', class: 'comment-link' }, tr('열기')) : null,
                 ),
                 h('div', { class: 'comment-text' }, c.text),
-                repliedComments.has(`${r.targetId}:${c.id}`) ? h('div', { class: 'okline' }, '✓ 답글을 달았습니다') : null,
+                repliedComments.has(`${r.targetId}:${c.id}`) ? h('div', { class: 'okline' }, tr('✓ 답글을 달았습니다')) : null,
                 r.canReply
                   ? h(
                       'button',
@@ -905,7 +905,7 @@ function commentsPanel(postId) {
                         type: 'button',
                         onclick: (e) => {
                           if (editingPost) {
-                            alert('수정 중인 게시물이 있습니다. 저장하거나 닫은 뒤 답글을 쓰세요');
+                            alert(tr('수정 중인 게시물이 있습니다. 저장하거나 닫은 뒤 답글을 쓰세요'));
                             return;
                           }
                           // One reply box at a time, like the edit form.
@@ -916,7 +916,7 @@ function commentsPanel(postId) {
                           box.querySelector('textarea').focus();
                         },
                       },
-                      '답글',
+                      tr('답글'),
                     )
                   : null,
               ),
@@ -926,7 +926,7 @@ function commentsPanel(postId) {
   return h(
     'div',
     { class: 'comments' },
-    h('div', { class: 'comments-head' }, h('strong', {}, '댓글'), h('button', { class: 'small', type: 'button', onclick: reload, disabled: results === null }, '다시 불러오기')),
+    h('div', { class: 'comments-head' }, h('strong', {}, tr('댓글')), h('button', { class: 'small', type: 'button', onclick: reload, disabled: results === null }, tr('다시 불러오기'))),
     body,
   );
 }
@@ -948,7 +948,7 @@ async function loadComments(postId) {
 function toggleComments(postId) {
   // The card being edited isn't re-rendered, so its panel couldn't appear or go away.
   if (editingPost === postId) {
-    alert('이 게시물을 수정하는 중입니다. 저장하거나 닫은 뒤 댓글을 여세요');
+    alert(tr('이 게시물을 수정하는 중입니다. 저장하거나 닫은 뒤 댓글을 여세요'));
     return;
   }
   if (openComments.has(postId)) {
@@ -976,7 +976,7 @@ function closeReplyBox() {
 function replyBox(postId, targetId, comment) {
   const key = `${targetId}:${comment.id}`;
   const status = h('div', { class: 'msg' });
-  const text = h('textarea', { rows: 2, maxlength: 5000, 'aria-label': '답글 내용' });
+  const text = h('textarea', { rows: 2, maxlength: 5000, 'aria-label': tr('답글 내용') });
   const close = () => {
     if (replyingTo?.key === key) replyingTo = null;
     refreshBoard();
@@ -988,13 +988,13 @@ function replyBox(postId, targetId, comment) {
       type: 'button',
       onclick: async () => {
         sendButton.disabled = true;
-        message(status, '보내는 중…', true);
+        message(status, tr('보내는 중…'), true);
         try {
           await api(`/targets/${targetId}/reply`, { method: 'POST', body: JSON.stringify({ commentId: comment.id, text: text.value }) });
           repliedComments.add(key);
           // Another reply box may have been opened while this one was sending: leave that one be.
           if (replyingTo?.key === key) replyingTo = null;
-          else box.replaceWith(h('div', { class: 'okline' }, '✓ 답글을 달았습니다'));
+          else box.replaceWith(h('div', { class: 'okline' }, tr('✓ 답글을 달았습니다')));
           loadComments(postId);
         } catch (err) {
           message(status, err.message, false);
@@ -1002,14 +1002,14 @@ function replyBox(postId, targetId, comment) {
         }
       },
     },
-    '답글 달기',
+    tr('답글 달기'),
   );
   const box = h(
     'div',
     { class: 'reply-box' },
     text,
-    h('p', { class: 'note' }, '연결된 계정 이름으로 바로 공개됩니다.'),
-    h('div', { class: 'row-actions' }, sendButton, h('button', { class: 'small', type: 'button', onclick: close }, '취소')),
+    h('p', { class: 'note' }, tr('연결된 계정 이름으로 바로 공개됩니다.')),
+    h('div', { class: 'row-actions' }, sendButton, h('button', { class: 'small', type: 'button', onclick: close }, tr('취소'))),
     status,
   );
   return box;
@@ -1039,7 +1039,7 @@ function editForm(post, card) {
           });
           const icon = { updated: '✓', skipped: '·', failed: '✗' };
           status.replaceChildren(
-            ...results.map((r) => h('div', { class: r.status === 'failed' ? 'err' : r.status === 'updated' ? 'okline' : 'muted' }, `${icon[r.status]} ${r.platform}/${r.account} ${r.status === 'updated' ? '반영함' : (r.detail ?? '')}`)),
+            ...results.map((r) => h('div', { class: r.status === 'failed' ? 'err' : r.status === 'updated' ? 'okline' : 'muted' }, `${icon[r.status]} ${r.platform}/${r.account} ${r.status === 'updated' ? tr('반영함') : (r.detail ?? '')}`)),
           );
         } catch (err) {
           message(status, err.message, false);
@@ -1048,11 +1048,11 @@ function editForm(post, card) {
         }
       },
     },
-    h('label', { class: 'field' }, '제목', title),
-    h('label', { class: 'field' }, '설명', description),
-    h('label', { class: 'field' }, '태그', tags),
-    h('p', { class: 'note' }, 'YouTube·Facebook·Mastodon·PeerTube에 게시된 글에 반영됩니다. 다른 플랫폼은 API로 고칠 수 없습니다.'),
-    h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'submit' }, '수정 반영'), h('button', { class: 'small', type: 'button', onclick: close }, '닫기')),
+    h('label', { class: 'field' }, tr('제목'), title),
+    h('label', { class: 'field' }, tr('설명'), description),
+    h('label', { class: 'field' }, tr('태그'), tags),
+    h('p', { class: 'note' }, tr('YouTube·Facebook·Mastodon·PeerTube에 게시된 글에 반영됩니다. 다른 플랫폼은 API로 고칠 수 없습니다.')),
+    h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'submit' }, tr('수정 반영')), h('button', { class: 'small', type: 'button', onclick: close }, tr('닫기'))),
     status,
   );
 }
@@ -1060,7 +1060,7 @@ function editForm(post, card) {
 function postCard({ post, targets }) {
   const wasOpen = openHistory.has(post.id);
   // Show the cached list at once so a re-render doesn't flicker; the toggle handler then refreshes it.
-  const history = h('details', { open: wasOpen }, h('summary', {}, '상태 기록'), wasOpen ? historyCache.get(post.id)?.cloneNode(true) : null);
+  const history = h('details', { open: wasOpen }, h('summary', {}, tr('상태 기록')), wasOpen ? historyCache.get(post.id)?.cloneNode(true) : null);
   // Also fires for a panel created open, so re-rendered open panels refetch their events.
   history.addEventListener('toggle', () => {
     if (history.open) {
@@ -1079,21 +1079,21 @@ function postCard({ post, targets }) {
           type: 'button',
           onclick: async (e) => {
             e.target.disabled = true;
-            e.target.textContent = '가져오는 중…';
+            e.target.textContent = tr('가져오는 중…');
             await api(`/posts/${post.id}/stats`, { method: 'POST', body: '{}' }).catch((err) => alert(err.message));
             refreshBoard();
           },
         },
-        '반응 새로고침',
+        tr('반응 새로고침'),
       )
     : null;
   const hasPublished = targets.some((t) => t.state === 'published');
   // Nothing left to show comments for (e.g. just deleted): drop the panel along with its button.
   if (!hasPublished) openComments.delete(post.id);
   const commentsButton = hasPublished
-    ? h('button', { class: 'small', type: 'button', onclick: () => toggleComments(post.id) }, openComments.has(post.id) ? '댓글 닫기' : '댓글')
+    ? h('button', { class: 'small', type: 'button', onclick: () => toggleComments(post.id) }, openComments.has(post.id) ? tr('댓글 닫기') : tr('댓글'))
     : null;
-  const addButton = post.canAddTargets ? h('button', { class: 'small', type: 'button', onclick: () => startAddMode(post.id) }, '플랫폼 추가') : null;
+  const addButton = post.canAddTargets ? h('button', { class: 'small', type: 'button', onclick: () => startAddMode(post.id) }, tr('플랫폼 추가')) : null;
   const editable = targets.some((t) => !['failed', 'removed', 'canceled'].includes(t.state));
   const editButton = editable
     ? h(
@@ -1103,7 +1103,7 @@ function postCard({ post, targets }) {
           type: 'button',
           onclick: (e) => {
             if (replyingTo) {
-              alert('쓰던 답글이 있습니다. 보내거나 취소한 뒤 수정하세요');
+              alert(tr('쓰던 답글이 있습니다. 보내거나 취소한 뒤 수정하세요'));
               return;
             }
             // One edit form at a time: closing one must not leave another unsaved form to be wiped.
@@ -1114,13 +1114,13 @@ function postCard({ post, targets }) {
             card.append(editForm(post, card));
           },
         },
-        '수정',
+        tr('수정'),
       )
     : null;
   return h(
     'article',
     { class: 'post', 'data-post': post.id },
-    h('div', { class: 'post-head' }, h('span', { class: 'post-title' }, post.title), h('span', { class: 'muted' }, [fmtTime(post.createdAt), post.scheduledAt && `예약 ${fmtTime(post.scheduledAt)}`, post.hasThumbnail && '썸네일', post.captionLanguages?.length && `자막 ${post.captionLanguages.join(', ')}`].filter(Boolean).join(' · '))),
+    h('div', { class: 'post-head' }, h('span', { class: 'post-title' }, post.title), h('span', { class: 'muted' }, [fmtTime(post.createdAt), post.scheduledAt && tr('예약 {time}', { time: fmtTime(post.scheduledAt) }), post.hasThumbnail && tr('썸네일'), post.captionLanguages?.length && tr('자막 {list}', { list: post.captionLanguages.join(', ') })].filter(Boolean).join(' · '))),
     targets.map(targetRow),
     h('div', { class: 'post-foot' }, history, h('div', { class: 'actions-inline' }, commentsButton, editButton, addButton, refreshStats)),
     commentsPanel(post.id),
@@ -1151,7 +1151,7 @@ async function refreshBoard() {
     if (locked) {
       const cards = [...$('#board').children];
       if (cards.map((c) => c.dataset.post).join() !== posts.map((p) => p.post.id).join()) {
-        $('#board-updated').textContent = '수정·답글을 마치면 목록을 새로 그립니다';
+        $('#board-updated').textContent = tr('수정·답글을 마치면 목록을 새로 그립니다');
         boardTimer = setTimeout(refreshBoard, 3000);
         return;
       }
@@ -1159,13 +1159,13 @@ async function refreshBoard() {
       showMore();
     } else {
       showMore();
-      const empty = boardScheduled ? '앞으로 예약된 게시물이 없습니다' : boardQuery ? `"${boardQuery}"에 맞는 게시물이 없습니다` : '아직 게시물이 없습니다';
+      const empty = boardScheduled ? tr('앞으로 예약된 게시물이 없습니다') : boardQuery ? tr('"{query}"에 맞는 게시물이 없습니다', { query: boardQuery }) : tr('아직 게시물이 없습니다');
       $('#board').replaceChildren(...(posts.length ? posts.map(postCard) : [h('p', { class: 'empty' }, empty)]));
     }
     active = posts.some((p) => p.targets.some((t) => !t.terminal));
-    $('#board-updated').textContent = `${new Date().toLocaleTimeString('ko-KR')} 갱신`;
+    $('#board-updated').textContent = tr('{time} 갱신', { time: new Date().toLocaleTimeString(LOCALE) });
   } catch (err) {
-    $('#board-updated').textContent = `갱신 실패: ${err.message}`;
+    $('#board-updated').textContent = tr('갱신 실패: {error}', { error: err.message });
   }
   boardTimer = setTimeout(refreshBoard, active ? 3000 : 15000);
 }
@@ -1196,8 +1196,8 @@ function banner(text, kind) {
 const APP_TITLE = { youtube: 'YouTube', tiktok: 'TikTok', meta: 'Meta (Instagram · Facebook)', bluesky: 'Bluesky', mastodon: 'Mastodon', peertube: 'PeerTube', x: 'X (Twitter)' };
 const CHECK_ICON = { ok: '✓', warn: '⚠', fail: '✗', info: 'ℹ' };
 const LIVE_NOTICE = {
-  youtube: '4초짜리 테스트 영상을 일부 공개로 올려, 공개 업로드가 실제로 되는지 확인하고 바로 삭제합니다. 오늘 업로드 한도 1회를 씁니다. 처리를 기다리느라 몇 분 걸릴 수 있습니다.',
-  tiktok: '4초짜리 테스트 영상을 TikTok 앱 수신함으로 보냅니다. 앱 알림에 뜨는 테스트 영상은 게시하지 말고 지우세요.',
+  youtube: tr('4초짜리 테스트 영상을 일부 공개로 올려, 공개 업로드가 실제로 되는지 확인하고 바로 삭제합니다. 오늘 업로드 한도 1회를 씁니다. 처리를 기다리느라 몇 분 걸릴 수 있습니다.'),
+  tiktok: tr('4초짜리 테스트 영상을 TikTok 앱 수신함으로 보냅니다. 앱 알림에 뜨는 테스트 영상은 게시하지 말고 지우세요.'),
 };
 
 function message(el, text, ok) {
@@ -1210,13 +1210,13 @@ function appCard(app, platforms) {
     h(
       'label',
       { class: 'field' },
-      `${f.label}${f.optional ? ' (선택)' : ''}`,
+      `${f.label}${f.optional ? tr(' (선택)') : ''}`,
       h('input', {
         name: f.key,
         type: f.secret ? 'password' : 'text',
         autocomplete: 'off',
         value: f.secret ? undefined : f.value,
-        placeholder: f.secret && f.set ? '저장됨 · 바꿀 때만 입력' : '',
+        placeholder: f.secret && f.set ? tr('저장됨 · 바꿀 때만 입력') : '',
       }),
     ),
   );
@@ -1232,15 +1232,15 @@ function appCard(app, platforms) {
         const file = jsonInput?.files[0];
         try {
           await api(`/apps/${app.key}`, { method: 'PUT', body: JSON.stringify({ values, clientJson: file ? await file.text() : undefined }) });
-          message(status, '저장했습니다', true);
+          message(status, tr('저장했습니다'), true);
           await refreshAll();
         } catch (err) {
           message(status, err.message, false);
         }
       },
     },
-    h('div', { class: 'app-form' }, fields, jsonInput ? h('label', { class: 'field' }, '또는 Google에서 받은 OAuth JSON 파일', jsonInput) : null),
-    h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'submit' }, '앱 정보 저장'), status),
+    h('div', { class: 'app-form' }, fields, jsonInput ? h('label', { class: 'field' }, tr('또는 Google에서 받은 OAuth JSON 파일'), jsonInput) : null),
+    h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'submit' }, tr('앱 정보 저장')), status),
   );
   // Platforms like Bluesky sign in with an app password and need no developer app at all.
   const noApp = app.fields.length === 0;
@@ -1249,8 +1249,8 @@ function appCard(app, platforms) {
   return h(
     'section',
     { class: 'panel' },
-    h('h2', {}, APP_TITLE[app.key] ?? app.key, badge(noApp ? ['개발자 앱 필요 없음', 'info'] : configured ? ['앱 등록됨', 'ok'] : ['앱 미등록', 'warn'])),
-    h('details', { open: noApp ? !connected : !configured }, h('summary', {}, noApp ? '연결 방법' : '내 개발자 앱 만드는 방법'), h('pre', { class: 'guide' }, app.guide)),
+    h('h2', {}, APP_TITLE[app.key] ?? app.key, badge(noApp ? [tr('개발자 앱 필요 없음'), 'info'] : configured ? [tr('앱 등록됨'), 'ok'] : [tr('앱 미등록'), 'warn'])),
+    h('details', { open: noApp ? !connected : !configured }, h('summary', {}, noApp ? tr('연결 방법') : tr('내 개발자 앱 만드는 방법')), h('pre', { class: 'guide' }, app.guide)),
     noApp ? null : form,
     platforms.map((p) => platformBlock(p, configured)),
   );
@@ -1262,7 +1262,7 @@ function platformBlock(p, appReady) {
     'div',
     { class: 'platform-block' },
     h('h3', {}, p.displayName),
-    rows.length ? rows : h('p', { class: 'muted' }, '연결된 계정이 없습니다'),
+    rows.length ? rows : h('p', { class: 'muted' }, tr('연결된 계정이 없습니다')),
     connectForm(p, appReady),
   );
 }
@@ -1285,7 +1285,7 @@ function accountRow(p, a) {
     if (live && !confirm(LIVE_NOTICE[p.id])) return;
     for (const b of row.querySelectorAll('button')) b.disabled = true;
     results.hidden = false;
-    results.replaceChildren(h('li', { class: 'info' }, live ? '실제 업로드로 점검 중… 몇 분 걸릴 수 있습니다' : '점검 중…'));
+    results.replaceChildren(h('li', { class: 'info' }, live ? tr('실제 업로드로 점검 중… 몇 분 걸릴 수 있습니다') : tr('점검 중…')));
     try {
       const { checks } = await api(`/doctor/${p.id}`, { method: 'POST', body: JSON.stringify({ account: a.name, live }) });
       results.replaceChildren(...checks.map((c) => h('li', { class: c.status }, `${CHECK_ICON[c.status] ?? ''} ${c.name}: ${c.detail}`)));
@@ -1301,15 +1301,15 @@ function accountRow(p, a) {
     'div',
     { class: 'acct' },
     h('span', { class: 'acct-name' }, `${a.label}`, h('span', { class: 'muted' }, `  ${p.id}/${a.name}`)),
-    h('button', { class: 'small', type: 'button', onclick: () => run(false) }, '점검'),
-    LIVE_NOTICE[p.id] ? h('button', { class: 'small', type: 'button', onclick: () => run(true) }, '실제 업로드로 점검') : null,
+    h('button', { class: 'small', type: 'button', onclick: () => run(false) }, tr('점검')),
+    LIVE_NOTICE[p.id] ? h('button', { class: 'small', type: 'button', onclick: () => run(true) }, tr('실제 업로드로 점검')) : null,
     h(
       'button',
       {
         class: 'small',
         type: 'button',
         onclick: async () => {
-          if (!confirm(`${p.displayName} ${a.label} 연결을 해제할까요? 저장된 토큰을 지웁니다.`)) return;
+          if (!confirm(tr('{platform} {account} 연결을 해제할까요? 저장된 토큰을 지웁니다.', { platform: p.displayName, account: a.label }))) return;
           try {
             await api(`/accounts/${p.id}/${encodeURIComponent(a.name)}`, { method: 'DELETE' });
             await refreshAll();
@@ -1318,7 +1318,7 @@ function accountRow(p, a) {
           }
         },
       },
-      '연결 해제',
+      tr('연결 해제'),
     ),
     results,
   );
@@ -1327,7 +1327,7 @@ function accountRow(p, a) {
 
 function connectForm(p, appReady) {
   const status = h('span', { class: 'msg' });
-  const name = h('input', { name: 'name', value: p.accounts.some((a) => a.name === 'main') ? '' : 'main', placeholder: '예: main, sub', autocomplete: 'off' });
+  const name = h('input', { name: 'name', value: p.accounts.some((a) => a.name === 'main') ? '' : 'main', placeholder: tr('예: main, sub'), autocomplete: 'off' });
   // Token-connect providers say which fields they need (Meta: token + page, Bluesky: handle + app password).
   const inputs = (p.connectFields ?? []).map((f) => ({
     key: f.key,
@@ -1339,11 +1339,11 @@ function connectForm(p, appReady) {
       ? h(
           'p',
           { class: 'redirect' },
-          p.id === 'youtube' ? 'Redirect URI (Google 데스크톱 앱 클라이언트는 따로 등록하지 않아도 됩니다): ' : `${p.displayName} 개발자 포털에 이 Redirect URI를 등록해야 합니다: `,
+          p.id === 'youtube' ? tr('Redirect URI (Google 데스크톱 앱 클라이언트는 따로 등록하지 않아도 됩니다): ') : tr('{platform} 개발자 포털에 이 Redirect URI를 등록해야 합니다: ', { platform: p.displayName }),
           h('code', {}, p.redirectUri),
         )
       : null;
-  const button = h('button', { class: 'primary', type: 'submit', disabled: !appReady }, p.connectMethod === 'oauth' ? `${{ youtube: 'Google', tiktok: 'TikTok', x: 'X' }[p.id] ?? p.displayName} 계정으로 연결` : '연결');
+  const button = h('button', { class: 'primary', type: 'submit', disabled: !appReady }, p.connectMethod === 'oauth' ? tr('{service} 계정으로 연결', { service: { youtube: 'Google', tiktok: 'TikTok', x: 'X' }[p.id] ?? p.displayName }) : tr('연결'));
   return h(
     'form',
     {
@@ -1359,7 +1359,7 @@ function connectForm(p, appReady) {
             window.location.href = res.authorizeUrl;
             return;
           }
-          message(status, `연결됨: ${res.account.label}`, true);
+          message(status, tr('연결됨: {account}', { account: res.account.label }), true);
           await refreshAll();
         } catch (err) {
           message(status, err.message, false);
@@ -1367,24 +1367,24 @@ function connectForm(p, appReady) {
         }
       },
     },
-    h('div', { class: 'connect' }, h('label', { class: 'field' }, '계정 이름', name), inputs.map((i) => h('label', { class: 'field' }, i.label, i.el))),
+    h('div', { class: 'connect' }, h('label', { class: 'field' }, tr('계정 이름'), name), inputs.map((i) => h('label', { class: 'field' }, i.label, i.el))),
     redirect,
-    h('div', { class: 'actions' }, button, appReady ? null : h('span', { class: 'muted' }, '먼저 위에서 앱 정보를 저장하세요'), status),
+    h('div', { class: 'actions' }, button, appReady ? null : h('span', { class: 'muted' }, tr('먼저 위에서 앱 정보를 저장하세요')), status),
   );
 }
 
 const NOTIFY_EVENTS = [
-  ['published', '게시됨'],
-  ['handed_off', '앱에서 마무리 필요'],
-  ['failed', '실패'],
-  ['needs_reauth', '재연결 필요'],
-  ['removed', '삭제됨'],
+  ['published', tr('게시됨')],
+  ['handed_off', tr('앱에서 마무리 필요')],
+  ['failed', tr('실패')],
+  ['needs_reauth', tr('재연결 필요')],
+  ['removed', tr('삭제됨')],
 ];
 
 function notifyCard(n) {
   const status = h('span', { class: 'msg' });
-  const url = h('input', { name: 'url', type: 'password', autocomplete: 'off', placeholder: n.configured ? `저장됨 (${n.host}) · 바꿀 때만 입력` : 'https://hooks.slack.com/… 또는 Discord webhook' });
-  const format = select('format', [['', `주소로 자동 판단${n.detectedFormat ? ` (지금: ${n.detectedFormat})` : ''}`], ['slack', 'Slack'], ['discord', 'Discord'], ['json', 'JSON']]);
+  const url = h('input', { name: 'url', type: 'password', autocomplete: 'off', placeholder: n.configured ? tr('저장됨 ({host}) · 바꿀 때만 입력', { host: n.host }) : tr('https://hooks.slack.com/… 또는 Discord webhook') });
+  const format = select('format', [['', `${tr('주소로 자동 판단')}${n.detectedFormat ? tr(' (지금: {format})', { format: n.detectedFormat }) : ''}`], ['slack', 'Slack'], ['discord', 'Discord'], ['json', 'JSON']]);
   format.value = n.configured && n.format ? n.format : '';
   const boxes = NOTIFY_EVENTS.map(([key, label]) => h('label', { class: 'check' }, h('input', { type: 'checkbox', name: key, checked: n.events.includes(key) }), label));
   const act = async (fn, ok) => {
@@ -1399,25 +1399,25 @@ function notifyCard(n) {
   return h(
     'section',
     { class: 'panel' },
-    h('h2', {}, '알림', badge(n.configured ? [`켜짐 · ${n.host}`, 'ok'] : ['꺼짐', 'info'])),
-    h('p', { class: 'muted' }, '감시 폴더나 백그라운드 작업이 끝나거나 실패하면 Slack·Discord 등 webhook으로 알립니다.', n.fromEnv ? ' 지금은 FANOUT_WEBHOOK_URL 환경 변수가 우선합니다.' : ''),
+    h('h2', {}, tr('알림'), badge(n.configured ? [tr('켜짐 · {host}', { host: n.host }), 'ok'] : [tr('꺼짐'), 'info'])),
+    h('p', { class: 'muted' }, tr('감시 폴더나 백그라운드 작업이 끝나거나 실패하면 Slack·Discord 등 webhook으로 알립니다.'), n.fromEnv ? tr(' 지금은 FANOUT_WEBHOOK_URL 환경 변수가 우선합니다.') : ''),
     h(
       'form',
       {
         onsubmit: (e) => {
           e.preventDefault();
           const events = NOTIFY_EVENTS.map(([key]) => key).filter((key) => e.target.querySelector(`[name="${key}"]`).checked);
-          act(() => api('/notify', { method: 'PUT', body: JSON.stringify({ url: url.value, events, format: format.value || undefined }) }), '저장했습니다');
+          act(() => api('/notify', { method: 'PUT', body: JSON.stringify({ url: url.value, events, format: format.value || undefined }) }), tr('저장했습니다'));
         },
       },
-      h('div', { class: 'app-form' }, h('label', { class: 'field' }, 'Webhook 주소', url), h('label', { class: 'field' }, '형식', format)),
-      h('div', { class: 'opt', role: 'group' }, h('span', { class: 'muted' }, '알릴 상태'), h('div', { class: 'choices' }, boxes)),
+      h('div', { class: 'app-form' }, h('label', { class: 'field' }, tr('Webhook 주소'), url), h('label', { class: 'field' }, tr('형식'), format)),
+      h('div', { class: 'opt', role: 'group' }, h('span', { class: 'muted' }, tr('알릴 상태')), h('div', { class: 'choices' }, boxes)),
       h(
         'div',
         { class: 'actions' },
-        h('button', { class: 'primary', type: 'submit' }, '저장'),
-        n.configured ? h('button', { class: 'small', type: 'button', onclick: () => act(() => api('/notify/test', { method: 'POST' }), '테스트 알림을 보냈습니다') }, '테스트 보내기') : null,
-        n.configured ? h('button', { class: 'small', type: 'button', onclick: () => act(() => api('/notify', { method: 'DELETE' }), '껐습니다') }, '끄기') : null,
+        h('button', { class: 'primary', type: 'submit' }, tr('저장')),
+        n.configured ? h('button', { class: 'small', type: 'button', onclick: () => act(() => api('/notify/test', { method: 'POST' }), tr('테스트 알림을 보냈습니다')) }, tr('테스트 보내기')) : null,
+        n.configured ? h('button', { class: 'small', type: 'button', onclick: () => act(() => api('/notify', { method: 'DELETE' }), tr('껐습니다')) }, tr('끄기')) : null,
         status,
       ),
     ),
@@ -1427,7 +1427,7 @@ function notifyCard(n) {
 async function loadSettings() {
   const box = $('#settings');
   if (!overview.settingsEnabled) {
-    box.replaceChildren(h('section', { class: 'panel' }, h('p', {}, '설정 화면은 127.0.0.1 전용으로 연 대시보드에서만 쓸 수 있습니다. 이 서버의 터미널에서 fanout app set / fanout connect 를 쓰세요.')));
+    box.replaceChildren(h('section', { class: 'panel' }, h('p', {}, tr('설정 화면은 127.0.0.1 전용으로 연 대시보드에서만 쓸 수 있습니다. 이 서버의 터미널에서 fanout app set / fanout connect 를 쓰세요.'))));
     return;
   }
   try {
@@ -1459,7 +1459,7 @@ function checkAllCard() {
         const failed = [];
         try {
           for (const [i, [key, check]] of checks.entries()) {
-            setCheckAll(` ${i + 1}/${checks.length} ${key} 점검 중…`);
+            setCheckAll(` ${i + 1}/${checks.length} ${tr('{account} 점검 중…', { account: key })}`);
             if (!(await check())) failed.push(key);
           }
         } finally {
@@ -1467,12 +1467,12 @@ function checkAllCard() {
           // The card on screen may be a newer one than this button's.
           for (const b of document.querySelectorAll('#check-all')) b.disabled = false;
         }
-        setCheckAll(checks.length ? ` ${checks.length}개 계정 점검${failed.length ? `, 문제 있음: ${failed.join(', ')}` : ', 모두 정상'}` : ' 연결된 계정이 없습니다');
+        setCheckAll(checks.length ? ` ${tr('{n}개 계정 점검', { n: checks.length })}${failed.length ? tr(', 문제 있음: {list}', { list: failed.join(', ') }) : tr(', 모두 정상')}` : tr(' 연결된 계정이 없습니다'));
       },
     },
-    '모든 계정 점검',
+    tr('모든 계정 점검'),
   );
-  return h('section', { class: 'panel' }, h('div', { class: 'acct' }, button, status), h('p', { class: 'note' }, '읽기만 하는 점검입니다. 실제 업로드 점검은 계정마다 따로 실행하세요.'));
+  return h('section', { class: 'panel' }, h('div', { class: 'acct' }, button, status), h('p', { class: 'note' }, tr('읽기만 하는 점검입니다. 실제 업로드 점검은 계정마다 따로 실행하세요.')));
 }
 
 async function refreshAll() {
@@ -1483,10 +1483,16 @@ async function refreshAll() {
 }
 
 async function init() {
+  translateStatic();
+  // The switch names the other language, in that language.
+  const toggle = $('#lang-toggle');
+  toggle.textContent = LANG === 'ko' ? 'English' : '한국어'; // i18n-ignore: each language's own name
+  toggle.setAttribute('lang', LANG === 'ko' ? 'en' : 'ko');
+  toggle.addEventListener('click', () => setLanguage(LANG === 'ko' ? 'en' : 'ko'));
   try {
     overview = await api('/overview');
   } catch (err) {
-    $('#form-error').textContent = `대시보드에 연결할 수 없습니다: ${err.message}`;
+    $('#form-error').textContent = tr('대시보드에 연결할 수 없습니다: {error}', { error: err.message });
     return;
   }
   renderAccounts();
@@ -1496,8 +1502,8 @@ async function init() {
 
   // Coming back from an OAuth redirect.
   const params = new URLSearchParams(location.search);
-  if (params.get('connected')) banner(`연결했습니다: ${params.get('connected')}`, 'ok');
-  if (params.get('oauthError')) banner(`연결 실패: ${params.get('oauthError')}`, 'bad');
+  if (params.get('connected')) banner(tr('연결했습니다: {account}', { account: params.get('connected') }), 'ok');
+  if (params.get('oauthError')) banner(tr('연결 실패: {error}', { error: params.get('oauthError') }), 'bad');
   if (params.has('view')) history.replaceState(null, '', '/');
   showView(params.get('view') === 'settings' ? 'settings' : 'post');
 }

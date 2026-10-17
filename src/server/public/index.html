@@ -7,80 +7,82 @@
   <title>fanout</title>
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/style.css">
+  <script src="/i18n.js" defer></script>
   <script src="/app.js" defer></script>
 </head>
 <body>
   <header class="top">
     <h1>fanout</h1>
-    <nav class="tabs" aria-label="화면">
-      <button type="button" class="tab" data-view="post" aria-current="page">게시</button>
-      <button type="button" class="tab" data-view="settings">설정</button>
+    <nav class="tabs" aria-label="화면" data-i18n-aria-label="화면">
+      <button type="button" class="tab" data-view="post" aria-current="page" data-i18n="게시">게시</button>
+      <button type="button" class="tab" data-view="settings" data-i18n="설정">설정</button>
     </nav>
-    <ul id="accounts" class="chips" aria-label="연결된 계정"></ul>
+    <button type="button" class="small" id="lang-toggle"></button>
+    <ul id="accounts" class="chips" aria-label="연결된 계정" data-i18n-aria-label="연결된 계정"></ul>
   </header>
   <div id="banner" class="banner" role="status" hidden></div>
 
   <main class="layout" id="view-post">
     <section class="panel" aria-labelledby="new-h">
-      <h2 id="new-h">새 게시물</h2>
+      <h2 id="new-h" data-i18n="새 게시물">새 게시물</h2>
       <form id="post-form" novalidate>
         <div id="add-banner" class="add-banner" role="status" hidden></div>
         <div class="drop" id="drop">
           <input type="file" id="file" accept="video/*,.mkv">
-          <label for="file" id="drop-label">영상 파일을 고르거나 여기에 끌어다 놓으세요</label>
+          <label for="file" id="drop-label" data-i18n="영상 파일을 고르거나 여기에 끌어다 놓으세요">영상 파일을 고르거나 여기에 끌어다 놓으세요</label>
           <progress id="upload-progress" max="1" value="0" hidden></progress>
         </div>
         <div id="media-info" class="media-info" hidden></div>
 
-        <label class="field">제목
+        <label class="field"><span data-i18n="제목">제목</span>
           <input id="title" maxlength="100" autocomplete="off">
         </label>
-        <label class="field">설명
+        <label class="field"><span data-i18n="설명">설명</span>
           <textarea id="description" rows="4"></textarea>
         </label>
-        <label class="field">태그
-          <input id="tags" placeholder="쉼표로 구분 (예: 브이로그, 여행)" autocomplete="off">
+        <label class="field"><span data-i18n="태그">태그</span>
+          <input id="tags" placeholder="쉼표로 구분 (예: 브이로그, 여행)" data-i18n-placeholder="쉼표로 구분 (예: 브이로그, 여행)" autocomplete="off">
         </label>
         <div class="row">
-          <label class="field">예약 게시
+          <label class="field"><span data-i18n="예약 게시">예약 게시</span>
             <input type="datetime-local" id="scheduled">
           </label>
-          <label class="check"><input type="checkbox" id="ai"> AI로 생성·합성한 사실적인 콘텐츠</label>
+          <label class="check"><input type="checkbox" id="ai"> <span data-i18n="AI로 생성·합성한 사실적인 콘텐츠">AI로 생성·합성한 사실적인 콘텐츠</span></label>
         </div>
 
         <details class="extras">
-          <summary>썸네일·자막 <span class="muted">(썸네일은 YouTube·Mastodon·PeerTube, 자막은 YouTube·Bluesky·PeerTube)</span></summary>
-          <label class="field">썸네일 이미지 <span class="muted">JPG·PNG, 2MB 이하</span>
+          <summary><span data-i18n="썸네일·자막">썸네일·자막</span> <span class="muted" data-i18n="(썸네일은 YouTube·Mastodon·PeerTube, 자막은 YouTube·Bluesky·PeerTube)">(썸네일은 YouTube·Mastodon·PeerTube, 자막은 YouTube·Bluesky·PeerTube)</span></summary>
+          <label class="field"><span data-i18n="썸네일 이미지">썸네일 이미지</span> <span class="muted" data-i18n="JPG·PNG, 2MB 이하">JPG·PNG, 2MB 이하</span>
             <input type="file" id="thumbnail" accept="image/jpeg,image/png">
           </label>
           <div id="captions" class="caption-rows"></div>
-          <button type="button" class="small" id="add-caption">자막 파일 추가</button>
+          <button type="button" class="small" id="add-caption" data-i18n="자막 파일 추가">자막 파일 추가</button>
         </details>
 
-        <h3 class="sub">올릴 곳</h3>
+        <h3 class="sub" data-i18n="올릴 곳">올릴 곳</h3>
         <div class="presets" id="presets">
-          <select id="preset-select" aria-label="프리셋"><option value="">프리셋 불러오기…</option></select>
-          <button type="button" class="small" id="preset-save">지금 설정을 프리셋으로 저장</button>
-          <button type="button" class="small" id="preset-delete" hidden>이 프리셋 삭제</button>
-          <p class="note">YouTube 공개 범위·아동용 여부와 TikTok 공개 범위·상호작용·광고·음악 동의는 프리셋에 저장하지 않습니다. 게시할 때마다 직접 고르세요.</p>
+          <select id="preset-select" aria-label="프리셋" data-i18n-aria-label="프리셋"><option value="" data-i18n="프리셋 불러오기…">프리셋 불러오기…</option></select>
+          <button type="button" class="small" id="preset-save" data-i18n="지금 설정을 프리셋으로 저장">지금 설정을 프리셋으로 저장</button>
+          <button type="button" class="small" id="preset-delete" hidden data-i18n="이 프리셋 삭제">이 프리셋 삭제</button>
+          <p class="note" data-i18n="YouTube 공개 범위·아동용 여부와 TikTok 공개 범위·상호작용·광고·음악 동의는 프리셋에 저장하지 않습니다. 게시할 때마다 직접 고르세요.">YouTube 공개 범위·아동용 여부와 TikTok 공개 범위·상호작용·광고·음악 동의는 프리셋에 저장하지 않습니다. 게시할 때마다 직접 고르세요.</p>
         </div>
         <div id="targets" class="targets"></div>
 
         <p id="form-error" class="form-error" role="alert"></p>
         <div id="confirm" class="confirm" aria-live="polite" hidden></div>
-        <button type="submit" id="submit" class="primary">미리 보기</button>
+        <button type="submit" id="submit" class="primary" data-i18n="미리 보기">미리 보기</button>
       </form>
     </section>
 
     <section class="panel" aria-labelledby="board-h">
       <div class="panel-head">
-        <h2 id="board-h">게시 현황</h2>
-        <input type="search" id="board-search" placeholder="제목·설명으로 찾기" aria-label="게시물 찾기" autocomplete="off">
-        <label class="check small-check"><input type="checkbox" id="board-scheduled"> 예약만</label>
+        <h2 id="board-h" data-i18n="게시 현황">게시 현황</h2>
+        <input type="search" id="board-search" placeholder="제목·설명으로 찾기" data-i18n-placeholder="제목·설명으로 찾기" aria-label="게시물 찾기" data-i18n-aria-label="게시물 찾기" autocomplete="off">
+        <label class="check small-check"><input type="checkbox" id="board-scheduled"> <span data-i18n="예약만">예약만</span></label>
         <span id="board-updated" class="muted"></span>
       </div>
       <div id="board" class="board" aria-live="polite"></div>
-      <button type="button" class="small" id="board-more" hidden>더 보기</button>
+      <button type="button" class="small" id="board-more" hidden data-i18n="더 보기">더 보기</button>
     </section>
   </main>
 
