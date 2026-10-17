@@ -3,6 +3,7 @@ import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcom
 import type { Account } from '../core/store.ts';
 import type { Issue } from '../core/types.ts';
 import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
+import { msg } from '../core/i18n.ts';
 
 export interface InstagramOptions {
   caption?: string;
@@ -65,15 +66,15 @@ export const instagram: Provider = {
     const issues: Issue[] = [];
     const o = target.options as InstagramOptions;
     const caption = metaCaption(post, o.caption);
-    if ([...caption].length > CAPTION_MAX) issues.push({ severity: 'error', code: 'caption', message: `Instagram 캡션은 ${CAPTION_MAX}자 이하` });
+    if ([...caption].length > CAPTION_MAX) issues.push({ severity: 'error', code: 'caption', message: msg('Instagram 캡션은 {CAPTION_MAX}자 이하', { CAPTION_MAX }) });
     const hashtags = caption.match(/#[^\s#]+/g)?.length ?? 0;
-    if (hashtags > HASHTAG_MAX) issues.push({ severity: 'error', code: 'hashtags', message: `Instagram 해시태그는 ${HASHTAG_MAX}개 이하 (현재 ${hashtags})` });
+    if (hashtags > HASHTAG_MAX) issues.push({ severity: 'error', code: 'hashtags', message: msg('Instagram 해시태그는 {HASHTAG_MAX}개 이하 (현재 {hashtags})', { HASHTAG_MAX, hashtags }) });
     const ratio = media.video.width / media.video.height;
     if (Math.abs(ratio - 9 / 16) > 0.02) {
-      issues.push({ severity: 'warning', code: 'aspect', message: `Instagram Reels 권장 화면비는 9:16 (현재 ${media.video.width}x${media.video.height}) — 잘리거나 여백이 생길 수 있습니다` });
+      issues.push({ severity: 'warning', code: 'aspect', message: msg('Instagram Reels 권장 화면비는 9:16 (현재 {width}x{height}) — 잘리거나 여백이 생길 수 있습니다', { width: media.video.width, height: media.video.height }) });
     }
-    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: 'Instagram은 로컬 썸네일 파일을 받지 않습니다 — thumbOffsetMs로 커버 프레임을 고르세요' });
-    if (post.scheduledAt) issues.push({ severity: 'warning', code: 'schedule', message: 'Instagram은 API 예약 게시가 없어 fanout이 예약 시각에 게시합니다 (fanout worker 필요)' });
+    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: msg('Instagram은 로컬 썸네일 파일을 받지 않습니다 — thumbOffsetMs로 커버 프레임을 고르세요') });
+    if (post.scheduledAt) issues.push({ severity: 'warning', code: 'schedule', message: msg('Instagram은 API 예약 게시가 없어 fanout이 예약 시각에 게시합니다 (fanout worker 필요)') });
     return issues;
   },
 
@@ -84,7 +85,7 @@ export const instagram: Provider = {
 
     const limit = await publishingLimit(ctx, account);
     if (limit && limit.used >= limit.total) {
-      throw new ProviderError('rejected', 'instagram.publishing_limit', `Instagram 24시간 게시 한도 ${limit.used}/${limit.total}에 도달했습니다`);
+      throw new ProviderError('rejected', 'instagram.publishing_limit', msg('Instagram 24시간 게시 한도 {used}/{total}에 도달했습니다', { used: limit.used, total: limit.total }));
     }
 
     const o = target.options as InstagramOptions;
@@ -100,7 +101,7 @@ export const instagram: Provider = {
     const version = metaApp(ctx).graphVersion ?? 'v24.0';
     await rupload(ctx, container.uri ?? `https://rupload.facebook.com/ig-api-upload/${version}/${container.id}`, c.pageToken, mediaPath);
     saveResume({ containerId: container.id, uploaded: true });
-    const warnings = limit ? [`Instagram 24시간 게시 ${limit.used + 1}/${limit.total}`] : [];
+    const warnings = limit ? [msg('Instagram 24시간 게시 {limit}/{total}', { limit: limit.used + 1, total: limit.total })] : [];
     return { state: 'processing', remoteId: container.id, warnings };
   },
 
@@ -112,11 +113,11 @@ export const instagram: Provider = {
     const containerId = resume.containerId ?? target.remoteId;
     const status = await graph<ContainerStatus>(ctx, 'GET', `/${containerId}`, { fields: 'status_code,status', access_token: c.pageToken });
     if (status.status_code === 'ERROR' || status.status_code === 'EXPIRED') {
-      throw new ProviderError('rejected', `instagram.container_${status.status_code.toLowerCase()}`, `Instagram 컨테이너 ${status.status_code}: ${status.status ?? ''}`, status.status);
+      throw new ProviderError('rejected', `instagram.container_${status.status_code.toLowerCase()}`, msg('Instagram 컨테이너 {status_code}: {status}', { status_code: status.status_code, status: status.status ?? '' }), status.status);
     }
     if (status.status_code === 'PUBLISHED') {
       // Published earlier but the media id was never saved (e.g. crash right after media_publish).
-      return { state: 'published', remoteId: containerId, warnings: ['이미 게시된 컨테이너입니다. 게시물 링크는 Instagram 앱에서 확인하세요'] };
+      return { state: 'published', remoteId: containerId, warnings: [msg('이미 게시된 컨테이너입니다. 게시물 링크는 Instagram 앱에서 확인하세요')] };
     }
     if (status.status_code !== 'FINISHED') return { state: 'processing', remoteId: containerId };
 
@@ -132,17 +133,17 @@ export const instagram: Provider = {
     const checks: DoctorCheck[] = [];
     try {
       metaApp(ctx);
-      checks.push({ name: 'BYO 앱', status: 'ok', detail: 'Meta 앱 등록됨' });
+      checks.push({ name: msg('BYO 앱'), status: 'ok', detail: msg('Meta 앱 등록됨') });
     } catch (err) {
-      checks.push({ name: 'BYO 앱', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('BYO 앱'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
     const c = pageCreds(account);
     try {
       const me = await graph<{ username?: string; account_type?: string }>(ctx, 'GET', `/${c.igUserId}`, { fields: 'username', access_token: c.pageToken });
-      checks.push({ name: '계정', status: 'ok', detail: `@${me.username}` });
+      checks.push({ name: msg('계정'), status: 'ok', detail: `@${me.username}` });
     } catch (err) {
-      checks.push({ name: '계정', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('계정'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
     // Open question from the research: the docs give both 100 and 50 posts/24h. Ask the API.
@@ -150,11 +151,11 @@ export const instagram: Provider = {
       const limit = await publishingLimit(ctx, account);
       checks.push(
         limit
-          ? { name: '24시간 게시 한도 (실측)', status: limit.used >= limit.total ? 'fail' : 'ok', detail: `${limit.used}/${limit.total}` }
-          : { name: '24시간 게시 한도 (실측)', status: 'warn', detail: '응답에 quota 값이 없습니다' },
+          ? { name: msg('24시간 게시 한도 (실측)'), status: limit.used >= limit.total ? 'fail' : 'ok', detail: `${limit.used}/${limit.total}` }
+          : { name: msg('24시간 게시 한도 (실측)'), status: 'warn', detail: msg('응답에 quota 값이 없습니다') },
       );
     } catch (err) {
-      checks.push({ name: '24시간 게시 한도 (실측)', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('24시간 게시 한도 (실측)'), status: 'fail', detail: (err as Error).message });
     }
     return checks;
   },
@@ -186,7 +187,7 @@ export const instagram: Provider = {
       `/${target.remoteId}/comments`,
       { fields: 'id,text,username,timestamp,like_count', limit: Math.min(limit, 50), access_token: c.pageToken },
     );
-    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '(알 수 없음)', text: m.text ?? '', at: m.timestamp, likes: m.like_count }));
+    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : msg('(알 수 없음)'), text: m.text ?? '', at: m.timestamp, likes: m.like_count }));
   },
 
   async reply({ ctx, account, comment, text, sending }) {

@@ -7,6 +7,7 @@ import { makeTestClip, probe, type MediaInfo, type MediaSpec } from '../core/med
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post, Target } from '../core/types.ts';
+import { msg } from '../core/i18n.ts';
 
 // Docs: https://developers.google.com/youtube/v3/docs/videos/insert
 //       https://developers.google.com/youtube/v3/guides/using_resumable_upload_protocol
@@ -82,7 +83,7 @@ export function isShort(media: Pick<MediaInfo, 'durationSec' | 'video'>): boolea
 function app(ctx: ProviderContext): YouTubeApp {
   const a = ctx.store.getApp<YouTubeApp>('youtube');
   if (!a?.clientId || !a.clientSecret) {
-    throw new ProviderError('auth', 'youtube.app_missing', 'YouTube 앱이 설정되지 않았습니다 — fanout setup youtube 참고');
+    throw new ProviderError('auth', 'youtube.app_missing', msg('YouTube 앱이 설정되지 않았습니다 — fanout setup youtube 참고'));
   }
   return a;
 }
@@ -100,11 +101,15 @@ async function tokenRequest(ctx: ProviderContext, params: Record<string, string>
   if (res.status === 400 || res.status === 401) {
     const body = (await res.json().catch(() => ({}))) as GoogleError;
     const code = typeof body.error === 'string' ? body.error : 'token_error';
-    const hint =
+    const error = body.error_description ?? code;
+    throw new ProviderError(
+      'auth',
+      'youtube.token',
       code === 'invalid_grant'
-        ? ' — 토큰이 만료·철회됐습니다. OAuth 동의 화면이 "Testing" 상태면 refresh token이 7일 만에 만료되니 "In production"으로 바꾼 뒤 fanout connect youtube를 다시 실행하세요.'
-        : '';
-    throw new ProviderError('auth', 'youtube.token', `${body.error_description ?? code}${hint}`, code);
+        ? msg('{error} — 토큰이 만료·철회됐습니다. OAuth 동의 화면이 "Testing" 상태면 refresh token이 7일 만에 만료되니 "In production"으로 바꾼 뒤 fanout connect youtube를 다시 실행하세요.', { error })
+        : error,
+      code,
+    );
   }
   return jsonOrThrow(res, 'youtube', describeGoogle);
 }
@@ -142,7 +147,7 @@ async function uploadError(res: Response): Promise<ProviderError> {
   }
   const { code, message } = describeGoogle(parsed);
   if (code === 'quotaExceeded' || code === 'uploadLimitExceeded' || code === 'rateLimitExceeded') {
-    return new ProviderError('rejected', 'youtube.quota', `YouTube 업로드 한도 초과 (${code}). 태평양 시간 자정에 초기화됩니다.`, code);
+    return new ProviderError('rejected', 'youtube.quota', msg('YouTube 업로드 한도 초과 ({code}). 태평양 시간 자정에 초기화됩니다.', { code }), code);
   }
   return new ProviderError(kindForStatus(res.status), `youtube.http_${res.status}`, message ?? `YouTube HTTP ${res.status}: ${text.slice(0, 300)}`, code);
 }
@@ -175,7 +180,7 @@ export function buildMetadata(post: Post, opts: YouTubeOptions): Record<string, 
 function forcedPrivateWarning(requested: YouTubeOptions['privacy'], video: VideoResource, scheduled: boolean): string | undefined {
   if (scheduled || requested === 'private') return undefined;
   if (video.status?.privacyStatus === 'private') {
-    return `forced_private: ${requested}로 요청했지만 YouTube가 비공개로 설정했습니다. 미검증 API 프로젝트 제한일 수 있습니다 — YouTube API 감사(audit)를 신청하세요.`;
+    return msg('forced_private: {requested}로 요청했지만 YouTube가 비공개로 설정했습니다. 미검증 API 프로젝트 제한일 수 있습니다 — YouTube API 감사(audit)를 신청하세요.', { requested });
   }
   return undefined;
 }
@@ -222,7 +227,7 @@ async function startSession(ctx: ProviderContext, account: Account, post: Post, 
   });
   if (!res.ok) throw await uploadError(res);
   const location = res.headers.get('location');
-  if (!location) throw new ProviderError('retryable', 'youtube.no_session', 'YouTube가 업로드 세션 URI를 돌려주지 않았습니다');
+  if (!location) throw new ProviderError('retryable', 'youtube.no_session', msg('YouTube가 업로드 세션 URI를 돌려주지 않았습니다'));
   return location;
 }
 
@@ -249,7 +254,7 @@ async function uploadBytes(
     });
     if (res.status === 308) {
       offset = nextOffset(res.headers.get('range'));
-      ctx.log.info(`youtube: ${((offset / size) * 100).toFixed(0)}% 업로드`);
+      ctx.log.info(msg('youtube: {offset}% 업로드', { offset: ((offset / size) * 100).toFixed(0) }));
       continue;
     }
     if (res.status === 200 || res.status === 201) return (await res.json()) as VideoResource;
@@ -258,7 +263,7 @@ async function uploadBytes(
   // All bytes acknowledged but no final response: ask the session.
   const state = await querySession(ctx, account, sessionUri, size);
   if ('video' in state) return state.video;
-  throw new ProviderError('retryable', 'youtube.incomplete', '업로드가 완료되지 않았습니다. 세션에서 다시 이어 올립니다.');
+  throw new ProviderError('retryable', 'youtube.incomplete', msg('업로드가 완료되지 않았습니다. 세션에서 다시 이어 올립니다.'));
 }
 
 /**
@@ -277,17 +282,19 @@ async function applyExtras(
 ): Promise<string[]> {
   const warnings: string[] = [];
   const token = creds(account).accessToken;
-  const attempt = async (key: string, label: string, send: () => Promise<Response>, hint = (_status: number) => '') => {
+  // `hint` adds a known cause for a status (one message, so it reads back whole in English).
+  const attempt = async (key: string, label: string, send: () => Promise<Response>, hint = (_status: number): string | undefined => undefined) => {
     if (done.includes(key)) return;
     markDone(key);
     try {
       const res = await send();
       if (!res.ok) {
         const { code, message } = describeGoogle(await res.json().catch(() => undefined));
-        warnings.push(`${label} 실패 (${code ?? res.status}): ${message ?? ''}${hint(res.status)}`);
+        const vars = { label, code: code ?? res.status, message: message ?? '', hint: hint(res.status) };
+        warnings.push(vars.hint ? msg('{label} 실패 ({code}): {message} — {hint}', vars) : msg('{label} 실패 ({code}): {message}', vars));
       }
     } catch (err) {
-      warnings.push(`${label} 실패: ${(err as Error).message} — Studio에서 직접 확인하세요`);
+      warnings.push(msg('{label} 실패: {err} — Studio에서 직접 확인하세요', { label, err: (err as Error).message }));
     }
   };
 
@@ -295,19 +302,19 @@ async function applyExtras(
     const path = post.thumbnailPath;
     await attempt(
       'thumbnail',
-      '썸네일',
+      msg('썸네일'),
       () =>
         ctx.fetch(`${UPLOAD_API}/thumbnails/set?videoId=${videoId}&uploadType=media`, {
           method: 'POST',
           headers: { authorization: `Bearer ${token}`, 'content-type': imageMime(path) },
           body: readFileSync(path),
         }),
-      (status) => (status === 403 ? ' — 맞춤 썸네일은 전화번호 인증된 채널만 가능합니다' : ''),
+      (status) => (status === 403 ? msg('맞춤 썸네일은 전화번호 인증된 채널만 가능합니다') : undefined),
     );
   }
 
   for (const cap of post.captions) {
-    await attempt(`caption:${cap.language}`, `자막(${cap.language})`, () => {
+    await attempt(`caption:${cap.language}`, msg('자막({language})', { language: cap.language }), () => {
       const boundary = `fanout${Date.now().toString(36)}`;
       const meta = JSON.stringify({ snippet: { videoId, language: cap.language, name: cap.name ?? '' } });
       const body = Buffer.concat([
@@ -325,7 +332,7 @@ async function applyExtras(
 
   if (opts.playlistId) {
     const playlistId = opts.playlistId;
-    await attempt('playlist', '재생목록 추가', () =>
+    await attempt('playlist', msg('재생목록 추가'), () =>
       ctx.fetch(`${API}/playlistItems?part=snippet`, {
         method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
@@ -339,15 +346,15 @@ async function applyExtras(
 function outcomeFor(video: VideoResource, post: Post, opts: YouTubeOptions, short: boolean): PollOutcome {
   const upload = video.status?.uploadStatus;
   if (upload === 'failed') {
-    throw new ProviderError('rejected', 'youtube.processing_failed', `YouTube 처리 실패: ${video.status?.failureReason ?? 'unknown'}`, video.status?.failureReason);
+    throw new ProviderError('rejected', 'youtube.processing_failed', msg('YouTube 처리 실패: {reason}', { reason: video.status?.failureReason ?? 'unknown' }), video.status?.failureReason);
   }
   if (upload === 'rejected') {
-    throw new ProviderError('rejected', 'youtube.rejected', `YouTube 거부: ${video.status?.rejectionReason ?? 'unknown'}`, video.status?.rejectionReason);
+    throw new ProviderError('rejected', 'youtube.rejected', msg('YouTube 거부: {reason}', { reason: video.status?.rejectionReason ?? 'unknown' }), video.status?.rejectionReason);
   }
-  if (upload === 'deleted') throw new ProviderError('rejected', 'youtube.deleted', '영상이 삭제됐습니다');
+  if (upload === 'deleted') throw new ProviderError('rejected', 'youtube.deleted', msg('영상이 삭제됐습니다'));
   const warning = forcedPrivateWarning(opts.privacy, video, Boolean(video.status?.publishAt));
   const warnings = warning ? [warning] : [];
-  if (post.scheduledAt && video.status?.publishAt) warnings.push(`예약 게시: ${video.status.publishAt}`);
+  if (post.scheduledAt && video.status?.publishAt) warnings.push(msg('예약 게시: {publishAt}', { publishAt: video.status.publishAt }));
   const base = { remoteId: video.id, remoteUrl: videoUrl(video.id, short), warnings };
   return upload === 'processed' ? { state: 'published', ...base } : { state: 'processing', ...base };
 }
@@ -367,7 +374,7 @@ export const youtube: Provider = {
   ],
 
   setupGuide() {
-    return `YouTube — 내 Google Cloud 프로젝트 만들기 (BYO)
+    return msg(`YouTube — 내 Google Cloud 프로젝트 만들기 (BYO)
 
 YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사용자마다 자기 프로젝트를 만듭니다.
 
@@ -385,7 +392,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
 7. fanout connect youtube --name main
 8. fanout doctor youtube --live 로 공개 업로드가 실제로 가능한지 확인 (테스트 영상 1개를 올렸다 지웁니다)
 
-한도: 프로젝트당 하루 업로드 ${DAILY_UPLOADS}회(태평양 시간 자정 초기화).`;
+한도: 프로젝트당 하루 업로드 {DAILY_UPLOADS}회(태평양 시간 자정 초기화).`, { DAILY_UPLOADS });
   },
 
   connectMethod: 'oauth',
@@ -393,7 +400,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
   async connect(ctx, name) {
     const loop = await startLoopback(0);
     const start = youtube.oauthBegin!(ctx, loop.redirectUri);
-    ctx.log.info(`브라우저에서 업로드할 채널의 Google 계정으로 로그인하세요:\n${start.url}`);
+    ctx.log.info(msg('브라우저에서 업로드할 채널의 Google 계정으로 로그인하세요:\n{url}', { url: start.url }));
     openBrowser(start.url);
     let params: URLSearchParams;
     try {
@@ -401,7 +408,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     } finally {
       loop.close();
     }
-    if (params.get('state') !== start.state) throw new ProviderError('auth', 'youtube.state', 'OAuth state 불일치');
+    if (params.get('state') !== start.state) throw new ProviderError('auth', 'youtube.state', msg('OAuth state 불일치'));
     return youtube.oauthFinish!(ctx, name, params, loop.redirectUri, start.verifier);
   },
 
@@ -428,7 +435,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
   async oauthFinish(ctx, name, params, redirectUri, verifier) {
     const { clientId, clientSecret } = app(ctx);
     const code = params.get('code');
-    if (!code) throw new ProviderError('auth', 'youtube.denied', `인증 거부: ${params.get('error') ?? 'unknown'}`);
+    if (!code) throw new ProviderError('auth', 'youtube.denied', msg('인증 거부: {params}', { params: params.get('error') ?? 'unknown' }));
     const tok = await tokenRequest(ctx, {
       code,
       client_id: clientId,
@@ -441,10 +448,10 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const account: Account = { platform: 'youtube', name, credentials: { ...credentials }, profile: {} };
     const ch = await api<{ items?: Array<{ id: string; snippet: { title: string } }> }>(ctx, account, '/channels?part=snippet&mine=true');
     const channel = ch.items?.[0];
-    if (!channel) throw new ProviderError('rejected', 'youtube.no_channel', '이 Google 계정에 YouTube 채널이 없습니다');
+    if (!channel) throw new ProviderError('rejected', 'youtube.no_channel', msg('이 Google 계정에 YouTube 채널이 없습니다'));
     account.profile = { channelId: channel.id, channelTitle: channel.snippet.title };
     if (credentials.refreshTokenExpiresAt) {
-      ctx.log.warn('이 refresh token은 만료 기한이 있습니다. OAuth 동의 화면이 "Testing"이면 7일 뒤 다시 연결해야 합니다.');
+      ctx.log.warn(msg('이 refresh token은 만료 기한이 있습니다. OAuth 동의 화면이 "Testing"이면 7일 뒤 다시 연결해야 합니다.'));
     }
     return account;
   },
@@ -469,32 +476,32 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const issues: Issue[] = [];
     const o = target.options as Partial<YouTubeOptions>;
     if (!o.privacy || !['public', 'unlisted', 'private'].includes(o.privacy)) {
-      issues.push({ severity: 'error', code: 'privacy', message: 'YouTube 공개 범위(public/unlisted/private)를 직접 지정해야 합니다' });
+      issues.push({ severity: 'error', code: 'privacy', message: msg('YouTube 공개 범위(public/unlisted/private)를 직접 지정해야 합니다') });
     }
     if (typeof o.madeForKids !== 'boolean') {
-      issues.push({ severity: 'error', code: 'made_for_kids', message: 'YouTube "아동용 여부"(madeForKids yes/no)를 지정해야 합니다' });
+      issues.push({ severity: 'error', code: 'made_for_kids', message: msg('YouTube "아동용 여부"(madeForKids yes/no)를 지정해야 합니다') });
     }
     // publishAt in the past is refused; e.g. a platform added to a post after its scheduled time. An
     // upload already under way set publishAt when it started, so resuming it is fine.
     const started = Boolean((target.resume as { sessionUri?: string; videoId?: string } | undefined)?.sessionUri || (target.resume as { videoId?: string } | undefined)?.videoId);
     if (post.scheduledAt && !started && !scheduleAhead(post)) {
-      issues.push({ severity: 'warning', code: 'schedule_past', message: 'YouTube 예약 시각이 이미 지나 예약 없이 바로 게시합니다' });
+      issues.push({ severity: 'warning', code: 'schedule_past', message: msg('YouTube 예약 시각이 이미 지나 예약 없이 바로 게시합니다') });
     }
     if (scheduleAhead(post) && o.privacy && o.privacy !== 'public') {
-      issues.push({ severity: 'error', code: 'schedule_privacy', message: 'YouTube 예약 게시는 public으로 공개되는 경우만 지원합니다' });
+      issues.push({ severity: 'error', code: 'schedule_privacy', message: msg('YouTube 예약 게시는 public으로 공개되는 경우만 지원합니다') });
     }
-    if (!post.title.trim()) issues.push({ severity: 'error', code: 'title', message: 'YouTube 제목이 비어 있습니다' });
-    if ([...post.title].length > 100) issues.push({ severity: 'error', code: 'title', message: 'YouTube 제목은 100자 이하' });
+    if (!post.title.trim()) issues.push({ severity: 'error', code: 'title', message: msg('YouTube 제목이 비어 있습니다') });
+    if ([...post.title].length > 100) issues.push({ severity: 'error', code: 'title', message: msg('YouTube 제목은 100자 이하') });
     if (/[<>]/.test(post.title) || /[<>]/.test(post.description)) {
-      issues.push({ severity: 'error', code: 'angle_brackets', message: 'YouTube 제목·설명에 < > 문자를 쓸 수 없습니다' });
+      issues.push({ severity: 'error', code: 'angle_brackets', message: msg('YouTube 제목·설명에 < > 문자를 쓸 수 없습니다') });
     }
-    if (Buffer.byteLength(post.description) > 5000) issues.push({ severity: 'error', code: 'description', message: 'YouTube 설명은 5000바이트 이하' });
-    if (post.tags.join(',').length > 500) issues.push({ severity: 'error', code: 'tags', message: 'YouTube 태그 합계 500자 이하' });
+    if (Buffer.byteLength(post.description) > 5000) issues.push({ severity: 'error', code: 'description', message: msg('YouTube 설명은 5000바이트 이하') });
+    if (post.tags.join(',').length > 500) issues.push({ severity: 'error', code: 'tags', message: msg('YouTube 태그 합계 500자 이하') });
     if (post.thumbnailPath && statSync(post.thumbnailPath).size > 2 * 1024 * 1024) {
-      issues.push({ severity: 'error', code: 'thumbnail', message: 'YouTube 썸네일은 2MB 이하' });
+      issues.push({ severity: 'error', code: 'thumbnail', message: msg('YouTube 썸네일은 2MB 이하') });
     }
     if (isShort(media)) {
-      issues.push({ severity: 'warning', code: 'shorts', message: '3분 이하 세로/정사각형 영상이라 YouTube가 Shorts로 분류합니다' });
+      issues.push({ severity: 'warning', code: 'shorts', message: msg('3분 이하 세로/정사각형 영상이라 YouTube가 Shorts로 분류합니다') });
     }
     return issues;
   },
@@ -518,7 +525,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
         else if ('expired' in state) sessionUri = undefined;
         else {
           offset = state.offset;
-          ctx.log.info(`youtube: ${offset} 바이트부터 이어 올립니다`);
+          ctx.log.info(msg('youtube: {offset} 바이트부터 이어 올립니다', { offset }));
         }
       }
       if (!video) {
@@ -526,7 +533,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
           const day = pacificDay(ctx.now());
           const used = ctx.store.getUsage('youtube', 'project', day);
           if (used >= DAILY_UPLOADS) {
-            throw new ProviderError('rejected', 'youtube.quota', `오늘 업로드 ${used}/${DAILY_UPLOADS}회를 이미 썼습니다 (로컬 집계)`);
+            throw new ProviderError('rejected', 'youtube.quota', msg('오늘 업로드 {used}/{DAILY_UPLOADS}회를 이미 썼습니다 (로컬 집계)', { used, DAILY_UPLOADS }));
           }
           sessionUri = await startSession(ctx, account, post, opts, size);
           saveResume({ sessionUri, size });
@@ -540,7 +547,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
           if (!(err instanceof ProviderError) || err.code !== 'youtube.http_401') throw err;
           account = await youtube.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
           const state = await querySession(ctx, account, sessionUri, size);
-          if ('expired' in state) throw new ProviderError('retryable', 'youtube.session_expired', '업로드 세션이 만료돼 처음부터 다시 올립니다');
+          if ('expired' in state) throw new ProviderError('retryable', 'youtube.session_expired', msg('업로드 세션이 만료돼 처음부터 다시 올립니다'));
           video = 'video' in state ? state.video : await uploadBytes(ctx, account, sessionUri, mediaPath, size, state.offset);
         }
       }
@@ -561,7 +568,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
   async poll({ ctx, post, target, account }): Promise<PollOutcome> {
     const res = await api<{ items?: VideoResource[] }>(ctx, account, `/videos?part=status,processingDetails&id=${target.remoteId}`);
     const video = res.items?.[0];
-    if (!video) throw new ProviderError('rejected', 'youtube.not_found', `영상 ${target.remoteId}을 찾을 수 없습니다 (삭제됨?)`);
+    if (!video) throw new ProviderError('rejected', 'youtube.not_found', msg('영상 {remoteId}을 찾을 수 없습니다 (삭제됨?)', { remoteId: target.remoteId }));
     const short = target.remoteUrl?.includes('/shorts/') ?? false;
     return outcomeFor(video, post, options(target), short);
   },
@@ -570,18 +577,18 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const checks: DoctorCheck[] = [];
     try {
       app(ctx);
-      checks.push({ name: 'BYO 앱', status: 'ok', detail: 'OAuth client 등록됨' });
+      checks.push({ name: msg('BYO 앱'), status: 'ok', detail: msg('OAuth client 등록됨') });
     } catch (err) {
-      checks.push({ name: 'BYO 앱', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('BYO 앱'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
 
     let acct = account;
     try {
       acct = await youtube.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
-      checks.push({ name: '토큰 갱신', status: 'ok', detail: 'refresh token 유효' });
+      checks.push({ name: msg('토큰 갱신'), status: 'ok', detail: msg('refresh token 유효') });
     } catch (err) {
-      checks.push({ name: '토큰 갱신', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('토큰 갱신'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
 
@@ -589,11 +596,11 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     checks.push(
       rtExp
         ? {
-            name: 'refresh token 수명',
+            name: msg('refresh token 수명'),
             status: 'warn',
-            detail: `만료 예정 ${new Date(rtExp).toISOString()} — 동의 화면이 "Testing"이면 "In production"으로 바꾸고 다시 연결하세요`,
+            detail: msg('만료 예정 {date} — 동의 화면이 "Testing"이면 "In production"으로 바꾸고 다시 연결하세요', { date: new Date(rtExp).toISOString() }),
           }
-        : { name: 'refresh token 수명', status: 'ok', detail: '만료 기한 없음 (In production으로 보임)' },
+        : { name: msg('refresh token 수명'), status: 'ok', detail: msg('만료 기한 없음 (In production으로 보임)') },
     );
 
     const ch = await api<{ items?: Array<{ id: string; snippet: { title: string }; status?: { longUploadsStatus?: string } }> }>(
@@ -602,19 +609,19 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       '/channels?part=snippet,status&mine=true',
     );
     const channel = ch.items?.[0];
-    checks.push({ name: '채널', status: channel ? 'ok' : 'fail', detail: channel ? `${channel.snippet.title} (${channel.id})` : '채널 없음' });
+    checks.push({ name: msg('채널'), status: channel ? 'ok' : 'fail', detail: channel ? `${channel.snippet.title} (${channel.id})` : msg('채널 없음') });
     if (channel?.status?.longUploadsStatus && channel.status.longUploadsStatus !== 'allowed') {
-      checks.push({ name: '15분 초과 업로드', status: 'warn', detail: `longUploadsStatus=${channel.status.longUploadsStatus} — 전화번호 인증 필요` });
+      checks.push({ name: msg('15분 초과 업로드'), status: 'warn', detail: msg('longUploadsStatus={longUploadsStatus} — 전화번호 인증 필요', { longUploadsStatus: channel.status.longUploadsStatus }) });
     }
 
     const used = ctx.store.getUsage('youtube', 'project', pacificDay(ctx.now()));
-    checks.push({ name: '오늘 업로드 (로컬 집계)', status: used >= DAILY_UPLOADS ? 'fail' : 'info', detail: `${used}/${DAILY_UPLOADS}` });
+    checks.push({ name: msg('오늘 업로드 (로컬 집계)'), status: used >= DAILY_UPLOADS ? 'fail' : 'info', detail: `${used}/${DAILY_UPLOADS}` });
 
     if (!live) {
       checks.push({
-        name: '미검증 프로젝트 공개 업로드',
+        name: msg('미검증 프로젝트 공개 업로드'),
         status: 'info',
-        detail: '확인하려면 --live 로 다시 실행 (일부 공개 테스트 영상을 올리고 지웁니다)',
+        detail: msg('확인하려면 --live 로 다시 실행 (일부 공개 테스트 영상을 올리고 지웁니다)'),
       });
       return checks;
     }
@@ -627,8 +634,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       id: 'doctor',
       createdAt: ctx.now().toISOString(),
       mediaPath: clip,
-      title: 'fanout doctor test (자동 삭제)',
-      description: 'fanout doctor --live 가 업로드 동작을 확인하려고 올린 테스트 영상입니다.',
+      title: msg('fanout doctor test (자동 삭제)'),
+      description: msg('fanout doctor --live 가 업로드 동작을 확인하려고 올린 테스트 영상입니다.'),
       tags: [],
       captions: [],
       containsSyntheticMedia: false,
@@ -638,7 +645,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const session = await startSession(ctx, acct, post, opts, media.sizeBytes);
     ctx.store.bumpUsage('youtube', 'project', day);
     let video = await uploadBytes(ctx, acct, session, clip, media.sizeBytes, 0);
-    checks.push({ name: '테스트 업로드', status: 'ok', detail: `videoId=${video.id}, 요청 unlisted → 응답 ${video.status?.privacyStatus}` });
+    checks.push({ name: msg('테스트 업로드'), status: 'ok', detail: msg('videoId={id}, 요청 unlisted → 응답 {privacyStatus}', { id: video.id, privacyStatus: video.status?.privacyStatus }) });
 
     for (let i = 0; i < 30 && video.status?.uploadStatus !== 'processed'; i++) {
       await sleep(10_000);
@@ -650,16 +657,20 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     checks.push(
       privacy === 'private'
         ? {
-            name: '미검증 프로젝트 공개 업로드',
+            name: msg('미검증 프로젝트 공개 업로드'),
             status: 'fail',
-            detail: `처리 후 privacyStatus=private (uploadStatus=${video.status?.uploadStatus}). 비공개 고정 규칙이 아직 적용됩니다 — YouTube API audit 신청 필요`,
+            detail: msg('처리 후 privacyStatus=private (uploadStatus={uploadStatus}). 비공개 고정 규칙이 아직 적용됩니다 — YouTube API audit 신청 필요', { uploadStatus: video.status?.uploadStatus }),
           }
         : {
-            name: '미검증 프로젝트 공개 업로드',
+            name: msg('미검증 프로젝트 공개 업로드'),
             status: video.status?.uploadStatus === 'processed' ? 'ok' : 'warn',
-            detail: `privacyStatus=${privacy}, uploadStatus=${video.status?.uploadStatus}. 비공개로 고정되지 않았습니다${
-              video.status?.uploadStatus === 'processed' ? '' : ' (처리 미완료 — 나중에 Studio에서 한 번 더 확인)'
-            }`,
+            detail:
+              video.status?.uploadStatus === 'processed'
+                ? msg('privacyStatus={privacy}, uploadStatus={uploadStatus}. 비공개로 고정되지 않았습니다', { privacy, uploadStatus: video.status?.uploadStatus })
+                : msg('privacyStatus={privacy}, uploadStatus={uploadStatus}. 비공개로 고정되지 않았습니다 (처리 미완료 — 나중에 Studio에서 한 번 더 확인)', {
+                    privacy,
+                    uploadStatus: video.status?.uploadStatus,
+                  }),
           },
     );
 
@@ -668,9 +679,9 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       headers: { authorization: `Bearer ${creds(acct).accessToken}` },
     });
     checks.push({
-      name: '테스트 영상 삭제',
+      name: msg('테스트 영상 삭제'),
       status: del.ok ? 'ok' : 'warn',
-      detail: del.ok ? '삭제함' : `삭제 실패 HTTP ${del.status} — Studio에서 직접 지우세요: https://youtu.be/${video.id}`,
+      detail: del.ok ? msg('삭제함') : msg('삭제 실패 HTTP {status} — Studio에서 직접 지우세요: https://youtu.be/{id}', { status: del.status, id: video.id }),
     });
     return checks;
   },
@@ -682,7 +693,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       `/videos?part=statistics&id=${target.remoteId}`,
     );
     const st = res.items?.[0]?.statistics;
-    if (!st) return { note: '영상을 찾을 수 없습니다 (삭제됐거나 비공개)' };
+    if (!st) return { note: msg('영상을 찾을 수 없습니다 (삭제됐거나 비공개)') };
     const n = (v?: string) => (v === undefined ? undefined : Number(v));
     return { views: n(st.viewCount), likes: n(st.likeCount), comments: n(st.commentCount) };
   },
@@ -698,7 +709,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
   async update({ ctx, account, target, post }) {
     const res = await api<{ items?: Array<{ snippet: Record<string, unknown> }> }>(ctx, account, `/videos?part=snippet&id=${target.remoteId}`);
     const snippet = res.items?.[0]?.snippet;
-    if (!snippet) throw new ProviderError('rejected', 'youtube.not_found', '영상을 찾을 수 없습니다');
+    if (!snippet) throw new ProviderError('rejected', 'youtube.not_found', msg('영상을 찾을 수 없습니다'));
     const { title, description, tags, categoryId, defaultLanguage } = { ...snippet, title: post.title, description: post.description, tags: post.tags } as Record<string, unknown>;
     await api(ctx, account, '/videos?part=snippet', {
       method: 'PUT',
@@ -725,7 +736,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       const id = t.snippet.topLevelComment.id ?? t.id;
       return {
         id,
-        author: c.authorDisplayName ?? '(이름 없음)',
+        author: c.authorDisplayName ?? msg('(이름 없음)'),
         text: c.textOriginal ?? c.textDisplay ?? '',
         at: c.publishedAt,
         likes: c.likeCount,

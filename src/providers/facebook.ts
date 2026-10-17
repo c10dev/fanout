@@ -3,6 +3,7 @@ import type { DoctorCheck, PollOutcome, Provider, PublishOutcome } from '../core
 import type { ProviderContext } from '../core/provider.ts';
 import type { Issue, Post } from '../core/types.ts';
 import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
+import { msg } from '../core/i18n.ts';
 
 export interface FacebookOptions {
   caption?: string;
@@ -42,13 +43,13 @@ export function reelOutcome(videoId: string, s: ReelStatus): PollOutcome {
     st.processing_phase?.status === 'error' ||
     st.publishing_phase?.status === 'error'
   ) {
-    throw new ProviderError('rejected', 'facebook.reel_error', `Facebook Reels 처리 실패: ${err ?? st.video_status}`);
+    throw new ProviderError('rejected', 'facebook.reel_error', msg('Facebook Reels 처리 실패: {err}', { err: err ?? st.video_status }));
   }
   const url = `https://www.facebook.com/reel/${videoId}`;
   if (st.publishing_phase?.status === 'complete') {
     if (st.publishing_phase.publish_status === 'scheduled') {
       const when = st.publishing_phase.publish_time ? new Date(st.publishing_phase.publish_time * 1000).toISOString() : '?';
-      return { state: 'published', remoteId: videoId, remoteUrl: url, warnings: [`예약 게시: ${when}`] };
+      return { state: 'published', remoteId: videoId, remoteUrl: url, warnings: [msg('예약 게시: {when}', { when })] };
     }
     return { state: 'published', remoteId: videoId, remoteUrl: url };
   }
@@ -100,13 +101,13 @@ export const facebook: Provider = {
     if (post.scheduledAt) {
       const delta = new Date(post.scheduledAt).getTime() - Date.now();
       if (delta < SCHEDULE_MIN_MS) {
-        issues.push({ severity: 'error', code: 'schedule_window', message: 'Facebook Reels 예약은 10분 뒤부터 가능합니다' });
+        issues.push({ severity: 'error', code: 'schedule_window', message: msg('Facebook Reels 예약은 10분 뒤부터 가능합니다') });
       } else if (delta > SCHEDULE_MAX_MS) {
         // createScheduledPost holds the target until the time is within reach (scheduleMaxAheadMs).
-        issues.push({ severity: 'warning', code: 'schedule_window', message: 'Facebook은 29일 안쪽만 예약할 수 있어, 예약 28일 전에 올립니다 (그때 fanout이 켜져 있어야 합니다)' });
+        issues.push({ severity: 'warning', code: 'schedule_window', message: msg('Facebook은 29일 안쪽만 예약할 수 있어, 예약 28일 전에 올립니다 (그때 fanout이 켜져 있어야 합니다)') });
       }
     }
-    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: 'Facebook Reels API는 썸네일 업로드를 지원하지 않아 무시됩니다' });
+    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: msg('Facebook Reels API는 썸네일 업로드를 지원하지 않아 무시됩니다') });
     return issues;
   },
 
@@ -157,17 +158,17 @@ export const facebook: Provider = {
     const checks: DoctorCheck[] = [];
     try {
       metaApp(ctx);
-      checks.push({ name: 'BYO 앱', status: 'ok', detail: 'Meta 앱 등록됨' });
+      checks.push({ name: msg('BYO 앱'), status: 'ok', detail: msg('Meta 앱 등록됨') });
     } catch (err) {
-      checks.push({ name: 'BYO 앱', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('BYO 앱'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
     const c = pageCreds(account);
     try {
       const page = await graph<{ name?: string }>(ctx, 'GET', `/${c.pageId}`, { fields: 'name', access_token: c.pageToken });
-      checks.push({ name: '페이지', status: 'ok', detail: `${page.name} (${c.pageId})` });
+      checks.push({ name: msg('페이지'), status: 'ok', detail: `${page.name} (${c.pageId})` });
     } catch (err) {
-      checks.push({ name: '페이지', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('페이지'), status: 'fail', detail: (err as Error).message });
     }
     return checks;
   },
@@ -194,7 +195,7 @@ export const facebook: Provider = {
         // The same Page that posted it can always see its own reel, so if that token reads the Page
         // but not the reel, the reel is gone (deleted elsewhere, or our DELETE's response was lost).
         if ((target.resume as { pageId?: string } | undefined)?.pageId === c.pageId && (await reelGone(ctx, c.pageId, c.pageToken, target.remoteId))) return;
-        throw new ProviderError('rejected', 'facebook.not_found', `지우지 못했습니다: 이 페이지 토큰으로는 영상을 찾을 수 없습니다. 페이지에서 직접 확인해 주세요 (${err.platformCode})`, err.platformCode);
+        throw new ProviderError('rejected', 'facebook.not_found', msg('지우지 못했습니다: 이 페이지 토큰으로는 영상을 찾을 수 없습니다. 페이지에서 직접 확인해 주세요 ({platformCode})', { platformCode: err.platformCode }), err.platformCode);
       }
       throw err;
     });
@@ -216,7 +217,7 @@ export const facebook: Provider = {
       `/${target.remoteId}/comments`,
       { fields: 'from{name},message,created_time,like_count,comment_count', order: 'reverse_chronological', limit: Math.min(limit, 100), access_token: c.pageToken },
     );
-    return (res.data ?? []).map((m) => ({ id: m.id, author: m.from?.name ?? '(이름 없음)', text: m.message ?? '', at: m.created_time, likes: m.like_count, replies: m.comment_count }));
+    return (res.data ?? []).map((m) => ({ id: m.id, author: m.from?.name ?? msg('(이름 없음)'), text: m.message ?? '', at: m.created_time, likes: m.like_count, replies: m.comment_count }));
   },
 
   // Replying as the Page needs pages_manage_engagement, which posting alone doesn't.
