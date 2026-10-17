@@ -87,7 +87,7 @@ async function tokenRequest(ctx: ProviderContext, params: Record<string, string>
   const res = await ctx.fetch(`${API}/2/oauth2/token`, { method: 'POST', headers, body });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok || !data.access_token) {
-    throw new ProviderError('auth', 'x.token', `X 토큰 오류: ${(data.error_description as string) ?? (data.error as string) ?? res.status}`, data.error as string | undefined);
+    throw new ProviderError(res.status === 429 || res.status >= 500 ? 'retryable' : 'auth', 'x.token', `X 토큰 오류: ${(data.error_description as string) ?? (data.error as string) ?? res.status}`, data.error as string | undefined);
   }
   return {
     accessToken: data.access_token as string,
@@ -233,17 +233,29 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       ctx.log.info(`x: ${segment}번째 조각부터 이어 올립니다`);
     }
 
+    // Access tokens last 2 hours; a long upload can outlive one. Refresh once on 401 and carry on.
+    let acct = account;
+    const call = async <T>(path: string, init: RequestInit): Promise<T> => {
+      try {
+        return await api<T>(ctx, acct, path, init);
+      } catch (err) {
+        if (!(err instanceof ProviderError) || err.code !== 'x.http_401') throw err;
+        acct = await x.refresh(ctx, { ...acct, credentials: { ...acct.credentials, expiresAt: 0 } });
+        return api<T>(ctx, acct, path, init);
+      }
+    };
+
     // Segments are idempotent by index, so resuming from the last saved index is safe.
     for (let offset = segment * SEGMENT; offset < size; offset += SEGMENT, segment++) {
       const chunk = await readChunk(mediaPath, offset, Math.min(SEGMENT, size - offset));
       const form = new FormData();
       form.set('segment_index', String(segment));
       form.set('media', new Blob([new Uint8Array(chunk)]), 'chunk');
-      await api(ctx, account, `/2/media/upload/${mediaId}/append`, { method: 'POST', body: form });
+      await call(`/2/media/upload/${mediaId}/append`, { method: 'POST', body: form });
       saveResume({ mediaId, segment: segment + 1 });
     }
 
-    await api<{ data: MediaData }>(ctx, account, `/2/media/upload/${mediaId}/finalize`, { method: 'POST' });
+    await call<{ data: MediaData }>(`/2/media/upload/${mediaId}/finalize`, { method: 'POST' });
     saveResume({ mediaId, segment, finalized: true });
     return { state: 'processing', remoteId: mediaId };
   },

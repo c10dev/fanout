@@ -451,7 +451,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
 
   async refresh(ctx, account) {
     const c = creds(account);
-    if (c.expiresAt - ctx.now().getTime() > 120_000) return account;
+    // Ten minutes of headroom so an upload rarely starts on an almost-expired token.
+    if (c.expiresAt - ctx.now().getTime() > 600_000) return account;
     const { clientId, clientSecret } = app(ctx);
     const tok = await tokenRequest(ctx, {
       refresh_token: c.refreshToken,
@@ -492,7 +493,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     return issues;
   },
 
-  async publish({ ctx, post, target, account, mediaPath, media, saveResume }): Promise<PublishOutcome> {
+  async publish({ ctx, post, target, account: initial, mediaPath, media, saveResume }): Promise<PublishOutcome> {
+    let account = initial;
     const opts = options(target);
     const size = statSync(mediaPath).size;
     const short = isShort(media);
@@ -524,7 +526,17 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
           saveResume({ sessionUri, size });
           ctx.store.bumpUsage('youtube', 'project', day);
         }
-        video = await uploadBytes(ctx, account, sessionUri, mediaPath, size, offset);
+        try {
+          video = await uploadBytes(ctx, account, sessionUri, mediaPath, size, offset);
+        } catch (err) {
+          // The access token expired mid-upload (they last an hour): refresh, ask the session how far
+          // it got, and carry on instead of sending the target to needs_reauth.
+          if (!(err instanceof ProviderError) || err.code !== 'youtube.http_401') throw err;
+          account = await youtube.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
+          const state = await querySession(ctx, account, sessionUri, size);
+          if ('expired' in state) throw new ProviderError('retryable', 'youtube.session_expired', '업로드 세션이 만료돼 처음부터 다시 올립니다');
+          video = 'video' in state ? state.video : await uploadBytes(ctx, account, sessionUri, mediaPath, size, state.offset);
+        }
       }
       saveResume({ videoId: video.id });
     }

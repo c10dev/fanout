@@ -154,8 +154,9 @@ async function tokenRequest(ctx: ProviderContext, params: Record<string, string>
   });
   const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok || body.error) {
+    // Only a refused grant means reconnecting; a TikTok outage or rate limit is worth retrying.
     throw new ProviderError(
-      'auth',
+      res.status === 429 || res.status >= 500 ? 'retryable' : 'auth',
       'tiktok.token',
       `TikTok 토큰 오류: ${(body.error_description as string) ?? (body.error as string) ?? res.status}`,
       body.error as string | undefined,

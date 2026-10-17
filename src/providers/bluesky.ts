@@ -276,7 +276,9 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
     const s = await xrpc<{ accessJwt: string; refreshJwt: string; handle: string; didDoc?: unknown }>(ctx, c.pds, 'com.atproto.server.refreshSession', {
       token: c.refreshJwt,
       post: true,
-    }).catch((err: ProviderError) => {
+    }).catch((err: unknown) => {
+      // Network trouble or a PDS outage is retryable; only a refused refresh token means reconnecting.
+      if (!(err instanceof ProviderError) || err.kind === 'retryable') throw err;
       throw new ProviderError('auth', 'bluesky.session_expired', `Bluesky 세션이 만료됐습니다 — 다시 연결하세요 (${err.platformCode ?? err.message})`, err.platformCode);
     });
     const next: Account = {
