@@ -17,7 +17,8 @@ import type { CaptionFile, Post, PostInput, Target, TargetInput, TargetState } f
 import { BUILTIN_PROVIDERS, providerMap } from './providers/index.ts';
 import { Dashboard } from './server/server.ts';
 import { McpServer, serveStdio } from './mcp/server.ts';
-import { Worker } from './core/worker.ts';
+import { refreshDueStats } from './core/stats.ts';
+import { DEFAULT_STATS_EVERY_MS, Worker } from './core/worker.ts';
 import { isShort } from './providers/youtube.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
@@ -229,8 +230,8 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout status [postId] [--events]
   fanout retry <postId> [platform]
   fanout run                             밀린 작업 처리 후 종료
-  fanout worker [--interval 60]          예약·재시도 작업을 계속 처리
-  fanout serve [--port 8780] [--host 127.0.0.1] [--keep-days 7 | --no-prune]
+  fanout worker [--interval 60] [--stats-every 6]   예약·재시도 작업을 계속 처리 (+ 최근 30일 게시물 반응을 6시간마다 기록, 0이면 끔)
+  fanout serve [--port 8780] [--host 127.0.0.1] [--keep-days 7 | --no-prune] [--stats-every 6]
                                          웹 대시보드 (작업 처리, 6시간마다 자동 정리 포함)
   fanout edit <postId> [--title T] [--description D | --description-file F] [--tags a,b]
                                          제목·설명·태그 수정 (YouTube·Facebook·Mastodon·PeerTube에 반영)
@@ -238,7 +239,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
   fanout comments <postId> [--limit 20]  게시된 대상의 최근 댓글 (YouTube·Facebook·Instagram·Bluesky·Mastodon·PeerTube)
   fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]   댓글에 답글 (comments 의 [id])
-  fanout stats [postId] [--include-paid]  게시된 영상의 조회·좋아요·댓글 (X는 --include-paid일 때만)
+  fanout stats [postId] [--include-paid] [--history]  게시된 영상의 조회·좋아요·댓글과 24시간 변화 (X는 --include-paid일 때만)
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off] [--format slack|discord|json]
   fanout notify test | off               상태 알림 (Slack·Discord·JSON webhook)
   fanout backup <폴더> [--without-key]    DB 스냅샷(+복호화 키) 백업 — 실행 중에도 안전
@@ -399,12 +400,20 @@ async function cmdRun(ctx: ProviderContext, deps: RunnerDeps): Promise<number> {
   return done.some((t) => t.state === 'failed' || t.state === 'needs_reauth') ? 1 : 0;
 }
 
+/** `--stats-every <hours>` (0 = off) for the background stats refresh. */
+function statsEvery(args: Args): number {
+  const hours = num(args, 'stats-every');
+  return hours === undefined ? DEFAULT_STATS_EVERY_MS : Math.max(0, hours) * 3600_000;
+}
+
 async function cmdWorker(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<never> {
   const interval = (num(args, 'interval') ?? 60) * 1000;
+  const everyMs = statsEvery(args);
   console.log(`worker 시작 (${interval / 1000}s 간격, Ctrl+C로 종료)`);
   for (;;) {
     const ids = ctx.store.workableTargets().map((t) => t.id);
     if (ids.length) await settle(deps, ids, { ...settleOpts(ctx), timeoutMs: interval });
+    if (everyMs > 0) await refreshDueStats(ctx, deps.providers, (postId, platform) => refreshStats(ctx, deps.providers, postId, { platform }), { everyMs });
     await new Promise((r) => setTimeout(r, interval));
   }
 }
@@ -502,6 +511,7 @@ async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     token,
     allowedHosts: str(args, 'allow-host')?.split(','),
     pruneDays: args.flags['no-prune'] ? null : (num(args, 'keep-days') ?? 7),
+    statsEveryMs: statsEvery(args),
     assumeLocal,
   });
   const url = await dashboard.start();
@@ -692,12 +702,25 @@ async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     return 1;
   }
   const fmt = (n?: number) => (n === undefined ? '-' : n.toLocaleString('ko-KR'));
+  const delta = (n?: number) => (n === undefined ? '' : ` (${n >= 0 ? '+' : ''}${n.toLocaleString('ko-KR')})`);
   for (const p of posts) {
     console.log(`\n${p.id.slice(0, 8)}  "${p.title}"`);
     for (const r of await refreshStats(ctx, deps.providers, p.id, { includePaid: Boolean(args.flags['include-paid']) })) {
       const name = `${r.platform}/${r.account}`.padEnd(18);
-      if (r.skipped) console.log(`  ${name} ${r.skipped}`);
-      else console.log(`  ${name} 조회 ${fmt(r.stats?.views)} · 좋아요 ${fmt(r.stats?.likes)} · 댓글 ${fmt(r.stats?.comments)} · 공유 ${fmt(r.stats?.shares)}${r.stats?.note ? `  (${r.stats.note})` : ''}`);
+      if (r.skipped) {
+        console.log(`  ${name} ${r.skipped}`);
+        continue;
+      }
+      const t = r.trend;
+      console.log(
+        `  ${name} 조회 ${fmt(r.stats?.views)}${delta(t?.views)} · 좋아요 ${fmt(r.stats?.likes)}${delta(t?.likes)} · 댓글 ${fmt(r.stats?.comments)}${delta(t?.comments)} · 공유 ${fmt(r.stats?.shares)}${delta(t?.shares)}${r.stats?.note ? `  (${r.stats.note})` : ''}`,
+      );
+      if (t) console.log(`  ${''.padEnd(18)} 괄호는 ${t.since.slice(0, 16).replace('T', ' ')} 이후 변화`);
+      if (args.flags.history) {
+        for (const h of ctx.store.statsHistory(r.targetId)) {
+          console.log(`  ${''.padEnd(18)} ${h.at.slice(0, 16).replace('T', ' ')}  조회 ${fmt(h.views)} · 좋아요 ${fmt(h.likes)} · 댓글 ${fmt(h.comments)} · 공유 ${fmt(h.shares)}`);
+        }
+      }
     }
   }
   return 0;

@@ -13,6 +13,7 @@ import type { Provider, ProviderContext } from '../core/provider.ts';
 import type { RunnerDeps } from '../core/runner.ts';
 import { Worker } from '../core/worker.ts';
 import { isTerminal } from '../core/state.ts';
+import { statsTrend } from '../core/stats.ts';
 import type { PostInput, Target, TargetInput, TargetState } from '../core/types.ts';
 import { isShort } from '../providers/youtube.ts';
 
@@ -26,6 +27,8 @@ export interface DashboardOptions {
   /** Extra Host header values to accept besides loopback (e.g. "fanout.lan:8780"). */
   allowedHosts?: string[];
   workerIntervalMs?: number;
+  /** How often the worker re-reads stats of recent posts; 0 turns it off. Default 6 hours. */
+  statsEveryMs?: number;
   /**
    * Treat a non-loopback bind as local. Only for containers whose published port is bound to the
    * host's 127.0.0.1 (e.g. `-p 127.0.0.1:8780:8780`), where nothing else can reach the server.
@@ -165,7 +168,7 @@ export class Dashboard {
     this.#token = opts.token ?? randomBytes(24).toString('base64url');
     this.#mediaDir = join(opts.ctx.home, 'media');
     this.#deps = { ctx: opts.ctx, providers: opts.providers, probe: opts.probe, ensureVariant: opts.ensureVariant };
-    this.#worker = new Worker(this.#deps, { intervalMs: opts.workerIntervalMs, pollIntervalMs: opts.pollIntervalMs });
+    this.#worker = new Worker(this.#deps, { intervalMs: opts.workerIntervalMs, pollIntervalMs: opts.pollIntervalMs, statsEveryMs: opts.statsEveryMs });
   }
 
   get token(): string {
@@ -741,6 +744,12 @@ export class Dashboard {
   #publicTarget(t: Target) {
     const { resume: _r, ...rest } = t;
     const provider = this.#opts.providers.get(t.platform);
-    return { ...rest, terminal: isTerminal(t.state), statsCost: provider?.statsCost, removable: t.state === 'published' && Boolean(provider?.remove) };
+    return {
+      ...rest,
+      terminal: isTerminal(t.state),
+      statsCost: provider?.statsCost,
+      removable: t.state === 'published' && Boolean(provider?.remove),
+      trend: t.stats ? statsTrend(this.#opts.ctx.store, t.id, this.#opts.ctx.now()) : undefined,
+    };
   }
 }

@@ -251,3 +251,5 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .reply-box textarea { width: 100%; font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; resize: vertical; }
 .reply-box .note { margin: 0; }
 .reply-box textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.stats .up { color: var(--ok); font-size: 12px; }
+.stats .down { color: var(--bad); font-size: 12px; }

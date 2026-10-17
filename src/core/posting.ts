@@ -5,7 +5,8 @@ import { checkMedia, type MediaInfo, type Violation } from './media.ts';
 import { isTerminal } from './state.ts';
 import type { Provider, ProviderContext } from './provider.ts';
 import type { Store } from './store.ts';
-import type { Comment, Post, PostInput, PostStats, Target, TargetInput } from './types.ts';
+import { statsTrend } from './stats.ts';
+import type { Comment, Post, PostInput, PostStats, StatsTrend, Target, TargetInput } from './types.ts';
 
 export type Verdict = 'as_is' | 'transcode' | 'blocked';
 
@@ -166,6 +167,8 @@ export interface StatsResult {
   platform: string;
   account: string;
   stats?: PostStats;
+  /** Change over the last day, once there is a reading from a day ago. */
+  trend?: StatsTrend;
   /** Why nothing was fetched for this target. */
   skipped?: string;
 }
@@ -205,14 +208,17 @@ export async function refreshStats(
       continue;
     }
     let stats: PostStats;
+    let failed = false;
     try {
       account = await provider.refresh(ctx, account);
       stats = { ...(await provider.stats({ ctx, account, target: { ...t, remoteId: t.remoteId } })), fetchedAt: ctx.now().toISOString() };
     } catch (err) {
+      failed = true;
       stats = { ...(t.stats ?? {}), fetchedAt: ctx.now().toISOString(), note: `가져오지 못함: ${err instanceof Error ? err.message : String(err)}` };
     }
     ctx.store.saveStats(t.id, stats);
-    out.push({ ...base, stats });
+    if (!failed) ctx.store.recordStats(t.id, stats);
+    out.push({ ...base, stats, trend: statsTrend(ctx.store, t.id, ctx.now()) });
   }
   return out;
 }

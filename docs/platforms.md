@@ -19,6 +19,8 @@
 
 `fanout stats`, 대시보드 "반응 새로고침", MCP `get_post_stats`가 지금 받은 권한 안에서 읽을 수 있는 것만 가져옵니다.
 
+읽은 값은 시각과 함께 기록됩니다. 대시보드·`fanout worker`·MCP 서버의 작업 처리기는 최근 30일 게시물의 반응을 6시간마다(`--stats-every <시간>`, `0`이면 끔) 다시 읽어 기록하고, 하루 전 기록과 비교한 변화를 보여 줍니다(`fanout stats`의 괄호, 대시보드의 +숫자, MCP `trend`). `fanout stats <postId> --history`로 기록 전체를 봅니다. 읽기에 요금이 드는 X는 자동으로 읽지 않습니다.
+
 | 플랫폼 | 조회 | 좋아요 | 댓글 | 공유 | 비고 |
 |---|---|---|---|---|---|
 | YouTube | ✓ | ✓ | ✓ | | `videos.list` statistics |
