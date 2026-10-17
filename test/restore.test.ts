@@ -115,3 +115,14 @@ describe('fanout restore, eleventh review fixes', () => {
     assert.throws(() => restoreBackup({ home, backupDir: bk, now: NOW }), /키/);
   });
 });
+
+describe('fanout restore over a corrupt database', () => {
+  it('says the database is unreadable instead of blaming another process', () => {
+    const { home, backup, store } = setup();
+    store.close();
+    writeFileSync(join(home, 'fanout.db'), 'garbage, not sqlite');
+    for (const f of ['fanout.db-wal', 'fanout.db-shm']) if (existsSync(join(home, f))) writeFileSync(join(home, f), '');
+    assert.throws(() => restoreBackup({ home, backupDir: backup, now: NOW }), /확인할 수 없습니다/);
+    assert.equal(restoreBackup({ home, backupDir: backup, now: NOW, force: true }).posts, 1);
+  });
+});

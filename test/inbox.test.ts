@@ -348,3 +348,37 @@ describe('watch folder ingest, eleventh review fixes', () => {
     assert.ok(!existsSync(join(dir, 'posted', 'clip.json')));
   });
 });
+
+describe('watch folder ingest, twelfth review fixes', () => {
+  const config: WatchConfig = { to: ['tiktok'], options: { tiktok: { mode: 'inbox' } }, onDuplicate: 'post' };
+
+  it('a posted/ folder it cannot write to stops before creating anything', async () => {
+    const { chmodSync, mkdirSync } = await import('node:fs');
+    const { store } = makeCtx();
+    const dir = folder(config);
+    mkdirSync(join(dir, 'posted'));
+    chmodSync(join(dir, 'posted'), 0o500);
+    try {
+      await assert.rejects(ingest({ dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: NOW }), /쓸 수 없습니다/);
+      assert.equal(store.listPosts(10).length, 0);
+    } finally {
+      chmodSync(join(dir, 'posted'), 0o700);
+    }
+  });
+
+  it('a video that vanishes before it can move leaves no queued post behind', async () => {
+    const { rmSync } = await import('node:fs');
+    const { store } = makeCtx();
+    const dir = folder(config);
+    const path = video(dir, 'a.mp4');
+    const tx = store.transaction.bind(store);
+    store.transaction = ((fn: () => unknown) => {
+      const out = tx(fn);
+      rmSync(path, { force: true }); // a sync client takes the file away right after the post is saved
+      return out;
+    }) as typeof store.transaction;
+    await assert.rejects(ingest({ dir, config, videoPath: path, providers, store, probe: async () => fakeMedia(), now: NOW }), /취소했습니다/);
+    const [post] = store.listPosts(10);
+    assert.deepEqual(store.targetsForPost(post!.id).map((t) => t.state), ['canceled']);
+  });
+});

@@ -3,7 +3,7 @@
 //
 // Pure planning lives here (config parsing, templating, deciding targets); the CLI owns the loop.
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
 import { fileHash, type MediaInfo } from './media.ts';
 import { assessMedia, createScheduledPost, describePrior, priorPosts } from './posting.ts';
@@ -389,6 +389,13 @@ export async function ingest(args: {
     }
     plan.targets = fresh;
   }
+  // The post will point into posted/: make sure the video can actually go there first.
+  try {
+    mkdirSync(join(dir, 'posted'), { recursive: true });
+    accessSync(join(dir, 'posted'), fsConstants.W_OK);
+  } catch (err) {
+    throw new Error(`${join(dir, 'posted')} 에 쓸 수 없습니다: ${(err as Error).message}`);
+  }
   // Pick the slot and create the post in one transaction, so two watchers can't take the same slot.
   let created: { postId: string; movedTo: string } | undefined;
   try {
@@ -415,7 +422,14 @@ export async function ingest(args: {
       plan.input.mediaPath = movedTo;
       return { postId: createScheduledPost(store, providers, plan.input, plan.targets).post.id, movedTo };
     });
-    moveVideo(videoPath, dir, 'posted', created.movedTo);
+    try {
+      moveVideo(videoPath, dir, 'posted', created.movedTo);
+    } catch (err) {
+      // The post exists but its file didn't move (e.g. the video vanished, a sync tool renamed it):
+      // call the post off rather than leave targets queued for a file that isn't there.
+      for (const t of store.targetsForPost(created.postId)) if (t.state === 'queued') store.transition(t.id, 'canceled', {}, 'video could not be moved into posted/');
+      throw new Error(`게시물을 만들었지만 영상을 posted/ 로 옮기지 못해 취소했습니다: ${(err as Error).message}`);
+    }
   } catch (err) {
     if (!(err instanceof WatchConfigError)) throw err;
     const movedTo = moveVideo(videoPath, dir, 'failed');
