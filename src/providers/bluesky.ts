@@ -147,11 +147,32 @@ export function facets(text: string): unknown[] {
   return out;
 }
 
+const TID_ALPHABET = '234567abcdefghijklmnopqrstuvwxyz';
+
+/** atproto record key (TID): 53-bit microsecond timestamp + 10-bit clock id, base32-sortable, 13 chars. */
+export function newTid(nowMs: number, clockId = Math.floor(Math.random() * 1024)): string {
+  let n = (BigInt(Math.floor(nowMs)) * 1000n) << 10n | BigInt(clockId & 1023);
+  let out = '';
+  for (let i = 0; i < 13; i++) {
+    out = TID_ALPHABET[Number(n & 31n)] + out;
+    n >>= 5n;
+  }
+  return out;
+}
+
 function postUrl(handle: string, uri: string): string {
   return `https://bsky.app/profile/${handle}/post/${uri.split('/').pop()}`;
 }
 
-async function createPostRecord(ctx: ProviderContext, account: Account, post: Post, opts: BlueskyOptions, blob: BlobRef, aspect: { width: number; height: number }) {
+async function createPostRecord(
+  ctx: ProviderContext,
+  account: Account,
+  post: Post,
+  opts: BlueskyOptions,
+  blob: BlobRef,
+  aspect: { width: number; height: number },
+  rkey: string,
+) {
   const c = creds(account);
   const warnings: string[] = [];
   const captions: Array<{ lang: string; file: BlobRef }> = [];
@@ -185,7 +206,7 @@ async function createPostRecord(ctx: ProviderContext, account: Account, post: Po
   };
   const res = await xrpc<{ uri: string; cid: string }>(ctx, c.pds, 'com.atproto.repo.createRecord', {
     token: c.accessJwt,
-    json: { repo: c.did, collection: 'app.bsky.feed.post', record },
+    json: { repo: c.did, collection: 'app.bsky.feed.post', rkey, record },
   });
   return { uri: res.uri, warnings };
 }
@@ -311,9 +332,24 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
 
   async poll({ ctx, post, target, account }): Promise<PollOutcome> {
     const c = creds(account);
-    const resume = (target.resume ?? {}) as { jobId?: string; postUri?: string; width?: number; height?: number };
+    const resume = (target.resume ?? {}) as { jobId?: string; postUri?: string; rkey?: string; width?: number; height?: number };
     if (resume.postUri) return { state: 'published', remoteId: resume.postUri, remoteUrl: postUrl(c.handle, resume.postUri) };
     const jobId = resume.jobId ?? target.remoteId;
+
+    // A previous attempt may have created the post and then lost the response: the record key was
+    // fixed in advance, so look it up before creating anything.
+    if (resume.rkey) {
+      const existing = await xrpc<{ uri: string }>(ctx, c.pds, 'com.atproto.repo.getRecord', {
+        query: { repo: c.did, collection: 'app.bsky.feed.post', rkey: resume.rkey },
+      }).catch((err: ProviderError) => {
+        if (err.platformCode === 'RecordNotFound') return undefined;
+        throw err;
+      });
+      if (existing) {
+        ctx.store.updateTarget(target.id, { resume: { ...resume, postUri: existing.uri } });
+        return { state: 'published', remoteId: existing.uri, remoteUrl: postUrl(c.handle, existing.uri) };
+      }
+    }
     const { jobStatus } = await xrpc<{ jobStatus: JobStatus }>(ctx, VIDEO_SERVICE, 'app.bsky.video.getJobStatus', { query: { jobId } });
     // A blob can arrive even on "failure" (already_exists), so check for it first.
     if (!jobStatus.blob) {
@@ -322,11 +358,18 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
       }
       return { state: 'processing', remoteId: jobId };
     }
-    const { uri, warnings } = await createPostRecord(ctx, account, post, target.options as BlueskyOptions, jobStatus.blob, {
-      width: resume.width ?? 1080,
-      height: resume.height ?? 1920,
-    });
-    ctx.store.updateTarget(target.id, { resume: { ...resume, postUri: uri } });
+    const rkey = resume.rkey ?? newTid(ctx.now().getTime());
+    if (!resume.rkey) ctx.store.updateTarget(target.id, { resume: { ...resume, rkey } });
+    const { uri, warnings } = await createPostRecord(
+      ctx,
+      account,
+      post,
+      target.options as BlueskyOptions,
+      jobStatus.blob,
+      { width: resume.width ?? 1080, height: resume.height ?? 1920 },
+      rkey,
+    );
+    ctx.store.updateTarget(target.id, { resume: { ...resume, rkey, postUri: uri } });
     return { state: 'published', remoteId: uri, remoteUrl: postUrl(c.handle, uri), warnings };
   },
 

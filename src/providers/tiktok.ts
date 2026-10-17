@@ -204,8 +204,16 @@ async function init(
   });
 }
 
-async function upload(ctx: ProviderContext, uploadUrl: string, path: string, size: number, plan: ReturnType<typeof chunkPlan>): Promise<void> {
-  for (const [start, end] of plan.ranges) {
+async function upload(
+  ctx: ProviderContext,
+  uploadUrl: string,
+  path: string,
+  size: number,
+  plan: ReturnType<typeof chunkPlan>,
+  beforeLast: () => void = () => {},
+): Promise<void> {
+  for (const [i, [start, end]] of plan.ranges.entries()) {
+    if (i === plan.ranges.length - 1) beforeLast();
     const chunk = await readChunk(path, start, end - start + 1);
     const res = await ctx.fetch(uploadUrl, {
       method: 'PUT',
@@ -417,9 +425,11 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
 
   async publish({ ctx, post, target, account, mediaPath, media, saveResume }): Promise<PublishOutcome> {
     const opts = target.options as unknown as TikTokOptions;
-    const resume = (target.resume ?? {}) as { publishId?: string; uploaded?: boolean; username?: string };
-    // TikTok upload URLs expire within an hour and have no offset query, so an interrupted upload restarts.
-    if (resume.publishId && resume.uploaded) return { state: 'processing', remoteId: resume.publishId };
+    const resume = (target.resume ?? {}) as { publishId?: string; uploaded?: boolean; finalSent?: boolean; username?: string };
+    // TikTok upload URLs expire within an hour and have no offset query, so an interrupted upload restarts —
+    // unless the last chunk was already sent: then TikTok may have the whole file and be posting it,
+    // and a fresh init would post twice. Let the status poll decide (FAILED → retry starts over).
+    if (resume.publishId && (resume.uploaded || resume.finalSent)) return { state: 'processing', remoteId: resume.publishId };
 
     let username: string | undefined;
     if (opts.mode === 'direct') {
@@ -445,7 +455,7 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     const plan = chunkPlan(size);
     const { publish_id, upload_url } = await init(ctx, account, post, opts, plan, size);
     saveResume({ publishId: publish_id, uploaded: false, username });
-    await upload(ctx, upload_url, mediaPath, size, plan);
+    await upload(ctx, upload_url, mediaPath, size, plan, () => saveResume({ publishId: publish_id, uploaded: false, finalSent: true, username }));
     saveResume({ publishId: publish_id, uploaded: true, username });
     return { state: 'processing', remoteId: publish_id };
   },

@@ -12,13 +12,20 @@ export class ProviderError extends Error {
   readonly code: string;
   /** The platform's own error code, kept verbatim for the status board. */
   readonly platformCode?: string;
+  /**
+   * Keep the target's remote state (upload ids, markers) when this fails it. By default a terminal
+   * failure during processing clears it so a retry starts over; set this when the remote object may
+   * still be live and starting over could post twice.
+   */
+  readonly keepResume: boolean;
 
-  constructor(kind: ErrorKind, code: string, message: string, platformCode?: string) {
+  constructor(kind: ErrorKind, code: string, message: string, platformCode?: string, opts: { keepResume?: boolean } = {}) {
     super(message);
     this.name = 'ProviderError';
     this.kind = kind;
     this.code = code;
     this.platformCode = platformCode;
+    this.keepResume = opts.keepResume ?? false;
   }
 }
 
