@@ -125,6 +125,8 @@ npm test           # node --test (ffmpeg가 있으면 실제 트랜스코딩 테
 npm run typecheck
 ```
 
+PR과 `main` 푸시마다 GitHub Actions([`.github/workflows/ci.yml`](.github/workflows/ci.yml))가 ffmpeg를 설치한 Ubuntu·Node 24에서 typecheck와 테스트를 실행합니다.
+
 ## 로드맵
 
 - 대시보드에서 썸네일·자막 지원, MCP 서버
