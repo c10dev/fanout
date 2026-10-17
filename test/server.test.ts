@@ -223,6 +223,16 @@ describe('dashboard server', () => {
     assert.ok(Array.isArray(body.results), 'comments endpoint, not the post detail');
   });
 
+  it('saves, lists and deletes presets', async () => {
+    const put = (name: string, body: unknown) => fetch(`${base}/api/presets/${encodeURIComponent(name)}`, { method: 'PUT', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    assert.equal((await put('빈 것', { targets: [] })).status, 400);
+    assert.equal((await put('숏폼', { targets: [{ platform: 'alpha', account: 'main', options: { x: 1 } }, { platform: 'nope' }], tags: ['kpop'] })).status, 200);
+    const list = (await (await fetch(`${base}/api/presets`, { headers: auth })).json()) as { presets: Array<{ name: string; targets: Array<{ platform: string }>; tags: string[] }> };
+    assert.deepEqual(list.presets.map((p) => [p.name, p.targets.map((t) => t.platform), p.tags]), [['숏폼', ['alpha'], ['kpop']]]);
+    const after = (await (await fetch(`${base}/api/presets/${encodeURIComponent('숏폼')}`, { method: 'DELETE', headers: auth })).json()) as { presets: unknown[] };
+    assert.deepEqual(after.presets, []);
+  });
+
   it('validates post requests', async () => {
     const post = (body: unknown) => fetch(`${base}/api/posts`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await post({ mediaId: '../../etc/passwd', title: 't', targets: [{ platform: 'alpha', account: 'main' }] })).status, 400);
