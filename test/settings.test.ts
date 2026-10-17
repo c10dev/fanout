@@ -68,9 +68,12 @@ describe('dashboard settings', () => {
     assert.equal(authorize.searchParams.get('redirect_uri'), `${base}/oauth/youtube/callback`);
     const state = authorize.searchParams.get('state')!;
 
-    const bad = await fetch(`${base}/oauth/youtube/callback?state=forged&code=x`, { redirect: 'manual' });
+    const bad = await fetch(`${base}/oauth/youtube/callback?state=forged&code=x`, { redirect: 'manual', headers: { 'accept-language': 'ko-KR,ko' } });
     assert.equal(bad.status, 303);
-    assert.match(bad.headers.get('location')!, /oauthError=/);
+    assert.match(new URL(bad.headers.get('location')!, base).searchParams.get('oauthError')!, /연결 요청이 만료됐거나/);
+    // Without a pending request to say which language the connect started in, the browser's decides.
+    const badEn = await fetch(`${base}/oauth/youtube/callback?state=forged&code=x`, { redirect: 'manual', headers: { 'accept-language': 'en-US,en' } });
+    assert.match(new URL(badEn.headers.get('location')!, base).searchParams.get('oauthError')!, /^The connection request expired or is invalid/);
 
     const ok = await fetch(`${base}/oauth/youtube/callback?state=${state}&code=CODE`, { redirect: 'manual' });
     assert.equal(ok.status, 303);

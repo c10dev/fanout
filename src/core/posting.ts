@@ -192,7 +192,7 @@ export function planAddTargets(store: Store, providers: Map<string, Provider>, p
 export function addTargets(store: Store, providers: Map<string, Provider>, postId: string, targets: TargetInput[], media: MediaInfo): Target[] {
   const plan = planAddTargets(store, providers, postId, targets, media);
   const blocked = plan.preview.filter((p) => p.errors.length);
-  if (blocked.length) throw new Error(blocked.map((p) => `${p.platform}/${p.account}: ${p.errors.join(', ')}`).join('\n'));
+  if (blocked.length) throw new Error(blocked.map((p) => `${p.platform}/${p.account}: ${p.errors.join(' / ')}`).join('\n'));
   if (plan.dropped.length) store.updatePost(postId, { thumbnailPath: plan.post.thumbnailPath, captions: plan.post.captions });
   // Like a new post: wait for the time where the platform can't hold the schedule itself.
   return store.addTargets(postId, targets, (t) => holdUntil(providers.get(t.platform), plan.post.scheduledAt, Date.now()));
