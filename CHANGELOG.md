@@ -58,4 +58,5 @@
 - TikTok: 수신함 업로드
 - Instagram·Facebook: 연결과 점검(한도 조회)
 - PeerTube: 로컬 PeerTube 8.3.1(Docker) 인스턴스에서 업로드·이어 올리기·예약·수정·댓글·답글·삭제
-- X·Bluesky·Mastodon과 나머지 경로는 HTTP mock 테스트로만 확인했습니다
+- Mastodon: 로컬 Mastodon 4.7.3(Docker) 인스턴스에서 썸네일 게시·수정·반응·댓글·답글(멘션, 중복 방지)·예약·삭제
+- X·Bluesky와 나머지 경로는 HTTP mock 테스트로만 확인했습니다
