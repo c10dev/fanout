@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { probe as realProbe, type MediaInfo } from '../core/media.ts';
+import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
 import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, retryTarget } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
@@ -525,12 +525,14 @@ export class Dashboard {
   /** Who and how each target would post, plus every error/warning preflight would raise. Creates nothing. */
   async #preview(req: IncomingMessage) {
     const { input, targets } = this.#parsePost(await readJson<CreatePostBody>(req));
+    input.mediaHash = await fileHash(input.mediaPath);
     const media = await (this.#opts.probe ?? realProbe)(input.mediaPath);
     return { targets: previewPost(this.#opts.ctx.store, this.#opts.providers, input, targets, media) };
   }
 
   async #createPost(req: IncomingMessage) {
     const { input, targets } = this.#parsePost(await readJson<CreatePostBody>(req));
+    input.mediaHash = await fileHash(input.mediaPath);
     const created = createScheduledPost(this.#opts.ctx.store, this.#opts.providers, input, targets);
     this.tick();
     return { post: this.#publicPost(created.post), targets: created.targets.map((t) => this.#publicTarget(t)) };

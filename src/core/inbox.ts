@@ -5,8 +5,8 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
-import type { MediaInfo } from './media.ts';
-import { assessMedia, createScheduledPost } from './posting.ts';
+import { fileHash, type MediaInfo } from './media.ts';
+import { assessMedia, createScheduledPost, describePrior, priorPosts } from './posting.ts';
 import type { Provider } from './provider.ts';
 import type { Store } from './store.ts';
 import type { CaptionFile, PostInput, TargetInput } from './types.ts';
@@ -39,6 +39,11 @@ export interface WatchConfig extends WatchFields {
    * 2-minute video for Facebook Reels): "skip" posts to the rest, "fail" rejects the whole video.
    */
   onBlocked?: 'skip' | 'fail';
+  /**
+   * The same video (by content) already went to a platform account: "skip" leaves that target out
+   * (default — a copied file shouldn't post twice), "post" posts again anyway.
+   */
+  onDuplicate?: 'skip' | 'post';
 }
 
 export class WatchConfigError extends Error {}
@@ -311,6 +316,22 @@ export async function ingest(args: {
     const movedTo = moveVideo(videoPath, dir, 'failed');
     writeError(movedTo, error);
     return { ok: false, error, movedTo };
+  }
+  plan.input.mediaHash = await fileHash(videoPath);
+  if ((config.onDuplicate ?? 'skip') === 'skip') {
+    const prior = priorPosts(store, plan.input.mediaHash, plan.targets);
+    const fresh = plan.targets.filter((t) => !prior.has(`${t.platform}/${t.account}`));
+    for (const t of plan.targets) {
+      const before = prior.get(`${t.platform}/${t.account}`)?.[0];
+      if (before) plan.skipped.push({ platform: t.platform, reason: describePrior(before) });
+    }
+    if (!fresh.length) {
+      const error = `이미 올린 영상이라 건너뜁니다 (다시 올리려면 onDuplicate: "post"): ${plan.skipped.map((s) => `${s.platform} — ${s.reason}`).join(' / ')}`;
+      const failedTo = moveVideo(videoPath, dir, 'failed');
+      writeError(failedTo, error);
+      return { ok: false, error, movedTo: failedTo };
+    }
+    plan.targets = fresh;
   }
   const movedTo = moveVideo(videoPath, dir, 'posted');
   plan.input.mediaPath = movedTo;

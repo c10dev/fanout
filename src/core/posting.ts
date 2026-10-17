@@ -87,6 +87,7 @@ export function previewPost(
   media: MediaInfo,
 ): TargetPreview[] {
   const post: Post = { ...input, id: 'preview', createdAt: new Date(0).toISOString() };
+  const prior = priorPosts(store, input.mediaHash, targets);
   return targets.map((t) => {
     const provider = providers.get(t.platform);
     const account = store.getAccount(t.platform, t.account);
@@ -102,7 +103,7 @@ export function previewPost(
       accountLabel: account ? accountLabel(account.profile, t.account) : undefined,
       verdict: errors.length ? 'blocked' : violations.length ? 'transcode' : 'as_is',
       errors,
-      warnings: issues.filter((i) => i.severity === 'warning').map((i) => i.message),
+      warnings: [...(prior.get(`${t.platform}/${t.account}`) ?? []).slice(0, 1).map(describePrior), ...issues.filter((i) => i.severity === 'warning').map((i) => i.message)],
       transcode: violations.filter((v) => v.fixable).map((v) => v.message),
     };
   });
@@ -119,4 +120,35 @@ export function retryTarget(store: Store, id: string, via: string): Target {
   if (t.state !== 'failed' && t.state !== 'needs_reauth') throw new Error(`${t.state} 상태는 다시 시도할 수 없습니다`);
   const resume = t.resume && 'posting' in t.resume ? { ...t.resume, posting: false } : t.resume;
   return store.transition(t.id, 'queued', { attempts: 0, errorCode: undefined, errorMessage: undefined, notBefore: undefined, resume }, via);
+}
+
+export interface PriorPost {
+  postId: string;
+  createdAt: string;
+  state: Target['state'];
+  url?: string;
+}
+
+/**
+ * Earlier posts of the same video to the same platform account that did (or still may) go out —
+ * anything except a failure. Keyed "platform/account".
+ */
+export function priorPosts(store: Store, hash: string | undefined, targets: TargetInput[], excludePostId?: string): Map<string, PriorPost[]> {
+  const out = new Map<string, PriorPost[]>();
+  if (!hash) return out;
+  const wanted = new Set(targets.map((t) => `${t.platform}/${t.account}`));
+  for (const p of store.postsWithHash(hash)) {
+    if (p.id === excludePostId) continue;
+    for (const t of store.targetsForPost(p.id)) {
+      const key = `${t.platform}/${t.account}`;
+      if (!wanted.has(key) || t.state === 'failed') continue;
+      out.set(key, [...(out.get(key) ?? []), { postId: p.id, createdAt: p.createdAt, state: t.state, url: t.remoteUrl }]);
+    }
+  }
+  return out;
+}
+
+export function describePrior(prior: PriorPost): string {
+  const when = prior.createdAt.slice(0, 16).replace('T', ' ');
+  return `이 영상은 ${when}(UTC)에 이미 올렸습니다 — ${prior.state}${prior.url ? ` ${prior.url}` : ''}`;
 }

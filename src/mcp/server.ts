@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
-import { probe as realProbe, type MediaInfo } from '../core/media.ts';
+import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
 import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, retryTarget, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
@@ -292,7 +292,9 @@ export class McpServer {
       containsSyntheticMedia: Boolean(args.aiGenerated),
       scheduledAt: args.scheduledAt ? new Date(String(args.scheduledAt)).toISOString() : undefined,
     };
-    return { input, targets, media: await this.#probe(mediaPath) };
+    const media = await this.#probe(mediaPath);
+    input.mediaHash = await fileHash(mediaPath);
+    return { input, targets, media };
   }
 }
 

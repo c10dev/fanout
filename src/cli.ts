@@ -5,8 +5,8 @@ import { createInterface } from 'node:readline/promises';
 import { openContext, stderrLogger } from './core/context.ts';
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
-import { probe } from './core/media.ts';
-import { accountLabel, assessMedia, createScheduledPost, retryTarget, visibilityLabel } from './core/posting.ts';
+import { fileHash, probe } from './core/media.ts';
+import { accountLabel, assessMedia, createScheduledPost, describePrior, priorPosts, retryTarget, visibilityLabel } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
@@ -337,10 +337,16 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
     scheduledAt: at ? new Date(at).toISOString() : undefined,
   };
   const targets = parseTargets(to, deps.providers, args, ctx.store.listAccounts());
+  input.mediaHash = await fileHash(mediaPath);
+  const prior = priorPosts(ctx.store, input.mediaHash, targets);
 
   // YouTube policy: show which channel and which visibility before uploading.
   console.log(`\n"${title}"  ${mediaPath}${input.scheduledAt ? `  예약 ${input.scheduledAt}` : ''}`);
-  for (const t of targets) console.log(`  ${accountLine(ctx, t).padEnd(40)} ${visibilityLabel(t, input.scheduledAt)}`);
+  for (const t of targets) {
+    console.log(`  ${accountLine(ctx, t).padEnd(40)} ${visibilityLabel(t, input.scheduledAt)}`);
+    const before = prior.get(`${t.platform}/${t.account}`)?.[0];
+    if (before) console.log(`      ⚠ ${describePrior(before)}`);
+  }
   if (!args.flags.yes && !(await confirm('이대로 업로드할까요?'))) return 1;
 
   const { post } = createScheduledPost(ctx.store, deps.providers, input, targets);

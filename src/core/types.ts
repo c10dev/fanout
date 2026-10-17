@@ -37,6 +37,8 @@ export interface PostInput {
   containsSyntheticMedia: boolean;
   /** ISO-8601. When set, providers with native scheduling hand it to the platform. */
   scheduledAt?: string;
+  /** SHA-256 of the original video, to notice the same video being posted again. */
+  mediaHash?: string;
 }
 
 export interface TargetInput {
