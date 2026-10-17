@@ -243,31 +243,37 @@ export class Store {
     const now = this.#now().toISOString();
     const post: Post = { ...input, id: randomUUID(), createdAt: now };
     const insertPost = this.#db.prepare('INSERT INTO posts (id, body, created_at) VALUES (?, ?, ?)');
-    let created: Target[] = [];
-    this.#db.exec('BEGIN IMMEDIATE');
-    try {
+    return this.transaction(() => {
       insertPost.run(post.id, JSON.stringify(post), now);
-      created = this.#insertTargets(post.id, targets, () => notBefore, now);
+      return { post, targets: this.#insertTargets(post.id, targets, () => notBefore, now) };
+    });
+  }
+
+  #txDepth = 0;
+
+  /**
+   * Run `fn` in one write transaction (BEGIN IMMEDIATE, so other processes wait instead of
+   * interleaving). Nested calls join the outer transaction.
+   */
+  transaction<T>(fn: () => T): T {
+    if (this.#txDepth > 0) return fn();
+    this.#db.exec('BEGIN IMMEDIATE');
+    this.#txDepth++;
+    try {
+      const out = fn();
       this.#db.exec('COMMIT');
+      return out;
     } catch (err) {
       this.#db.exec('ROLLBACK');
       throw err;
+    } finally {
+      this.#txDepth--;
     }
-    return { post, targets: created };
   }
 
   /** Queue more targets on an existing post (e.g. a platform added later), all or none. */
   addTargets(postId: string, targets: TargetInput[], notBefore: (t: TargetInput) => string | undefined = () => undefined): Target[] {
-    let created: Target[] = [];
-    this.#db.exec('BEGIN IMMEDIATE');
-    try {
-      created = this.#insertTargets(postId, targets, notBefore, this.#now().toISOString());
-      this.#db.exec('COMMIT');
-    } catch (err) {
-      this.#db.exec('ROLLBACK');
-      throw err;
-    }
-    return created;
+    return this.transaction(() => this.#insertTargets(postId, targets, notBefore, this.#now().toISOString()));
   }
 
   #insertTargets(postId: string, targets: TargetInput[], notBefore: (t: TargetInput) => string | undefined, now: string): Target[] {
@@ -443,10 +449,20 @@ export class Store {
     this.#db.prepare('UPDATE targets SET stats = ? WHERE id = ?').run(JSON.stringify(stats), id);
   }
 
-  /** Posts scheduled at or after `fromIso`, soonest first. */
+  /**
+   * Scheduled posts still to go out, soonest first: scheduled from `fromIso` on, or past their time
+   * but with a target still waiting (the worker was off). Posts given up on everywhere are left out.
+   */
   listScheduled(fromIso: string, limit = 50): Post[] {
     const rows = this.#db
-      .prepare(`SELECT body FROM posts WHERE json_extract(body, '$.scheduledAt') >= ? ORDER BY json_extract(body, '$.scheduledAt') LIMIT ?`)
+      .prepare(
+        `SELECT body FROM posts p
+         WHERE json_extract(p.body, '$.scheduledAt') IS NOT NULL
+           AND EXISTS (SELECT 1 FROM targets t WHERE t.post_id = p.id AND t.state NOT IN ('canceled', 'failed', 'removed'))
+           AND (json_extract(p.body, '$.scheduledAt') >= ?
+                OR EXISTS (SELECT 1 FROM targets t WHERE t.post_id = p.id AND t.state = 'queued' AND t.not_before IS NOT NULL))
+         ORDER BY json_extract(p.body, '$.scheduledAt') LIMIT ?`,
+      )
       .all(fromIso, limit) as Array<{ body: string }>;
     return rows.map((r) => JSON.parse(r.body) as Post);
   }

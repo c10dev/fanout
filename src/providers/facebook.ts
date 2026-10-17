@@ -71,6 +71,7 @@ async function reelGone(ctx: ProviderContext, pageId: string, pageToken: string,
 
 export const facebook: Provider = {
   id: 'facebook',
+  scheduleMaxAheadMs: SCHEDULE_MAX_MS,
   displayName: 'Facebook Reels (Page)',
   appKey: 'meta',
   capabilities: { nativeSchedule: true, thumbnail: false, captions: false, syntheticMediaFlag: false },
@@ -98,8 +99,11 @@ export const facebook: Provider = {
     const issues: Issue[] = [];
     if (post.scheduledAt) {
       const delta = new Date(post.scheduledAt).getTime() - Date.now();
-      if (delta < SCHEDULE_MIN_MS || delta > SCHEDULE_MAX_MS) {
-        issues.push({ severity: 'error', code: 'schedule_window', message: 'Facebook Reels 예약은 10분 뒤부터 29일 뒤까지만 가능합니다' });
+      if (delta < SCHEDULE_MIN_MS) {
+        issues.push({ severity: 'error', code: 'schedule_window', message: 'Facebook Reels 예약은 10분 뒤부터 가능합니다' });
+      } else if (delta > SCHEDULE_MAX_MS) {
+        // createScheduledPost holds the target until the time is within reach (scheduleMaxAheadMs).
+        issues.push({ severity: 'warning', code: 'schedule_window', message: 'Facebook은 29일 안쪽만 예약할 수 있어, 예약 28일 전에 올립니다 (그때 fanout이 켜져 있어야 합니다)' });
       }
     }
     if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: 'Facebook Reels API는 썸네일 업로드를 지원하지 않아 무시됩니다' });

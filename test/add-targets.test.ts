@@ -112,3 +112,20 @@ describe('ninth review fixes', () => {
     assert.deepEqual(youtube.validate(post, target, media).filter((i) => i.severity === 'error'), []);
   });
 });
+
+describe('far-future Facebook schedules', () => {
+  it('upload waits until the schedule is within 28 days', async () => {
+    const { createScheduledPost, holdUntil } = await import('../src/core/posting.ts');
+    const { facebook } = await import('../src/providers/facebook.ts');
+    const now = Date.now();
+    const far = new Date(now + 35 * 86_400_000).toISOString();
+    assert.equal(holdUntil(facebook, far, now), new Date(Date.parse(far) - 28 * 86_400_000).toISOString());
+    assert.equal(holdUntil(facebook, new Date(now + 10 * 86_400_000).toISOString(), now), undefined, 'within reach: upload now');
+    const { store } = makeCtx();
+    store.saveAccount({ platform: 'facebook', name: 'main', credentials: {}, profile: {} });
+    const { targets } = createScheduledPost(store, providerMap(), { mediaPath: tempFile(10), title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false, scheduledAt: far }, [
+      { platform: 'facebook', account: 'main', options: {} },
+    ]);
+    assert.ok(targets[0]!.notBefore && Date.parse(targets[0]!.notBefore) > now + 6 * 86_400_000);
+  });
+});

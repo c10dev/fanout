@@ -81,6 +81,17 @@ describe('provider stats', () => {
     assert.deepEqual([s.views, s.shares, s.likes], [321, 5, 11]);
   });
 
+  it('a metric the media does not have drops the views instead of keeping stale ones', async () => {
+    const ig = mockFetch([
+      ['GET', '/M/insights', () => json({ error: { code: 100, message: 'The Media Insights API does not support the views metric for this media' } }, 400)],
+      ['GET', '/M?', () => json({ like_count: 11, comments_count: 2 })],
+    ]);
+    const env = makeCtx(ig.fetch);
+    env.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const before = { ...target('instagram', 'M'), stats: { views: 321, fetchedAt: '2026-10-16T00:00:00Z' } };
+    assert.equal((await instagram.stats!({ ctx: env.ctx, account: acct('instagram', { pageToken: 'PT' }), target: before })).views, undefined);
+  });
+
   it('X reads public metrics and is marked as billed', async () => {
     assert.ok(x.statsCost);
     const { fetch } = mockFetch([['GET', '/2/tweets/T?tweet.fields=public_metrics', () => json({ data: { public_metrics: { impression_count: 900, like_count: 30, reply_count: 3, retweet_count: 4, quote_count: 1 } } })]]);

@@ -9,7 +9,7 @@ import { fileHash, type MediaInfo } from './media.ts';
 import { assessMedia, createScheduledPost, describePrior, priorPosts } from './posting.ts';
 import type { Provider } from './provider.ts';
 import type { Store } from './store.ts';
-import type { CaptionFile, PostInput, TargetInput } from './types.ts';
+import type { CaptionFile, Post, PostInput, Target, TargetInput } from './types.ts';
 
 export const CONFIG_FILE = 'fanout.watch.json';
 export const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v', '.webm', '.mkv'];
@@ -120,6 +120,12 @@ export function loadWatchConfig(dir: string): WatchConfig {
     if (!Array.isArray(raw.slots) || !raw.slots.length || raw.slots.some((s) => typeof s !== 'string' || !SLOT.test(s))) {
       throw new WatchConfigError(`${CONFIG_FILE}: "slots"는 "HH:MM" 시각의 배열이어야 합니다 (예: ["12:00", "19:00"])`);
     }
+    // Every slotted video is a scheduled YouTube upload, and YouTube schedules only public videos.
+    const youtube = config.to.some((s) => s.split(':')[0] === 'youtube');
+    const privacy = config.options?.youtube?.privacy;
+    if (youtube && privacy !== 'public') {
+      throw new WatchConfigError(`${CONFIG_FILE}: "slots"를 쓰면 YouTube 영상은 예약 게시가 되는데, YouTube 예약은 public만 됩니다. options.youtube.privacy를 "public"으로 하거나 slots를 빼세요 (지금: ${String(privacy ?? '없음')})`);
+    }
   }
   return config;
 }
@@ -134,10 +140,17 @@ const SLOT_HORIZON_DAYS = 120;
  * in this machine's local time (set TZ in a container).
  */
 export function nextFreeSlot(slots: string[], taken: ReadonlySet<string>, now: Date): string {
-  const times = [...new Set(slots)].map((s) => s.split(':').map(Number) as [number, number]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const times = [...new Set(slots)].map((s) => s.split(':').map(Number) as [number, number]);
   for (let day = 0; day < SLOT_HORIZON_DAYS; day++) {
-    for (const [h, m] of times) {
-      const at = new Date(now.getFullYear(), now.getMonth(), now.getDate() + day, h, m, 0, 0);
+    const candidates = times
+      .map(([h, m]) => {
+        const at = new Date(now.getFullYear(), now.getMonth(), now.getDate() + day, h, m, 0, 0);
+        // A time that doesn't exist that day (skipped by a daylight-saving change) is no slot.
+        return at.getHours() === h && at.getMinutes() === m ? at : undefined;
+      })
+      .filter((at): at is Date => Boolean(at))
+      .sort((a, b) => a.getTime() - b.getTime());
+    for (const at of candidates) {
       if (at.getTime() - now.getTime() < SLOT_LEAD_MS) continue;
       const iso = at.toISOString();
       if (!taken.has(iso)) return iso;
@@ -343,8 +356,9 @@ export async function ingest(args: {
 }): Promise<IngestResult> {
   const { dir, config, videoPath, providers, store, now } = args;
   let plan: Plan;
+  let media: MediaInfo;
   try {
-    const media = await args.probe(videoPath);
+    media = await args.probe(videoPath);
     plan = planPost({ videoPath, dir, config, sidecar: loadSidecar(videoPath), media, providers, now });
   } catch (err) {
     // ffprobe failures are long; its last line ("…: Invalid data found when processing input") says enough.
@@ -370,13 +384,43 @@ export async function ingest(args: {
     }
     plan.targets = fresh;
   }
-  if (!plan.input.scheduledAt && config.slots?.length) {
-    plan.input.scheduledAt = nextFreeSlot(config.slots, new Set(store.scheduledTimes(now.toISOString())), now);
+  // Pick the slot and create the post in one transaction, so two watchers can't take the same slot.
+  let created: { postId: string; movedTo: string } | undefined;
+  try {
+    created = store.transaction(() => {
+      if (!plan.input.scheduledAt && config.slots?.length) {
+        plan.input.scheduledAt = nextFreeSlot(config.slots, new Set(store.scheduledTimes(now.toISOString())), now);
+      }
+      // Now that the time is known, catch what the upload would only find out later (e.g. YouTube
+      // schedules only public videos) and treat it like a platform the video can't go to.
+      const draft: Post = { ...plan.input, id: 'plan', createdAt: now.toISOString() };
+      const kept: TargetInput[] = [];
+      for (const t of plan.targets) {
+        const target: Target = { id: 'plan', postId: 'plan', platform: t.platform, account: t.account, options: t.options, state: 'queued', warnings: [], attempts: 0, updatedAt: draft.createdAt };
+        const errors = providers.get(t.platform)!.validate(draft, target, media).filter((i) => i.severity === 'error').map((i) => i.message);
+        if (!errors.length) kept.push(t);
+        else if ((config.onBlocked ?? 'skip') === 'fail') throw new WatchConfigError(`${t.platform}: ${errors.join(' / ')}`);
+        else plan.skipped.push({ platform: t.platform, reason: errors.join(' / ') });
+      }
+      if (!kept.length) throw new WatchConfigError(`올릴 수 있는 플랫폼이 없습니다: ${plan.skipped.map((s) => `${s.platform} (${s.reason})`).join(', ')}`);
+      plan.targets = kept;
+      const movedTo = moveVideo(videoPath, dir, 'posted');
+      plan.input.mediaPath = movedTo;
+      try {
+        return { postId: createScheduledPost(store, providers, plan.input, plan.targets).post.id, movedTo };
+      } catch (err) {
+        // The database refused: put the video back so nothing is lost.
+        renameSync(movedTo, videoPath);
+        throw err;
+      }
+    });
+  } catch (err) {
+    if (!(err instanceof WatchConfigError)) throw err;
+    const movedTo = moveVideo(videoPath, dir, 'failed');
+    writeError(movedTo, err.message);
+    return { ok: false, error: err.message, movedTo };
   }
-  const movedTo = moveVideo(videoPath, dir, 'posted');
-  plan.input.mediaPath = movedTo;
-  const { post } = createScheduledPost(store, providers, plan.input, plan.targets);
-  return { ok: true, postId: post.id, movedTo, plan };
+  return { ok: true, postId: created.postId, movedTo: created.movedTo, plan };
 }
 
 const EXAMPLE_OPTIONS: Record<string, Record<string, unknown>> = {

@@ -281,3 +281,54 @@ describe('posting slots', () => {
     assert.throws(() => loadWatchConfig(dir), /HH:MM/);
   });
 });
+
+describe('posting slots, tenth review fixes', () => {
+  const local = (d: number, h: number, m = 0) => new Date(2026, 9, d, h, m);
+
+  it('refuses slots with a YouTube privacy that cannot be scheduled', () => {
+    const dir = folder({ to: ['youtube'], slots: ['19:00'], options: { youtube: { privacy: 'unlisted', madeForKids: false } } } as WatchConfig);
+    assert.throws(() => loadWatchConfig(dir), /public/);
+  });
+
+  it('a platform that refuses the slotted time is skipped with the reason, the rest still post', async () => {
+    const { store } = makeCtx();
+    const config: WatchConfig = { to: ['youtube', 'tiktok'], options: { tiktok: { mode: 'inbox' } }, slots: ['19:00'] };
+    const dir = folder(config);
+    // A sidecar sneaks in an unlisted YouTube privacy past the folder check.
+    writeFileSync(join(dir, 'a.json'), JSON.stringify({ options: { youtube: { privacy: 'unlisted', madeForKids: false } } }));
+    const r = await ingest({ dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: local(17, 9) });
+    assert.ok(r.ok);
+    if (r.ok) {
+      assert.deepEqual(r.plan.targets.map((t) => t.platform), ['tiktok']);
+      assert.match(r.plan.skipped.find((s) => s.platform === 'youtube')!.reason, /public/);
+    }
+  });
+
+  it('a full calendar moves the video to failed/ instead of crashing the watcher', async () => {
+    const { store } = makeCtx();
+    const config: WatchConfig = { to: ['tiktok'], options: { tiktok: { mode: 'inbox' } }, slots: ['19:00'] };
+    const dir = folder(config);
+    const taken = { mediaPath: '/x', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
+    for (let d = 0; d < 121; d++) store.createPost({ ...taken, scheduledAt: new Date(2026, 9, 17 + d, 19).toISOString() }, [{ platform: 'tiktok', account: 'main', options: {} }]);
+    const r = await ingest({ dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: local(17, 9) });
+    assert.ok(!r.ok);
+    assert.match(readFileSync(`${r.movedTo}.error.txt`, 'utf8'), /빈 예약 슬롯/);
+  });
+});
+
+describe('slots across a daylight-saving change', () => {
+  it('skips a time the clock jumps over and keeps the order', () => {
+    const tz = process.env.TZ;
+    process.env.TZ = 'Europe/Berlin';
+    try {
+      // 2027-03-28: 02:00 → 03:00 in Berlin, so 02:30 doesn't exist that day.
+      const now = new Date(2027, 2, 28, 0, 0);
+      assert.equal(nextFreeSlot(['02:30', '03:00'], new Set(), now), new Date(2027, 2, 28, 3, 0).toISOString());
+      const taken = new Set([new Date(2027, 2, 28, 3, 0).toISOString()]);
+      assert.equal(nextFreeSlot(['02:30', '03:00'], taken, now), new Date(2027, 2, 29, 2, 30).toISOString());
+    } finally {
+      if (tz === undefined) delete process.env.TZ;
+      else process.env.TZ = tz;
+    }
+  });
+});
