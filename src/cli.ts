@@ -2,11 +2,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { openContext } from './core/context.ts';
+import { openContext, stderrLogger } from './core/context.ts';
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { probe } from './core/media.ts';
-import { assessMedia, createScheduledPost } from './core/posting.ts';
+import { accountLabel, assessMedia, createScheduledPost, visibilityLabel } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
@@ -14,6 +14,8 @@ import { isTerminal } from './core/state.ts';
 import type { CaptionFile, Post, PostInput, Target, TargetInput } from './core/types.ts';
 import { BUILTIN_PROVIDERS, providerMap } from './providers/index.ts';
 import { Dashboard } from './server/server.ts';
+import { McpServer, serveStdio } from './mcp/server.ts';
+import { Worker } from './core/worker.ts';
 import { isShort } from './providers/youtube.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
@@ -169,24 +171,10 @@ function printPost(ctx: ProviderContext, post: Post, withEvents = false): void {
   }
 }
 
-function accountLabel(ctx: ProviderContext, t: TargetInput): string {
+function accountLine(ctx: ProviderContext, t: TargetInput): string {
   const acct = ctx.store.getAccount(t.platform, t.account);
   if (!acct) return `${t.platform}/${t.account} (연결 안 됨)`;
-  const p = acct.profile as Record<string, string | undefined>;
-  const who = p.channelTitle ?? p.username ?? p.pageName ?? p.displayName ?? t.account;
-  return `${t.platform}/${t.account} → ${who}`;
-}
-
-function visibilityLabel(t: TargetInput, scheduledAt?: string): string {
-  const o = t.options as Record<string, unknown>;
-  switch (t.platform) {
-    case 'youtube':
-      return scheduledAt ? `private → ${scheduledAt}에 public` : String(o.privacy ?? '(미지정)');
-    case 'tiktok':
-      return o.mode === 'direct' ? `direct, ${String(o.privacyLevel ?? '(공개 범위 미지정)')}` : 'inbox (TikTok 앱에서 마무리)';
-    default:
-      return scheduledAt ? `public, ${scheduledAt}` : 'public';
-  }
+  return `${t.platform}/${t.account} → ${accountLabel(acct.profile, t.account)}`;
 }
 
 async function confirm(question: string): Promise<boolean> {
@@ -226,6 +214,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout serve [--port 8780] [--host 127.0.0.1] [--keep-days 7 | --no-prune]
                                          웹 대시보드 (작업 처리, 6시간마다 자동 정리 포함)
   fanout prune [--days 7] [--dry-run]    다 올린 원본·오래된 변환 파일 정리 (~/.fanout 안만)
+  fanout mcp                             MCP 서버 (stdio) — AI 에이전트용 도구, 업로드 처리 포함
   fanout watch <폴더> --init             감시 폴더와 예시 설정(fanout.watch.json) 만들기
   fanout watch <폴더> [--yes] [--once] [--interval 15] [--settle 10]
                                          폴더에 넣은 영상을 설정대로 자동으로 올림
@@ -341,7 +330,7 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
 
   // YouTube policy: show which channel and which visibility before uploading.
   console.log(`\n"${title}"  ${mediaPath}${input.scheduledAt ? `  예약 ${input.scheduledAt}` : ''}`);
-  for (const t of targets) console.log(`  ${accountLabel(ctx, t).padEnd(40)} ${visibilityLabel(t, input.scheduledAt)}`);
+  for (const t of targets) console.log(`  ${accountLine(ctx, t).padEnd(40)} ${visibilityLabel(t, input.scheduledAt)}`);
   if (!args.flags.yes && !(await confirm('이대로 업로드할까요?'))) return 1;
 
   const { post } = createScheduledPost(ctx.store, deps.providers, input, targets);
@@ -405,7 +394,7 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     const [platform = '', account = 'main'] = spec.split(':');
     if (!deps.providers.has(platform)) throw new UsageError(`${CONFIG_FILE}: 알 수 없는 플랫폼 ${platform}`);
     const t: TargetInput = { platform, account, options: config.options?.[platform] ?? {} };
-    console.log(`  ${accountLabel(ctx, t).padEnd(40)} ${visibilityLabel(t, config.at)}`);
+    console.log(`  ${accountLine(ctx, t).padEnd(40)} ${visibilityLabel(t, config.at)}`);
   }
   console.log('  (영상별 <이름>.json 이 있으면 그 값이 우선합니다)');
   const missing = (config.to ?? []).map((s) => s.split(':')).filter(([p = '', a = 'main']) => !ctx.store.getAccount(p, a));
@@ -497,6 +486,21 @@ function cmdPrune(ctx: ProviderContext, args: Args): number {
   return 0;
 }
 
+/** MCP server on stdio; it also runs the upload worker, so posts it creates actually go out. */
+async function cmdMcp(providers: Map<string, Provider>): Promise<number> {
+  const ctx = openContext(undefined, stderrLogger);
+  const worker = new Worker({ ctx, providers });
+  worker.start();
+  try {
+    await serveStdio(new McpServer({ ctx, providers, worker }));
+  } finally {
+    // Unfinished uploads resume in the next fanout process (its lease takeover sees this pid is gone).
+    worker.stop();
+    ctx.store.close();
+  }
+  return 0;
+}
+
 async function cmdRetry(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
   if (!post) throw new UsageError('fanout retry <postId> [platform]');
@@ -538,6 +542,8 @@ export async function main(argv: string[]): Promise<number> {
     return 0;
   }
   if (cmd === 'check') return cmdCheck(providers, args).then(() => 0);
+
+  if (cmd === 'mcp') return cmdMcp(providers);
 
   const ctx = openContext();
   const deps: RunnerDeps = { ctx, providers };

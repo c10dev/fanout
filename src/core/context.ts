@@ -14,6 +14,12 @@ export const consoleLogger: Logger = {
   warn: (msg) => console.warn(`⚠ ${msg}`),
 };
 
+/** For stdio servers (MCP), where stdout carries the protocol. */
+export const stderrLogger: Logger = {
+  info: (msg) => console.error(msg),
+  warn: (msg) => console.error(`⚠ ${msg}`),
+};
+
 export function openContext(home = fanoutHome(), log: Logger = consoleLogger): ProviderContext {
   mkdirSync(home, { recursive: true, mode: 0o700 });
   const box = new SecretBox(loadSecretKey(home));

@@ -5,11 +5,12 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { assessMedia, createScheduledPost } from '../core/posting.ts';
+import { accountLabel, assessMedia, createScheduledPost } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
-import { settle, type RunnerDeps } from '../core/runner.ts';
+import type { RunnerDeps } from '../core/runner.ts';
+import { Worker } from '../core/worker.ts';
 import { isTerminal } from '../core/state.ts';
 import type { PostInput, Target, TargetInput } from '../core/types.ts';
 import { isShort } from '../providers/youtube.ts';
@@ -119,12 +120,10 @@ export class Dashboard {
   readonly #deps: RunnerDeps;
   readonly #token: string;
   readonly #mediaDir: string;
-  readonly #busyPlatforms = new Set<string>();
   #server?: Server;
-  #timer?: NodeJS.Timeout;
   #pruneTimer?: NodeJS.Timeout;
   #allowedHosts = new Set<string>();
-  #running = new Set<Promise<unknown>>();
+  readonly #worker: Worker;
   readonly #pendingOAuth = new Map<string, PendingOAuth>();
 
   constructor(opts: DashboardOptions) {
@@ -132,6 +131,7 @@ export class Dashboard {
     this.#token = opts.token ?? randomBytes(24).toString('base64url');
     this.#mediaDir = join(opts.ctx.home, 'media');
     this.#deps = { ctx: opts.ctx, providers: opts.providers, probe: opts.probe, ensureVariant: opts.ensureVariant };
+    this.#worker = new Worker(this.#deps, { intervalMs: opts.workerIntervalMs, pollIntervalMs: opts.pollIntervalMs });
   }
 
   get token(): string {
@@ -157,17 +157,16 @@ export class Dashboard {
     if (!isLoopback(host)) this.#allowedHosts.add(`${host}:${port}`);
     for (const h of this.#opts.allowedHosts ?? []) this.#allowedHosts.add(h);
 
-    this.#timer = setInterval(() => this.tick(), this.#opts.workerIntervalMs ?? 15_000);
+    this.#worker.start();
     if (this.#opts.pruneDays !== null) {
       this.prune();
       this.#pruneTimer = setInterval(() => this.prune(), PRUNE_INTERVAL_MS);
     }
-    this.tick();
     return `http://${host.includes(':') ? `[${host}]` : host}:${port}/`;
   }
 
   async stop(): Promise<void> {
-    clearInterval(this.#timer);
+    this.#worker.stop();
     clearInterval(this.#pruneTimer);
     // Drop in-flight requests first so a long upload can't hold Ctrl+C; interrupted work resumes next start.
     this.#server?.closeAllConnections();
@@ -176,7 +175,7 @@ export class Dashboard {
 
   /** Wait for in-flight runner work (tests). */
   async idle(): Promise<void> {
-    while (this.#running.size) await Promise.all(this.#running);
+    await this.#worker.idle();
   }
 
   /** Delete finished originals and stale transcodes under the fanout home (see planPrune). */
@@ -189,23 +188,9 @@ export class Dashboard {
     }
   }
 
-  /** Start one runner per idle platform over its due targets; platforms never upload two at once. */
+  /** Run due targets now instead of waiting for the next worker interval. */
   tick(): void {
-    const byPlatform = new Map<string, string[]>();
-    for (const t of this.#opts.ctx.store.workableTargets()) {
-      if (this.#busyPlatforms.has(t.platform)) continue;
-      byPlatform.set(t.platform, [...(byPlatform.get(t.platform) ?? []), t.id]);
-    }
-    for (const [platform, ids] of byPlatform) {
-      this.#busyPlatforms.add(platform);
-      const run = settle(this.#deps, ids, { pollIntervalMs: this.#opts.pollIntervalMs ?? 10_000, timeoutMs: 10 * 60_000 })
-        .catch((err: unknown) => this.#opts.ctx.log.warn(`worker(${platform}): ${String(err)}`))
-        .finally(() => {
-          this.#busyPlatforms.delete(platform);
-          this.#running.delete(run);
-        });
-      this.#running.add(run);
-    }
+    this.#worker.tick();
   }
 
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
@@ -281,10 +266,6 @@ export class Dashboard {
     return p;
   }
 
-  #accountLabel(profile: Record<string, unknown>, name: string): string {
-    const pr = profile as Record<string, string | undefined>;
-    return pr.channelTitle ?? (pr.username ? `@${pr.username}` : undefined) ?? pr.pageName ?? pr.displayName ?? name;
-  }
 
   #redirectUri(req: IncomingMessage, platform: string): string {
     return `http://${req.headers.host}/oauth/${platform}/callback`;
@@ -323,7 +304,7 @@ export class Dashboard {
         appConfigured: Boolean(store.getApp(p.appKey ?? p.id)),
         connectMethod: p.connectMethod,
         redirectUri: p.connectMethod === 'oauth' ? this.#redirectUri(req, p.id) : undefined,
-        accounts: accounts.filter((a) => a.platform === p.id).map((a) => ({ name: a.name, label: this.#accountLabel(a.profile, a.name) })),
+        accounts: accounts.filter((a) => a.platform === p.id).map((a) => ({ name: a.name, label: accountLabel(a.profile, a.name) })),
       })),
     };
   }
@@ -378,7 +359,7 @@ export class Dashboard {
     if (!body.token?.trim()) throw new HttpError(400, '액세스 토큰을 붙여넣으세요');
     const account = await provider.connect(this.#opts.ctx, name, { token: body.token.trim(), page: body.page?.trim() || undefined });
     this.#opts.ctx.store.saveAccount(account);
-    return { account: { name, label: this.#accountLabel(account.profile, name) } };
+    return { account: { name, label: accountLabel(account.profile, name) } };
   }
 
   async #oauthCallback(_req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
@@ -434,7 +415,7 @@ export class Dashboard {
         appConfigured: Boolean(store.getApp(p.appKey ?? p.id)),
         accounts: accounts
           .filter((a) => a.platform === p.id)
-          .map((a) => ({ name: a.name, label: this.#accountLabel(a.profile, a.name) })),
+          .map((a) => ({ name: a.name, label: accountLabel(a.profile, a.name) })),
       })),
     };
   }

@@ -143,6 +143,31 @@ node src/cli.ts watch ~/fanout-inbox --once --yes   # 지금 있는 영상만 �
 - 설정에 적힌 계정이 하나라도 연결돼 있지 않으면 감시를 시작하지 않습니다.
 - `--init`이 만드는 예시는 지금 연결된 계정 이름을 그대로 씁니다(연결된 게 없으면 `<플랫폼>:main`). YouTube는 처음에 `unlisted`로 만들어지니, 시험해 보고 `public`으로 바꾸세요.
 
+## AI 에이전트 연결 (MCP)
+
+`fanout mcp`는 [Model Context Protocol](https://modelcontextprotocol.io/) 서버입니다(stdio). Claude Code, Claude Desktop 같은 MCP 클라이언트가 fanout으로 영상을 검사하고 올릴 수 있습니다. 서버 안에서 업로드 작업도 처리하므로 대시보드를 따로 켜 둘 필요는 없습니다. 함께 켜 둬도 같은 작업을 두 번 올리지 않습니다.
+
+```bash
+claude mcp add fanout -- fanout mcp
+```
+
+소스에서 실행한다면 `-- node /절대경로/fanout/src/cli.ts mcp`로 등록하세요. Claude Desktop에서는 설정 파일의 `mcpServers`에 다음을 넣습니다.
+
+```json
+{ "fanout": { "command": "fanout", "args": ["mcp"] } }
+```
+
+| 도구 | 하는 일 |
+|---|---|
+| `list_accounts` | 지원 플랫폼, 앱 등록 여부, 연결된 계정 |
+| `check_video` | 로컬 영상을 플랫폼별로 원본 그대로 / 변환 필요 / 불가로 판정 |
+| `preview_post` | 실제로 올리지 않고, 어느 계정에 어떤 공개 범위로 올라가는지와 오류·경고를 미리 보여줌 |
+| `create_post` | 게시물을 만들고 업로드 시작. 막히는 문제가 있으면 만들지 않음 |
+| `get_post_status` | 플랫폼별 상태, 링크, 오류 |
+| `retry_target` | 실패했거나 재연결이 필요한 대상을 다시 시도 |
+
+`create_post`는 실제 계정에 게시합니다. 도구 설명과 서버 안내문에 "`preview_post` 결과를 사용자에게 보여주고 승인받은 뒤 호출하라"고 적어 두었고, 읽기 전용 도구에는 `readOnlyHint`를 붙였습니다. 앱 등록과 계정 연결은 MCP로 하지 않고 대시보드나 CLI에서 합니다.
+
 ## 디스크 정리
 
 ```bash
@@ -221,7 +246,6 @@ npm run typecheck
 
 ## 로드맵
 
-- MCP 서버
 - X, Threads(공개 URL 필요), LinkedIn, Bluesky·Mastodon·PeerTube
 - TikTok: 심사를 통과한 앱 연결 모드, Upload-Post·Ayrshare 어댑터
 - 네이버 클립 실험 플러그인 (별도 저장소, 사용자가 직접 로그인한 브라우저 프로필만 사용)
