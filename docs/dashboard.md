@@ -8,6 +8,7 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 
 - 영상을 끌어다 놓으면 플랫폼마다 "원본 그대로 / 변환 후 업로드 / 올릴 수 없음"을 바로 보여줍니다.
 - 플랫폼별 옵션은 정책에 맞춰 기본값 없이 고르게 합니다. YouTube 공개 범위·아동용 여부, TikTok Direct Post 공개 범위·음악 사용 동의가 그렇고, TikTok 댓글·듀엣·이어찍기는 꺼진 상태로 시작합니다.
+- **프리셋**: "올릴 곳"에서 고른 플랫폼·계정·옵션과 태그·설명을 이름 붙여 저장하고, 다음에 한 번에 불러옵니다. 영상을 바꿔 골라도 이미 고른 플랫폼과 옵션은 그대로 남습니다.
 - **미리 보기** 버튼을 누르면 업로드 전에 플랫폼마다 올라갈 채널·계정, 공개 범위, 변환 여부, 오류·경고를 보여줍니다. 같은 영상을 그 계정에 이미 올렸으면 경고도 함께 보여줍니다. 오류가 없을 때만 "이대로 업로드"가 나타나고, 폼을 고치면 미리보기는 사라집니다.
 - "썸네일·자막"을 펼치면 썸네일 이미지(JPG·PNG, 2MB 이하)와 언어별 자막 파일을 붙일 수 있습니다. 썸네일은 YouTube와 Mastodon, 자막은 YouTube와 Bluesky(VTT)에 적용됩니다.
 - 게시된 영상은 **반응 새로고침**으로 조회·좋아요·댓글·공유 수를 가져옵니다. X는 읽기에도 요금이 들어서 대상마다 따로 "반응 가져오기 (요금)"를 눌러야 합니다.
@@ -33,6 +34,7 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 | `GET /api/overview` | 플랫폼, 기능, 연결된 계정 |
 | `POST /api/media` | 영상 원본 바이트 업로드 (`x-filename` 헤더) → 분석·플랫폼별 판정 |
 | `POST /api/assets/thumbnail`, `POST /api/assets/caption` | 썸네일(JPG·PNG, 2MB)·자막(SRT·VTT 등) 원본 바이트 업로드 (`x-filename` 헤더) → `id` |
+| `GET /api/presets`, `PUT/DELETE /api/presets/:name` | 프리셋 목록·저장·삭제 |
 | `POST /api/preview` | `/api/posts`와 같은 본문으로, 만들지 않고 대상별 계정·공개 범위·판정·오류·경고만 돌려줌 |
 | `POST /api/posts` | `{ mediaId, title, description, tags, scheduledAt, containsSyntheticMedia, targets: [{ platform, account, options }], thumbnailId?, captions?: [{ language, assetId }] }` |
 | `GET /api/posts`, `GET /api/posts/:id` | 게시 현황, 상태 전이 기록 |

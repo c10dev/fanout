@@ -102,6 +102,13 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
   }
 }
 
+interface Preset {
+  name: string;
+  targets: TargetInput[];
+  tags: string[];
+  description: string;
+}
+
 interface CreatePostBody {
   mediaId?: string;
   title?: string;
@@ -219,6 +226,7 @@ export class Dashboard {
 
     const parts = url.pathname.split('/').filter(Boolean).slice(1);
     if (method === 'GET' && parts[0] === 'overview') return send(res, 200, this.#overview());
+    if (parts[0] === 'presets') return send(res, 200, await this.#presets(method, parts[1] ? decodeURIComponent(parts[1]) : undefined, req));
     if (method === 'POST' && parts[0] === 'media' && parts.length === 1) return send(res, 201, await this.#upload(req));
     if (method === 'POST' && parts[0] === 'assets' && (parts[1] === 'thumbnail' || parts[1] === 'caption')) return send(res, 201, await this.#uploadAsset(req, parts[1]));
     if (method === 'GET' && parts[0] === 'posts' && parts.length === 1) return send(res, 200, this.#listPosts(Number(url.searchParams.get('limit') ?? 20)));
@@ -427,6 +435,38 @@ export class Dashboard {
     } catch (err) {
       back({ oauthError: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  /**
+   * Named form presets (targets, their options, tags, description) so frequent posters don't re-pick
+   * everything. Stored in the encrypted apps table under "presets"; only references accounts by name.
+   */
+  async #presets(method: string, name: string | undefined, req: IncomingMessage) {
+    const { store } = this.#opts.ctx;
+    const all = () => store.getApp<{ items?: Preset[] }>('presets')?.items ?? [];
+    if (method === 'GET' && !name) return { presets: all() };
+    if (!name || !/^.{1,40}$/u.test(name.trim())) throw new HttpError(400, '프리셋 이름은 1~40자');
+    const key = name.trim();
+    if (method === 'DELETE') {
+      store.setApp('presets', { items: all().filter((p) => p.name !== key) });
+      return { presets: all() };
+    }
+    if (method === 'PUT') {
+      const body = await readJson<Partial<Preset>>(req);
+      const targets = (Array.isArray(body.targets) ? body.targets : [])
+        .filter((t) => t && this.#opts.providers.has(String(t.platform)))
+        .map((t) => ({ platform: String(t.platform), account: String(t.account ?? 'main'), options: t.options && typeof t.options === 'object' ? t.options : {} }));
+      if (!targets.length) throw new HttpError(400, '올릴 곳을 하나 이상 고른 뒤 저장하세요');
+      const preset: Preset = {
+        name: key,
+        targets,
+        tags: Array.isArray(body.tags) ? body.tags.map(String).filter(Boolean) : [],
+        description: typeof body.description === 'string' ? body.description : '',
+      };
+      store.setApp('presets', { items: [...all().filter((p) => p.name !== key), preset].sort((a, b) => a.name.localeCompare(b.name)) });
+      return { presets: all() };
+    }
+    throw new HttpError(404, 'not found');
   }
 
   /** Webhook settings. The URL itself is a secret, so only its host goes back to the browser. */

@@ -181,6 +181,107 @@ function readOptions(platform, body) {
   }
 }
 
+/** Inverse of readOptions: put saved option values back into a platform block's controls. */
+function applyOptions(platform, body, options) {
+  for (const [key, raw] of Object.entries(options ?? {})) {
+    // undefined means "left at the form's default" (e.g. notifySubscribers on): don't touch it.
+    if (raw === undefined) continue;
+    const value = platform === 'youtube' && key === 'madeForKids' ? (raw ? 'yes' : 'no') : Array.isArray(raw) ? raw.join(', ') : raw;
+    const radios = body.querySelectorAll(`input[type="radio"][name="${key}"]`);
+    if (radios.length) {
+      for (const r of radios) r.checked = r.value === String(value);
+      continue;
+    }
+    const el = body.querySelector(`[name="${key}"]`);
+    if (!el) continue;
+    if (el.type === 'checkbox') el.checked = Boolean(value);
+    else el.value = value ?? '';
+  }
+  // TikTok shows direct-post fields only in direct mode.
+  body.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+let presets = [];
+
+function renderPresets() {
+  const sel = $('#preset-select');
+  const current = sel.value;
+  sel.replaceChildren(h('option', { value: '' }, '프리셋 불러오기…'), ...presets.map((p) => h('option', { value: p.name, selected: p.name === current }, p.name)));
+  $('#preset-delete').hidden = !sel.value;
+}
+
+async function loadPresets() {
+  try {
+    presets = (await api('/presets')).presets;
+  } catch {
+    presets = [];
+  }
+  renderPresets();
+}
+
+function applyPreset(preset) {
+  $('#targets').replaceChildren();
+  renderTargets();
+  for (const t of preset.targets) {
+    const block = document.querySelector(`.target[data-platform="${t.platform}"]`);
+    const toggle = block?.querySelector('[name="enabled"]');
+    if (!block || !toggle || toggle.disabled) continue;
+    const select = block.querySelector('select[name="account"]');
+    if (select && [...select.options].some((o) => o.value === t.account)) select.value = t.account;
+    toggle.checked = true;
+    const body = block.querySelector('.target-body');
+    body.hidden = false;
+    applyOptions(t.platform, body, t.options);
+  }
+  if (preset.tags?.length) $('#tags').value = preset.tags.join(', ');
+  if (preset.description) $('#description').value = preset.description;
+  hideConfirm();
+}
+
+$('#preset-select').addEventListener('change', (e) => {
+  e.stopPropagation();
+  const preset = presets.find((p) => p.name === e.target.value);
+  $('#preset-delete').hidden = !preset;
+  if (preset) applyPreset(preset);
+});
+
+$('#preset-save').addEventListener('click', async () => {
+  const targets = [];
+  for (const block of document.querySelectorAll('.target')) {
+    if (!block.querySelector('[name="enabled"]').checked) continue;
+    const platform = block.dataset.platform;
+    const account = block.querySelector('select[name="account"]')?.value ?? block.querySelector('[data-account]')?.dataset.account;
+    targets.push({ platform, account, options: JSON.parse(JSON.stringify(readOptions(platform, block.querySelector('.target-body')))) });
+  }
+  if (!targets.length) {
+    $('#form-error').textContent = '프리셋에 넣을 플랫폼을 먼저 고르세요';
+    return;
+  }
+  const name = prompt('프리셋 이름 (같은 이름이면 덮어씁니다)', $('#preset-select').value || '');
+  if (!name?.trim()) return;
+  try {
+    presets = (
+      await api(`/presets/${encodeURIComponent(name.trim())}`, {
+        method: 'PUT',
+        body: JSON.stringify({ targets, tags: $('#tags').value.split(',').map((t) => t.trim()).filter(Boolean), description: $('#description').value }),
+      })
+    ).presets;
+    $('#preset-select').value = name.trim();
+    renderPresets();
+    $('#form-error').textContent = '';
+  } catch (err) {
+    $('#form-error').textContent = err.message;
+  }
+});
+
+$('#preset-delete').addEventListener('click', async () => {
+  const name = $('#preset-select').value;
+  if (!name || !confirm(`프리셋 "${name}"을 지울까요?`)) return;
+  presets = (await api(`/presets/${encodeURIComponent(name)}`, { method: 'DELETE' })).presets;
+  $('#preset-select').value = '';
+  renderPresets();
+});
+
 /** Same required-choice rules the server enforces, shown before anything uploads. */
 function missingChoices(platform, o) {
   const out = [];
@@ -210,7 +311,37 @@ function renderAccounts() {
   );
 }
 
+/** What the user picked in each platform block, so re-rendering (e.g. after choosing a video) keeps it. */
+function snapshotTargets() {
+  const snap = new Map();
+  for (const block of document.querySelectorAll('.target')) {
+    const enabled = block.querySelector('[name="enabled"]')?.checked;
+    if (!enabled) continue;
+    const platform = block.dataset.platform;
+    snap.set(platform, {
+      account: block.querySelector('select[name="account"]')?.value,
+      options: readOptions(platform, block.querySelector('.target-body')),
+    });
+  }
+  return snap;
+}
+
+function restoreTargets(snap) {
+  for (const [platform, t] of snap) {
+    const block = document.querySelector(`.target[data-platform="${platform}"]`);
+    const toggle = block?.querySelector('[name="enabled"]');
+    if (!block || !toggle || toggle.disabled) continue;
+    const select = block.querySelector('select[name="account"]');
+    if (select && t.account) select.value = t.account;
+    toggle.checked = true;
+    const body = block.querySelector('.target-body');
+    body.hidden = false;
+    applyOptions(platform, body, t.options);
+  }
+}
+
 function renderTargets() {
+  const snap = snapshotTargets();
   $('#targets').replaceChildren(
     ...overview.platforms.map((p) => {
       const connected = p.accounts.length > 0;
@@ -244,6 +375,7 @@ function renderTargets() {
       return block;
     }),
   );
+  restoreTargets(snap);
 }
 
 /** Show direct-post fields only in direct mode. */
@@ -1049,6 +1181,7 @@ async function init() {
   renderAccounts();
   renderTargets();
   refreshBoard();
+  loadPresets();
 
   // Coming back from an OAuth redirect.
   const params = new URLSearchParams(location.search);
