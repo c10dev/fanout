@@ -126,6 +126,11 @@ export class Store {
     this.#now = now;
   }
 
+  /** Consistent snapshot of the whole database, safe while other processes keep writing. */
+  backupTo(path: string): void {
+    this.#db.prepare('VACUUM INTO ?').run(path);
+  }
+
   close(): void {
     this.#db.close();
   }
