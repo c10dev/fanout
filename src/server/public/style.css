@@ -245,3 +245,4 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 
 .row-actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
 @media (max-width: 560px) { .row-actions { flex-direction: row; justify-content: flex-start; } }
+.presets .note { flex-basis: 100%; margin: 0; }

@@ -43,6 +43,39 @@ function creds(account: Account): MastodonCredentials {
   return account.credentials as unknown as MastodonCredentials;
 }
 
+/**
+ * Refuse to change a post through a connection that isn't the one that made it: an account name
+ * reconnected to another instance or another user would otherwise act on (or misjudge) the wrong
+ * status. Posts made before the publisher was recorded fall back to the status URL's host.
+ */
+function assertPublisher(account: Account, target: { resume?: Record<string, unknown>; remoteUrl?: string }): void {
+  const c = creds(account);
+  const r = (target.resume ?? {}) as { instance?: string; accountId?: string };
+  let instance = r.instance;
+  if (!instance && target.remoteUrl) {
+    try {
+      instance = new URL(target.remoteUrl).origin;
+    } catch {
+      instance = undefined;
+    }
+  }
+  const who = account.profile.username ?? account.name;
+  if (instance && instance !== c.instance) {
+    throw new ProviderError('rejected', 'mastodon.other_instance', `이 글은 ${instance} 에 올렸는데 지금 ${account.name} 계정은 ${c.instance} 에 연결돼 있습니다`);
+  }
+  const accountId = account.profile.accountId as string | undefined;
+  if (r.accountId && accountId && r.accountId !== accountId) {
+    throw new ProviderError('rejected', 'mastodon.not_owner', `이 글은 지금 연결된 계정(${who})이 올린 글이 아닙니다`);
+  }
+}
+
+// A scheduled post's id is a ScheduledStatus id; the status it becomes gets a new id we never learn.
+const SCHEDULED_NOTE = '예약해 둔 글은 게시된 뒤의 글 번호를 알 수 없어 반응·댓글을 가져올 수 없습니다';
+
+function isScheduled(target: { resume?: Record<string, unknown> }): boolean {
+  return Boolean((target.resume as { scheduled?: boolean } | undefined)?.scheduled);
+}
+
 export function normalizeInstance(raw: string): string {
   const withScheme = /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
   const url = new URL(withScheme);
@@ -244,7 +277,17 @@ export const mastodon: Provider = {
       throw err;
     });
     // With scheduled_at the server returns a ScheduledStatus: its id is not a status id until it fires.
-    ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false, statusId: body.id, statusUrl: body.url, ...(body.scheduled_at ? { scheduled: true } : {}) } });
+    ctx.store.updateTarget(target.id, {
+      resume: {
+        ...resume,
+        posting: false,
+        statusId: body.id,
+        statusUrl: body.url,
+        instance: c.instance,
+        accountId: account.profile.accountId,
+        ...(body.scheduled_at ? { scheduled: true } : {}),
+      },
+    });
     if (body.scheduled_at) warnings.push(`예약 게시: ${body.scheduled_at}`);
     return { state: 'published', remoteId: body.id, remoteUrl: body.url, warnings };
   },
@@ -274,13 +317,15 @@ export const mastodon: Provider = {
   },
 
   async stats({ ctx, account, target }) {
+    if (isScheduled(target)) return { note: SCHEDULED_NOTE };
     const { body } = await api<{ favourites_count?: number; replies_count?: number; reblogs_count?: number }>(ctx, creds(account), `/api/v1/statuses/${target.remoteId}`);
     return { likes: body.favourites_count, comments: body.replies_count, shares: body.reblogs_count, note: 'Mastodon은 조회수를 제공하지 않습니다' };
   },
 
   async remove({ ctx, account, target }) {
     const c = creds(account);
-    if ((target.resume as { scheduled?: boolean } | undefined)?.scheduled) {
+    assertPublisher(account, target);
+    if (isScheduled(target)) {
       // Still waiting: cancel the scheduled status. Once it has fired the live post has a new id we
       // don't know, so say so instead of pretending it's gone.
       try {
@@ -299,14 +344,22 @@ export const mastodon: Provider = {
       if (!(err instanceof ProviderError) || err.code !== 'mastodon.http_404') throw err;
       // 404 also means "not yours" (e.g. the account was reconnected as someone else): only call it
       // gone if the status really doesn't exist any more.
-      const still = await api<{ account?: { id?: string } }>(ctx, c, `/api/v1/statuses/${target.remoteId}`).catch(() => undefined);
+      // Only a 404 here too proves it's gone; a timeout or 5xx proves nothing.
+      const still = await api(ctx, c, `/api/v1/statuses/${target.remoteId}`).then(
+        () => true,
+        (e: unknown) => {
+          if (e instanceof ProviderError && e.code === 'mastodon.http_404') return false;
+          throw e;
+        },
+      );
       if (still) throw new ProviderError('rejected', 'mastodon.not_owner', `이 게시물은 지금 연결된 계정(${account.profile.username ?? account.name})의 것이 아니라 지울 수 없습니다`);
     }
   },
 
   // Editing must list the media to keep, or the video would be dropped from the post.
   async update({ ctx, account, target, post }) {
-    if ((target.resume as { scheduled?: boolean } | undefined)?.scheduled) {
+    assertPublisher(account, target);
+    if (isScheduled(target)) {
       throw new ProviderError('rejected', 'mastodon.scheduled', '예약된 글은 API로 내용을 고칠 수 없습니다. 지우고 다시 예약하세요');
     }
     const resume = (target.resume ?? {}) as { mediaId?: string };
@@ -324,6 +377,7 @@ export const mastodon: Provider = {
   },
 
   async comments({ ctx, account, target, limit }) {
+    if (isScheduled(target)) throw new ProviderError('rejected', 'mastodon.scheduled', SCHEDULED_NOTE);
     type Status = { id: string; in_reply_to_id?: string | null; content: string; created_at: string; url?: string; favourites_count?: number; replies_count?: number; account: { acct: string; display_name?: string } };
     const { body } = await api<{ descendants?: Status[] }>(ctx, creds(account), `/api/v1/statuses/${target.remoteId}/context`);
     return (body.descendants ?? [])
