@@ -36,6 +36,28 @@ node src/cli.ts status
 
 `npm run fanout -- <명령>`으로도 실행할 수 있습니다. 데이터는 `FANOUT_HOME`(기본 `~/.fanout`)에 저장되고, 토큰과 앱 비밀값은 AES-256-GCM으로 암호화합니다. 키는 `FANOUT_SECRET_KEY` 환경 변수나 `~/.fanout/secret.key`(권한 0600)에 둡니다.
 
+## 웹 대시보드
+
+```bash
+node src/cli.ts serve            # http://127.0.0.1:8780/
+```
+
+- 영상을 끌어다 놓으면 플랫폼마다 "원본 그대로 / 변환 후 업로드 / 올릴 수 없음"을 바로 보여줍니다.
+- 플랫폼별 옵션은 정책에 맞춰 기본값 없이 고르게 합니다. YouTube 공개 범위·아동용 여부, TikTok Direct Post 공개 범위·음악 사용 동의가 그렇고, TikTok 댓글·듀엣·이어찍기는 꺼진 상태로 시작합니다.
+- 게시 현황 보드는 플랫폼별 상태, 플랫폼 오류 코드, 경고, 상태 전이 기록을 보여주고, 실패하거나 재연결이 필요한 대상은 "다시 시도"할 수 있습니다.
+- 서버 안에서 작업 처리기가 돌아가므로 `fanout worker`를 따로 켤 필요가 없습니다.
+- 계정 연결(`connect`)과 앱 등록(`app set`)은 아직 터미널에서 합니다.
+
+보안: 기본으로 127.0.0.1에만 열립니다. API는 실행할 때마다 새로 만드는 토큰을 요구하고, Host 헤더를 검사해 DNS rebinding을 막습니다. 다른 기기에서 접속하려면 `FANOUT_DASHBOARD_TOKEN`을 정하고 `--host 0.0.0.0 --allow-host 내주소:8780`으로 열되, HTTPS 리버스 프록시 뒤에 두세요.
+
+| REST API (`x-fanout-token` 헤더 필요) | |
+|---|---|
+| `GET /api/overview` | 플랫폼, 기능, 연결된 계정 |
+| `POST /api/media` | 영상 원본 바이트 업로드 (`x-filename` 헤더) → 분석·플랫폼별 판정 |
+| `POST /api/posts` | `{ mediaId, title, description, tags, scheduledAt, containsSyntheticMedia, targets: [{ platform, account, options }] }` |
+| `GET /api/posts`, `GET /api/posts/:id` | 게시 현황, 상태 전이 기록 |
+| `POST /api/targets/:id/retry` | 실패·재연결 필요 대상 다시 시도 |
+
 ## 플랫폼별 동작
 
 | 플랫폼 | 방식 | 기본 동작 | 예약 | 알아둘 제약 |
@@ -63,12 +85,14 @@ node src/cli.ts status
 ```
 src/
   cli.ts                  명령줄 인터페이스
+  server/                 웹 대시보드 (node:http, REST API, public/ 정적 페이지)
   core/
     types.ts              Post, Target, 상태 정의
     state.ts              상태 머신 (허용되는 전이만)
     store.ts              SQLite 저장소: BYO 앱, 계정, 게시물, 대상, 상태 이벤트, 사용량
     crypto.ts             토큰 암호화 (AES-256-GCM)
     media.ts              ffprobe 분석, 사양 검사, 조건부 트랜스코딩
+    posting.ts            게시물 생성, 플랫폼별 미디어 판정
     runner.ts             사전 검사 → 변환 → 업로드 → 처리 확인, 재시도·재인증 처리
     provider.ts           Provider 인터페이스
   providers/
@@ -95,7 +119,7 @@ npm run typecheck
 
 ## 로드맵
 
-- 웹 대시보드(게시물별 상태 보드), REST API, MCP 서버
+- 대시보드에서 계정 연결·썸네일·자막 지원, MCP 서버
 - X, Threads(공개 URL 필요), LinkedIn, Bluesky·Mastodon·PeerTube
 - TikTok: 심사를 통과한 앱 연결 모드, Upload-Post·Ayrshare 어댑터
 - 네이버 클립 실험 플러그인 (별도 저장소, 사용자가 직접 로그인한 브라우저 프로필만 사용)
