@@ -223,6 +223,27 @@ describe('dashboard server', () => {
     assert.ok(Array.isArray(body.results), 'comments endpoint, not the post detail');
   });
 
+  it('adds a platform to an existing post', async () => {
+    env.store.saveAccount({ platform: 'beta', name: 'main', credentials: {}, profile: {} });
+    const { id } = (await (await upload()).json()) as { id: string };
+    const json = { ...auth, 'content-type': 'application/json' };
+    const created = (await (
+      await fetch(`${base}/api/posts`, { method: 'POST', headers: json, body: JSON.stringify({ mediaId: id, title: 'add to me', targets: [{ platform: 'alpha', account: 'main', options: {} }] }) })
+    ).json()) as { post: { id: string; canAddTargets: boolean } };
+    assert.equal(created.post.canAddTargets, true);
+    const add = (suffix: string, platform: string) =>
+      fetch(`${base}/api/posts/${created.post.id}/targets${suffix}`, { method: 'POST', headers: json, body: JSON.stringify({ targets: [{ platform, account: 'main', options: {} }] }) });
+    const preview = (await (await add('/preview', 'beta')).json()) as { targets: Array<{ platform: string }> };
+    assert.deepEqual(preview.targets.map((t) => t.platform), ['beta']);
+    assert.equal((await add('', 'alpha')).status, 409, 'alpha is already on the post');
+    assert.equal((await add('', 'beta')).status, 201);
+    const media = (await (await fetch(`${base}/api/posts/${created.post.id}/media`, { headers: auth })).json()) as { onPost: Array<{ platform: string }>; assessments: unknown[] };
+    assert.deepEqual(media.onPost.map((t) => t.platform).sort(), ['alpha', 'beta']);
+    assert.ok(Array.isArray(media.assessments));
+    // Other tests expect beta to be unconnected.
+    env.store.removeAccount('beta', 'main');
+  });
+
   it('validates replies and reports refusals as conflicts', async () => {
     const reply = (id: string, body: unknown) => fetch(`${base}/api/targets/${id}/reply`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await reply('nope', { text: 'hi' })).status, 400);

@@ -5,7 +5,23 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, cancelTarget, createScheduledPost, editPost, fetchComments, previewPost, refreshStats, MaybeLiveError, removeTarget, replyToComment, retryTarget } from '../core/posting.ts';
+import {
+  accountLabel,
+  addTargets,
+  appReady,
+  assessMedia,
+  cancelTarget,
+  createScheduledPost,
+  editPost,
+  fetchComments,
+  MaybeLiveError,
+  planAddTargets,
+  previewPost,
+  refreshStats,
+  removeTarget,
+  replyToComment,
+  retryTarget,
+} from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import { DEFAULT_EVENTS, detectFormat, notifyConfig, send as sendWebhook, validWebhookUrl, type NotifyConfig } from '../core/notify.ts';
@@ -292,6 +308,31 @@ export class Dashboard {
       if (!this.#opts.ctx.store.getPost(parts[1])) throw new HttpError(404, '게시물이 없습니다');
       const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 20) || 20, 1), 100);
       return send(res, 200, { results: await fetchComments(this.#opts.ctx, this.#opts.providers, parts[1], limit) });
+    }
+    if (parts[0] === 'posts' && parts[1] && parts[2] === 'media' && parts.length === 3 && method === 'GET') return send(res, 200, await this.#postMedia(parts[1]));
+    if (method === 'POST' && parts[0] === 'posts' && parts[1] && parts[2] === 'targets' && (parts.length === 3 || (parts.length === 4 && parts[3] === 'preview'))) {
+      const body = await readJson<{ targets?: Array<{ platform?: unknown; account?: unknown; options?: unknown }> }>(req);
+      const targets = (Array.isArray(body.targets) ? body.targets : []).map((t) => ({
+        platform: String(t?.platform ?? ''),
+        account: String(t?.account ?? 'main'),
+        options: t?.options && typeof t.options === 'object' ? (t.options as Record<string, unknown>) : {},
+      }));
+      for (const t of targets) {
+        if (!this.#opts.providers.has(t.platform)) throw new HttpError(400, `알 수 없는 플랫폼: ${t.platform}`);
+        if (!this.#opts.ctx.store.getAccount(t.platform, t.account)) throw new HttpError(400, `연결되지 않은 계정: ${t.platform}/${t.account}`);
+      }
+      const post = this.#opts.ctx.store.getPost(parts[1]);
+      if (!post) throw new HttpError(404, '게시물이 없습니다');
+      try {
+        const media = existsSync(post.mediaPath) ? await (this.#opts.probe ?? realProbe)(post.mediaPath) : undefined;
+        if (parts[3] === 'preview') return send(res, 200, { targets: planAddTargets(this.#opts.ctx.store, this.#opts.providers, post.id, targets, media!).preview });
+        const created = addTargets(this.#opts.ctx.store, this.#opts.providers, post.id, targets, media!);
+        this.tick();
+        return send(res, 201, { targets: created.map((t) => this.#publicTarget(t)) });
+      } catch (err) {
+        if (err instanceof HttpError) throw err;
+        throw new HttpError(409, err instanceof Error ? err.message : String(err));
+      }
     }
     if (method === 'POST' && parts[0] === 'posts' && parts[1] && parts[2] === 'edit') {
       const body = await readJson<{ title?: string; description?: string; tags?: string[] }>(req);
@@ -736,8 +777,26 @@ export class Dashboard {
     return {
       ...rest,
       mediaName: mediaPath.split('/').pop(),
+      // Platforms can be added while the original is still on disk (see prune).
+      canAddTargets: existsSync(mediaPath),
       hasThumbnail: Boolean(thumbnailPath),
       captionLanguages: (captions as Array<{ language: string }>).map((c) => c.language),
+    };
+  }
+
+  /** The post's video in the shape an upload returns, to load it back into the form and add platforms. */
+  async #postMedia(id: string) {
+    const post = this.#opts.ctx.store.getPost(id);
+    if (!post) throw new HttpError(404, '게시물이 없습니다');
+    if (!existsSync(post.mediaPath)) throw new HttpError(409, '원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요');
+    const media = await (this.#opts.probe ?? realProbe)(post.mediaPath);
+    return {
+      name: post.mediaPath.split('/').pop(),
+      media: { ...media, path: undefined },
+      isShort: isShort(media),
+      assessments: assessMedia(media, this.#opts.providers.values()),
+      post: this.#publicPost(post),
+      onPost: this.#opts.ctx.store.targetsForPost(id).map((t) => ({ platform: t.platform, account: t.account, state: t.state })),
     };
   }
 

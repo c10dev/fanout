@@ -396,6 +396,81 @@ function renderTargets() {
     }),
   );
   restoreTargets(snap);
+  if (addingTo) lockCoveredTargets();
+}
+
+// ── Adding platforms to an existing post ─────────────────────────
+// The upload form doubles as the "add platforms" form: the post's video and text are loaded and
+// locked, platform accounts already on the post can't be picked, and preview/confirm go to the
+// post's own endpoints.
+
+/** { postId, title, covered: Set<"platform/account"> } while adding to a post. */
+let addingTo = null;
+const COVERING = new Set(['queued', 'transcoding', 'uploading', 'processing', 'published', 'handed_off']);
+const LOCKED_FIELDS = ['#file', '#title', '#description', '#tags', '#scheduled', '#ai', '#thumbnail', '#add-caption'];
+
+function lockCoveredTargets() {
+  for (const block of document.querySelectorAll('.target')) {
+    const platform = block.dataset.platform;
+    const toggle = block.querySelector('[name="enabled"]');
+    const select = block.querySelector('select[name="account"]');
+    const single = block.querySelector('[data-account]')?.dataset.account;
+    if (select) {
+      for (const o of [...select.options]) if (addingTo.covered.has(`${platform}/${o.value}`)) o.remove();
+      if (!select.options.length) toggle.disabled = true;
+    } else if (single && addingTo.covered.has(`${platform}/${single}`)) {
+      toggle.checked = false;
+      toggle.disabled = true;
+      block.querySelector('.target-body').hidden = true;
+      block.classList.add('disabled');
+    }
+  }
+}
+
+async function startAddMode(postId) {
+  let m;
+  try {
+    m = await api(`/posts/${postId}/media`);
+  } catch (err) {
+    alert(err.message);
+    return;
+  }
+  hideConfirm();
+  addingTo = { postId, title: m.post.title, covered: new Set(m.onPost.filter((t) => COVERING.has(t.state)).map((t) => `${t.platform}/${t.account}`)) };
+  media = { id: null, name: m.name, media: m.media, isShort: m.isShort, assessments: m.assessments };
+  $('#title').value = m.post.title;
+  $('#description').value = m.post.description ?? '';
+  $('#tags').value = (m.post.tags ?? []).join(', ');
+  $('#scheduled').value = '';
+  $('#thumbnail').value = '';
+  $('#captions').replaceChildren();
+  $('#ai').checked = Boolean(m.post.containsSyntheticMedia);
+  for (const q of LOCKED_FIELDS) $(q).disabled = true;
+  $('#drop-label').textContent = `${m.name} (이 게시물의 영상)`;
+  const banner = $('#add-banner');
+  banner.replaceChildren(
+    h('span', {}, '게시물 ', h('strong', {}, `"${m.post.title}"`), '에 플랫폼을 추가합니다. 제목·설명·예약·첨부는 원래 게시물 그대로입니다.'),
+    h('button', { type: 'button', class: 'small', onclick: exitAddMode }, '그만두기'),
+  );
+  banner.hidden = false;
+  $('#form-error').textContent = '';
+  renderMedia();
+  renderTargets();
+  $('#post-form').scrollIntoView?.({ block: 'start' });
+}
+
+function exitAddMode() {
+  addingTo = null;
+  for (const q of LOCKED_FIELDS) $(q).disabled = false;
+  $('#add-banner').hidden = true;
+  $('#post-form').reset();
+  $('#captions').replaceChildren();
+  $('#drop-label').textContent = '영상 파일을 고르거나 여기에 끌어다 놓으세요';
+  $('#form-error').textContent = '';
+  hideConfirm();
+  media = null;
+  renderMedia();
+  renderTargets();
 }
 
 /** Show direct-post fields only in direct mode. */
@@ -434,6 +509,10 @@ function renderMedia() {
 // ── Upload ───────────────────────────────────────────────────────
 
 function uploadFile(file) {
+  if (addingTo) {
+    $('#form-error').textContent = '플랫폼 추가 중입니다. 새 영상을 올리려면 먼저 "그만두기"를 누르세요';
+    return;
+  }
   const bar = $('#upload-progress');
   const label = $('#drop-label');
   bar.hidden = false;
@@ -568,6 +647,11 @@ $('#post-form').addEventListener('submit', async (e) => {
   const button = $('#submit');
   button.disabled = true;
   try {
+    if (addingTo) {
+      const { targets } = await api(`/posts/${addingTo.postId}/targets/preview`, { method: 'POST', body: JSON.stringify({ targets: form.payload.targets }) });
+      renderConfirm(targets, form);
+      return;
+    }
     // Attachments go up first so the preview covers them too (e.g. "X doesn't take thumbnails").
     form.payload.thumbnailId = form.thumbnail ? await uploadAsset('thumbnail', form.thumbnail) : undefined;
     form.payload.captions = [];
@@ -614,6 +698,12 @@ async function post(form) {
   const button = $('#confirm-post');
   button.disabled = true;
   try {
+    if (addingTo) {
+      await api(`/posts/${addingTo.postId}/targets`, { method: 'POST', body: JSON.stringify({ targets: form.payload.targets }) });
+      exitAddMode();
+      refreshBoard();
+      return;
+    }
     await api('/posts', { method: 'POST', body: JSON.stringify(form.payload) });
     $('#post-form').reset();
     $('#captions').replaceChildren();
@@ -995,6 +1085,7 @@ function postCard({ post, targets }) {
   const commentsButton = hasPublished
     ? h('button', { class: 'small', type: 'button', onclick: () => toggleComments(post.id) }, openComments.has(post.id) ? '댓글 닫기' : '댓글')
     : null;
+  const addButton = post.canAddTargets ? h('button', { class: 'small', type: 'button', onclick: () => startAddMode(post.id) }, '플랫폼 추가') : null;
   const editable = targets.some((t) => !['failed', 'removed', 'canceled'].includes(t.state));
   const editButton = editable
     ? h(
@@ -1023,7 +1114,7 @@ function postCard({ post, targets }) {
     { class: 'post', 'data-post': post.id },
     h('div', { class: 'post-head' }, h('span', { class: 'post-title' }, post.title), h('span', { class: 'muted' }, [fmtTime(post.createdAt), post.scheduledAt && `예약 ${fmtTime(post.scheduledAt)}`, post.hasThumbnail && '썸네일', post.captionLanguages?.length && `자막 ${post.captionLanguages.join(', ')}`].filter(Boolean).join(' · '))),
     targets.map(targetRow),
-    h('div', { class: 'post-foot' }, history, h('div', { class: 'actions-inline' }, commentsButton, editButton, refreshStats)),
+    h('div', { class: 'post-foot' }, history, h('div', { class: 'actions-inline' }, commentsButton, editButton, addButton, refreshStats)),
     commentsPanel(post.id),
   );
 }

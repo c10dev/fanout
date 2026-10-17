@@ -8,7 +8,7 @@ import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
 import { fileHash, probe } from './core/media.ts';
-import { MaybeLiveError, accountLabel, assessMedia, cancelTarget, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel } from './core/posting.ts';
+import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
@@ -190,7 +190,7 @@ function printPost(ctx: ProviderContext, post: Post, withEvents = false): void {
   }
 }
 
-function accountLine(ctx: ProviderContext, t: TargetInput): string {
+function accountLine(ctx: ProviderContext, t: { platform: string; account: string }): string {
   const acct = ctx.store.getAccount(t.platform, t.account);
   if (!acct) return `${t.platform}/${t.account} (연결 안 됨)`;
   return `${t.platform}/${t.account} → ${accountLabel(acct.profile, t.account)}`;
@@ -227,6 +227,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout doctor <platform> [--account main] [--live]
   fanout check <video> [--to youtube,tiktok]
   fanout post <video> --title T --to youtube,tiktok:main,instagram,facebook [옵션]
+  fanout add <postId> --to tiktok,x [플랫폼 옵션] [--yes]   이미 만든 게시물에 플랫폼 추가 (원본이 남아 있을 때)
   fanout status [postId] [--events]
   fanout retry <postId> [platform]
   fanout run                             밀린 작업 처리 후 종료
@@ -386,6 +387,39 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
   const after = ctx.store.targetsForPost(post.id);
   if (after.some((t) => t.notBefore && t.state === 'queued')) console.log('\n예약된 대상이 있습니다. 예약 시각에 올리려면 fanout worker 를 켜 두세요.');
   return after.some((t) => t.state === 'failed' || t.state === 'needs_reauth') ? 1 : 0;
+}
+
+async function cmdAdd(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
+  const to = str(args, 'to');
+  if (!post || !to) throw new UsageError('fanout add <postId> --to tiktok,x [플랫폼 옵션] [--yes] [--no-wait]');
+  const targets = parseTargets(to, deps.providers, args, ctx.store.listAccounts());
+  const fail = (err: unknown): never => {
+    throw new UsageError(err instanceof Error ? err.message : String(err));
+  };
+  if (!existsSync(post.mediaPath)) fail(new Error('원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요'));
+  const media = await (deps.probe ?? probe)(post.mediaPath);
+  let plan: ReturnType<typeof planAddTargets>;
+  try {
+    plan = planAddTargets(ctx.store, deps.providers, post.id, targets, media);
+  } catch (err) {
+    return fail(err);
+  }
+  console.log(`\n"${post.title}"에 추가${post.scheduledAt ? `  예약 ${post.scheduledAt}` : ''}`);
+  for (const p of plan.preview) {
+    console.log(`  ${accountLine(ctx, p).padEnd(40)} ${p.visibility}`);
+    for (const e of p.errors) console.log(`      ✗ ${e}`);
+    for (const w of p.warnings) console.log(`      ⚠ ${w}`);
+  }
+  if (plan.preview.some((p) => p.errors.length)) return 1;
+  if (!args.flags.yes && !(await confirm('이대로 추가해 업로드할까요?'))) return 1;
+  const created = addTargets(ctx.store, deps.providers, post.id, targets, media);
+  console.log(`${created.length}곳 추가`);
+  if (args.flags['no-wait']) return 0;
+  const due = created.filter((t) => !t.notBefore || new Date(t.notBefore) <= ctx.now());
+  await settle(deps, due.map((t) => t.id), settleOpts(ctx));
+  printPost(ctx, post);
+  return ctx.store.targetsForPost(post.id).some((t) => created.some((c) => c.id === t.id) && (t.state === 'failed' || t.state === 'needs_reauth')) ? 1 : 0;
 }
 
 async function cmdRun(ctx: ProviderContext, deps: RunnerDeps): Promise<number> {
@@ -864,6 +898,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdComments(ctx, deps, args);
       case 'reply':
         return await cmdReply(ctx, deps, args);
+      case 'add':
+        return await cmdAdd(ctx, deps, args);
       case 'notify':
         return await cmdNotify(ctx, args);
       case 'retry':

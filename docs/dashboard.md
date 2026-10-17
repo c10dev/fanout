@@ -13,6 +13,7 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 - "썸네일·자막"을 펼치면 썸네일 이미지(JPG·PNG, 2MB 이하)와 언어별 자막 파일을 붙일 수 있습니다. 썸네일은 YouTube·Mastodon·PeerTube, 자막은 YouTube·Bluesky(VTT)·PeerTube(VTT·SRT)에 적용됩니다.
 - 게시된 영상은 **반응 새로고침**으로 조회·좋아요·댓글·공유 수를 가져옵니다. X는 읽기에도 요금이 들어서 대상마다 따로 "반응 가져오기 (요금)"를 눌러야 합니다. 대시보드가 켜져 있으면 최근 30일 게시물의 반응을 6시간마다 자동으로 기록하고, 하루 전 기록이 생기면 숫자 옆에 그동안 늘어난 만큼(+숫자)을 보여 줍니다. `fanout serve --stats-every 12`로 간격을 바꾸고, `0`이면 끕니다.
 - 게시물의 **댓글** 버튼은 플랫폼별 최근 댓글을 한 패널에 모아 보여줍니다(YouTube·Facebook·Instagram·Bluesky·Mastodon·PeerTube). 댓글마다 **답글** 버튼으로 연결된 계정 이름의 답글을 바로 달 수 있습니다. 답글을 쓰는 동안에는 보드를 새로 그리지 않습니다.
+- 게시물의 **플랫폼 추가**는 그 게시물의 영상과 제목·설명·예약·첨부를 그대로 다른 플랫폼에도 올립니다. 업로드 폼에 영상을 불러와 잠그고, 이미 올린 플랫폼 계정은 고를 수 없게 한 뒤, 미리보기와 확인을 거칩니다. 원본 영상이 남아 있을 때만 쓸 수 있습니다(게시가 끝난 원본은 기본 7일 뒤 정리됩니다).
 - 게시물의 **수정**으로 제목·설명·태그를 바꾸면 YouTube·Facebook·Mastodon·PeerTube에 게시된 글에 반영하고, 아직 올리기 전인 대상은 바뀐 내용으로 올라갑니다. 수정 폼을 열어 둔 동안에는 보드가 새로 그려지지 않습니다.
 - 게시된 대상의 **삭제** 버튼은 플랫폼에서 게시물을 지우고 "삭제됨"으로 표시합니다. 되돌릴 수 없어 한 번 더 확인합니다. API로 지울 수 없는 Instagram·TikTok에는 버튼이 없습니다.
 - 게시 현황 보드는 플랫폼별 상태, 플랫폼 오류 코드, 경고, 상태 전이 기록을 보여주고, 실패하거나 재연결이 필요한 대상은 "다시 시도"할 수 있습니다. 대기 중이거나 실패한 대상은 **취소**로 올리지 않기로 정할 수 있습니다("취소됨"). 이미 처리 중인 대상은 취소되지 않습니다.
@@ -44,6 +45,8 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 | `POST /api/posts/:id/stats` | `{ includePaid?, platform? }` 게시된 대상의 반응 수치를 가져와 저장 |
 | `POST /api/targets/:id/remove` | 게시된 대상을 플랫폼에서 삭제 (YouTube·Facebook·X·Bluesky·Mastodon) |
 | `POST /api/targets/:id/retry` | 실패·재연결 필요 대상 다시 시도 |
+| `GET /api/posts/:id/media` | 게시물의 영상 정보(업로드 응답과 같은 모양)와 이미 올린 플랫폼 계정 |
+| `POST /api/posts/:id/targets/preview`, `POST /api/posts/:id/targets` | 게시물에 플랫폼 추가: 미리보기, 추가. 이미 있는 플랫폼 계정이거나 원본이 없으면 409 |
 | `POST /api/targets/:id/cancel` | 대기·실패·재연결 필요 대상을 취소. 처리 중이거나 이미 게시됐으면 409. 이미 올라갔을 수 있으면 409 `needsConfirm`, 확인 뒤 `{ confirmedNotPosted: true }`로 다시 요청 |
 | `GET /api/settings`, `PUT /api/apps/:key` | 앱 등록 상태, 앱 정보 저장 (비밀값은 응답에 넣지 않음). 127.0.0.1 전용 |
 | `POST /api/connect/:platform`, `DELETE /api/accounts/:platform/:name` | 계정 연결(OAuth는 인증 URL을 돌려줌)·해제. 127.0.0.1 전용 |
