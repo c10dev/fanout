@@ -271,7 +271,9 @@ export class Dashboard {
     if (parts[0] === 'presets') return send(res, 200, await this.#presets(method, parts[1] ? decodeURIComponent(parts[1]) : undefined, req));
     if (method === 'POST' && parts[0] === 'media' && parts.length === 1) return send(res, 201, await this.#upload(req));
     if (method === 'POST' && parts[0] === 'assets' && (parts[1] === 'thumbnail' || parts[1] === 'caption')) return send(res, 201, await this.#uploadAsset(req, parts[1]));
-    if (method === 'GET' && parts[0] === 'posts' && parts.length === 1) return send(res, 200, this.#listPosts(Number(url.searchParams.get('limit') ?? 20)));
+    if (method === 'GET' && parts[0] === 'posts' && parts.length === 1) {
+      return send(res, 200, this.#listPosts(Number(url.searchParams.get('limit') ?? 20), url.searchParams.get('q') ?? undefined));
+    }
     if (method === 'POST' && parts[0] === 'posts' && parts.length === 1) return send(res, 201, await this.#createPost(req));
     if (method === 'POST' && parts[0] === 'preview' && parts.length === 1) return send(res, 200, await this.#preview(req));
     if (method === 'GET' && parts[0] === 'posts' && parts[1] && parts.length === 2) return send(res, 200, this.#postDetail(parts[1]));
@@ -744,9 +746,9 @@ export class Dashboard {
     return { post: this.#publicPost(created.post), targets: created.targets.map((t) => this.#publicTarget(t)) };
   }
 
-  #listPosts(limit: number) {
+  #listPosts(limit: number, query?: string) {
     const { store } = this.#opts.ctx;
-    return store.listPosts(Math.min(Math.max(limit || 20, 1), 100)).map((p) => ({
+    return store.listPosts(Math.min(Math.max(limit || 20, 1), 300), query?.slice(0, 100)).map((p) => ({
       post: this.#publicPost(p),
       targets: store.targetsForPost(p.id).map((t) => this.#publicTarget(t)),
     }));

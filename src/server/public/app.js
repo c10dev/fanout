@@ -1127,12 +1127,18 @@ function postCard({ post, targets }) {
   );
 }
 
+const BOARD_PAGE = 30;
+let boardLimit = BOARD_PAGE;
+let boardQuery = '';
+
 let boardTimer;
 async function refreshBoard() {
   clearTimeout(boardTimer);
   let active = false;
   try {
-    const posts = await api('/posts?limit=30');
+    const posts = await api(`/posts?limit=${boardLimit}${boardQuery ? `&q=${encodeURIComponent(boardQuery)}` : ''}`);
+    // A full page means there may be more.
+    $('#board-more').hidden = posts.length < boardLimit;
     // Don't wipe an edit form or reply the user is typing in: refresh every other card around it, or
     // wait if the list itself changed.
     const locked = editingPost ?? replyingTo?.postId;
@@ -1145,7 +1151,7 @@ async function refreshBoard() {
       }
       posts.forEach((p, i) => p.post.id !== locked && cards[i].replaceWith(postCard(p)));
     } else {
-      $('#board').replaceChildren(...(posts.length ? posts.map(postCard) : [h('p', { class: 'empty' }, '아직 게시물이 없습니다')]));
+      $('#board').replaceChildren(...(posts.length ? posts.map(postCard) : [h('p', { class: 'empty' }, boardQuery ? `"${boardQuery}"에 맞는 게시물이 없습니다` : '아직 게시물이 없습니다')]));
     }
     active = posts.some((p) => p.targets.some((t) => !t.terminal));
     $('#board-updated').textContent = `${new Date().toLocaleTimeString('ko-KR')} 갱신`;
@@ -1437,3 +1443,19 @@ async function init() {
 }
 
 init();
+
+// ── Board search and paging ──────────────────────────────────────
+
+let searchTimer;
+$('#board-search').addEventListener('input', (e) => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => {
+    boardQuery = e.target.value.trim();
+    boardLimit = BOARD_PAGE;
+    refreshBoard();
+  }, 300);
+});
+$('#board-more').addEventListener('click', () => {
+  boardLimit += BOARD_PAGE;
+  refreshBoard();
+});
