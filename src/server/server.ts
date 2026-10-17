@@ -8,11 +8,12 @@ import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
 import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, refreshStats, removeTarget, retryTarget } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
+import { DEFAULT_EVENTS, detectFormat, notifyConfig, send as sendWebhook, type NotifyConfig } from '../core/notify.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import type { RunnerDeps } from '../core/runner.ts';
 import { Worker } from '../core/worker.ts';
 import { isTerminal } from '../core/state.ts';
-import type { PostInput, Target, TargetInput } from '../core/types.ts';
+import type { PostInput, Target, TargetInput, TargetState } from '../core/types.ts';
 import { isShort } from '../providers/youtube.ts';
 
 export interface DashboardOptions {
@@ -240,7 +241,8 @@ export class Dashboard {
     }
 
     // Settings: app secrets and account tokens, local dashboards only.
-    if (['settings', 'apps', 'connect', 'accounts', 'doctor'].includes(parts[0] ?? '')) this.#requireSettings();
+    if (['settings', 'apps', 'connect', 'accounts', 'doctor', 'notify'].includes(parts[0] ?? '')) this.#requireSettings();
+    if (parts[0] === 'notify') return send(res, 200, await this.#notify(method, parts[1], req));
     if (method === 'GET' && parts[0] === 'settings') return send(res, 200, this.#settings(req));
     if (method === 'PUT' && parts[0] === 'apps' && parts[1]) return send(res, 200, this.#saveApp(parts[1], await readJson(req)));
     if (method === 'POST' && parts[0] === 'connect' && parts[1]) return send(res, 200, await this.#connect(req, parts[1], await readJson(req)));
@@ -409,6 +411,45 @@ export class Dashboard {
     } catch (err) {
       back({ oauthError: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  /** Webhook settings. The URL itself is a secret, so only its host goes back to the browser. */
+  async #notify(method: string, action: string | undefined, req: IncomingMessage) {
+    const { ctx } = this.#opts;
+    const describe = () => {
+      const c = notifyConfig(ctx);
+      return c
+        ? { configured: true, host: new URL(c.url).host, format: c.format ?? detectFormat(c.url), events: c.events ?? DEFAULT_EVENTS, fromEnv: Boolean(process.env.FANOUT_WEBHOOK_URL) }
+        : { configured: false, events: DEFAULT_EVENTS };
+    };
+    if (method === 'GET') return describe();
+    if (method === 'DELETE') {
+      ctx.store.setApp('notify', {});
+      return describe();
+    }
+    if (method === 'POST' && action === 'test') {
+      const c = notifyConfig(ctx);
+      if (!c) throw new HttpError(400, '알림 주소가 없습니다');
+      const format = c.format ?? detectFormat(c.url);
+      const text = '🔔 fanout 알림 테스트입니다';
+      await sendWebhook(ctx, c, format === 'slack' ? { text } : format === 'discord' ? { content: text } : { event: 'test', text }).catch((err: Error) => {
+        throw new HttpError(502, `보내지 못했습니다: ${err.message}`);
+      });
+      return { sent: true };
+    }
+    if (method === 'PUT') {
+      const body = await readJson<{ url?: string; events?: string[]; format?: string }>(req);
+      const saved = ctx.store.getApp<NotifyConfig>('notify') ?? ({} as Partial<NotifyConfig>);
+      const url = body.url?.trim() || saved.url;
+      if (!url || !/^https:\/\//.test(url)) throw new HttpError(400, 'https:// 로 시작하는 webhook 주소를 넣으세요');
+      const known: readonly string[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed'];
+      const events = (body.events ?? []).filter((e) => known.includes(e)) as TargetState[];
+      if (!events.length) throw new HttpError(400, '알릴 상태를 하나 이상 고르세요');
+      const format = body.format && ['slack', 'discord', 'json'].includes(body.format) ? (body.format as NotifyConfig['format']) : undefined;
+      ctx.store.setApp('notify', { url, events, ...(format ? { format } : {}) });
+      return describe();
+    }
+    throw new HttpError(404, 'not found');
   }
 
   #disconnect(platform: string, name: string) {
