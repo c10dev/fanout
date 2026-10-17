@@ -52,6 +52,17 @@ export interface Post extends PostInput {
   createdAt: string;
 }
 
+/** Audience reaction to a published post, as far as the platform API and granted scopes allow. */
+export interface PostStats {
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+  fetchedAt: string;
+  /** What couldn't be read, or why. */
+  note?: string;
+}
+
 export interface Target {
   id: string;
   postId: string;
@@ -69,6 +80,7 @@ export interface Target {
   attempts: number;
   notBefore?: string;
   updatedAt: string;
+  stats?: PostStats;
 }
 
 export interface TargetEvent {

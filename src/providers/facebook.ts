@@ -153,4 +153,15 @@ export const facebook: Provider = {
     }
     return checks;
   },
+
+  async stats({ ctx, account, target }) {
+    const c = pageCreds(account);
+    const v = await graph<{ likes?: { summary?: { total_count?: number } }; comments?: { summary?: { total_count?: number } } }>(
+      ctx,
+      'GET',
+      `/${target.remoteId}`,
+      { fields: 'likes.summary(true).limit(0),comments.summary(true).limit(0)', access_token: c.pageToken },
+    );
+    return { likes: v.likes?.summary?.total_count, comments: v.comments?.summary?.total_count, note: '조회수는 페이지 인사이트 권한이 필요해 가져오지 않습니다' };
+  },
 };

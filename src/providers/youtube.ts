@@ -668,4 +668,16 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     });
     return checks;
   },
+
+  async stats({ ctx, account, target }) {
+    const res = await api<{ items?: Array<{ statistics?: { viewCount?: string; likeCount?: string; commentCount?: string } }> }>(
+      ctx,
+      account,
+      `/videos?part=statistics&id=${target.remoteId}`,
+    );
+    const st = res.items?.[0]?.statistics;
+    if (!st) return { note: '영상을 찾을 수 없습니다 (삭제됐거나 비공개)' };
+    const n = (v?: string) => (v === undefined ? undefined : Number(v));
+    return { views: n(st.viewCount), likes: n(st.likeCount), comments: n(st.commentCount) };
+  },
 };

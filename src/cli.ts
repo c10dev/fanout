@@ -6,7 +6,7 @@ import { openContext, stderrLogger } from './core/context.ts';
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { fileHash, probe } from './core/media.ts';
-import { accountLabel, assessMedia, createScheduledPost, describePrior, priorPosts, retryTarget, visibilityLabel } from './core/posting.ts';
+import { accountLabel, assessMedia, createScheduledPost, describePrior, priorPosts, refreshStats, retryTarget, visibilityLabel } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
@@ -219,6 +219,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout worker [--interval 60]          예약·재시도 작업을 계속 처리
   fanout serve [--port 8780] [--host 127.0.0.1] [--keep-days 7 | --no-prune]
                                          웹 대시보드 (작업 처리, 6시간마다 자동 정리 포함)
+  fanout stats [postId] [--include-paid]  게시된 영상의 조회·좋아요·댓글 (X는 --include-paid일 때만)
   fanout prune [--days 7] [--dry-run]    다 올린 원본·오래된 변환 파일 정리 (~/.fanout 안만)
   fanout mcp                             MCP 서버 (stdio) — AI 에이전트용 도구, 업로드 처리 포함
   fanout watch <폴더> --init             감시 폴더와 예시 설정(fanout.watch.json) 만들기
@@ -490,6 +491,25 @@ async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   return 0;
 }
 
+async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const id = args.positionals[1];
+  const posts = id ? [ctx.store.findPost(id)].filter((p): p is Post => Boolean(p)) : ctx.store.listPosts(5);
+  if (!posts.length) {
+    console.log(id ? `post ${id} 없음` : '게시물 없음');
+    return 1;
+  }
+  const fmt = (n?: number) => (n === undefined ? '-' : n.toLocaleString('ko-KR'));
+  for (const p of posts) {
+    console.log(`\n${p.id.slice(0, 8)}  "${p.title}"`);
+    for (const r of await refreshStats(ctx, deps.providers, p.id, { includePaid: Boolean(args.flags['include-paid']) })) {
+      const name = `${r.platform}/${r.account}`.padEnd(18);
+      if (r.skipped) console.log(`  ${name} ${r.skipped}`);
+      else console.log(`  ${name} 조회 ${fmt(r.stats?.views)} · 좋아요 ${fmt(r.stats?.likes)} · 댓글 ${fmt(r.stats?.comments)} · 공유 ${fmt(r.stats?.shares)}${r.stats?.note ? `  (${r.stats.note})` : ''}`);
+    }
+  }
+  return 0;
+}
+
 function cmdPrune(ctx: ProviderContext, args: Args): number {
   const days = num(args, 'days') ?? 7;
   const items = planPrune(ctx.home, ctx.store, { days, now: ctx.now() });
@@ -601,6 +621,8 @@ export async function main(argv: string[]): Promise<number> {
       }
       case 'prune':
         return cmdPrune(ctx, args);
+      case 'stats':
+        return await cmdStats(ctx, deps, args);
       case 'retry':
         return await cmdRetry(ctx, deps, args);
       case 'run':

@@ -222,4 +222,9 @@ export const mastodon: Provider = {
     }
     return checks;
   },
+
+  async stats({ ctx, account, target }) {
+    const { body } = await api<{ favourites_count?: number; replies_count?: number; reblogs_count?: number }>(ctx, creds(account), `/api/v1/statuses/${target.remoteId}`);
+    return { likes: body.favourites_count, comments: body.replies_count, shares: body.reblogs_count, note: 'Mastodon은 조회수를 제공하지 않습니다' };
+  },
 };

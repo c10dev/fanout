@@ -319,4 +319,16 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     checks.push({ name: '요금', status: 'info', detail: 'X API는 종량제입니다. 게시마다 크레딧이 차감됩니다(console.x.com에서 잔액 확인)' });
     return checks;
   },
+
+  statsCost: 'X API는 읽기도 요금이 듭니다',
+  async stats({ ctx, account, target }) {
+    const res = await api<{ data?: { public_metrics?: { impression_count?: number; like_count?: number; reply_count?: number; retweet_count?: number; quote_count?: number } } }>(
+      ctx,
+      account,
+      `/2/tweets/${target.remoteId}?tweet.fields=public_metrics`,
+    );
+    const m = res.data?.public_metrics;
+    if (!m) return { note: '게시물을 찾을 수 없습니다' };
+    return { views: m.impression_count, likes: m.like_count, comments: m.reply_count, shares: (m.retweet_count ?? 0) + (m.quote_count ?? 0) };
+  },
 };

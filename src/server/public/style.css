@@ -218,3 +218,8 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .confirm-row { border-top: 1px solid var(--line); padding-top: 8px; overflow-wrap: anywhere; }
 .confirm-row:first-child { border-top: 0; padding-top: 0; }
 .confirm-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+
+.stats { display: flex; flex-wrap: wrap; gap: 2px 10px; font-size: 13px; margin-top: 2px; }
+.stats strong { font-variant-numeric: tabular-nums; }
+.post-foot { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-top: 6px; }
+.post-foot details { flex: 1; min-width: 0; }
