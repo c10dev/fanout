@@ -387,23 +387,43 @@ function targetRow(t) {
   return h('div', { class: 'trow' }, h('span', { class: 'tname' }, `${t.platform}/${t.account}`), badge(STATE[t.state] ?? [t.state, 'info']), detail, retry);
 }
 
-function postCard({ post, targets }) {
-  const history = h('details', {}, h('summary', {}, '상태 기록'));
-  history.addEventListener(
-    'toggle',
-    async () => {
-      if (!history.open || history.dataset.loaded) return;
-      history.dataset.loaded = '1';
-      const detail = await api(`/posts/${post.id}`);
-      history.append(
-        h(
-          'ul',
-          { class: 'events' },
-          detail.targets.flatMap((t) => t.events.map((ev) => h('li', {}, `${fmtTime(ev.at)}  ${t.platform}  ${ev.from ?? '·'} → ${ev.to}${ev.detail ? `  (${ev.detail})` : ''}`))),
-        ),
-      );
-    },
+/** Post ids whose history panel is open, and their last event list; both survive board re-renders. */
+const openHistory = new Set();
+const historyCache = new Map();
+
+function eventList(detail) {
+  return h(
+    'ul',
+    { class: 'events' },
+    detail.targets.flatMap((t) => t.events.map((ev) => h('li', {}, `${fmtTime(ev.at)}  ${t.platform}  ${ev.from ?? '·'} → ${ev.to}${ev.detail ? `  (${ev.detail})` : ''}`))),
   );
+}
+
+async function fillHistory(details, postId) {
+  try {
+    const list = eventList(await api(`/posts/${postId}`));
+    historyCache.set(postId, list);
+    details.querySelector('.events')?.remove();
+    details.append(list.cloneNode(true));
+  } catch (err) {
+    details.querySelector('.events')?.remove();
+    details.append(h('ul', { class: 'events' }, h('li', { class: 'err' }, err.message)));
+  }
+}
+
+function postCard({ post, targets }) {
+  const wasOpen = openHistory.has(post.id);
+  // Show the cached list at once so a re-render doesn't flicker; the toggle handler then refreshes it.
+  const history = h('details', { open: wasOpen }, h('summary', {}, '상태 기록'), wasOpen ? historyCache.get(post.id)?.cloneNode(true) : null);
+  // Also fires for a panel created open, so re-rendered open panels refetch their events.
+  history.addEventListener('toggle', () => {
+    if (history.open) {
+      openHistory.add(post.id);
+      fillHistory(history, post.id);
+    } else {
+      openHistory.delete(post.id);
+    }
+  });
   return h(
     'article',
     { class: 'post' },
@@ -419,10 +439,7 @@ async function refreshBoard() {
   let active = false;
   try {
     const posts = await api('/posts?limit=30');
-    // Keep any open history panel open across refreshes by skipping re-render when one is open.
-    if (!document.querySelector('#board details[open]')) {
-      $('#board').replaceChildren(...(posts.length ? posts.map(postCard) : [h('p', { class: 'empty' }, '아직 게시물이 없습니다')]));
-    }
+    $('#board').replaceChildren(...(posts.length ? posts.map(postCard) : [h('p', { class: 'empty' }, '아직 게시물이 없습니다')]));
     active = posts.some((p) => p.targets.some((t) => !t.terminal));
     $('#board-updated').textContent = `${new Date().toLocaleTimeString('ko-KR')} 갱신`;
   } catch (err) {
