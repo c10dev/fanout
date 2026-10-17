@@ -4,6 +4,7 @@ import { openBrowser, pkcePair, readChunk, startLoopback } from '../core/http.ts
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
+import { msg } from '../core/i18n.ts';
 
 // Docs: https://docs.x.com/x-api/media/quickstart/media-upload-chunked (initialize → append →
 //       finalize → STATUS → POST /2/tweets), https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code
@@ -42,7 +43,7 @@ interface MediaData {
 
 function app(ctx: ProviderContext): XApp {
   const a = ctx.store.getApp<XApp>('x');
-  if (!a?.clientId) throw new ProviderError('auth', 'x.app_missing', 'X 앱이 설정되지 않았습니다 — fanout setup x 참고');
+  if (!a?.clientId) throw new ProviderError('auth', 'x.app_missing', msg('X 앱이 설정되지 않았습니다 — fanout setup x 참고'));
   return a;
 }
 
@@ -101,7 +102,7 @@ async function tokenRequest(ctx: ProviderContext, params: Record<string, string>
   const res = await ctx.fetch(`${API}/2/oauth2/token`, { method: 'POST', headers, body });
   const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
   if (!res.ok || !data.access_token) {
-    throw new ProviderError(res.status === 429 || res.status >= 500 ? 'retryable' : 'auth', 'x.token', `X 토큰 오류: ${(data.error_description as string) ?? (data.error as string) ?? res.status}`, data.error as string | undefined);
+    throw new ProviderError(res.status === 429 || res.status >= 500 ? 'retryable' : 'auth', 'x.token', msg('X 토큰 오류: {error}', { error: (data.error_description as string) ?? (data.error as string) ?? res.status }), data.error as string | undefined);
   }
   return {
     accessToken: data.access_token as string,
@@ -116,8 +117,9 @@ async function api<T>(ctx: ProviderContext, account: Account, path: string, init
   if (!res.ok) {
     const detail = body.detail ?? body.errors?.[0]?.message ?? body.errors?.[0]?.detail ?? body.title ?? `HTTP ${res.status}`;
     const kind = res.status === 402 ? 'rejected' : kindForStatus(res.status);
-    const hint = res.status === 402 ? ' — X API 크레딧(종량제)이 부족합니다' : '';
-    throw new ProviderError(kind, `x.http_${res.status}`, `X: ${detail}${hint}`, String(res.status));
+    // One whole message per case, so it reads back as one in English.
+    const message = res.status === 402 ? msg('X: {detail} — X API 크레딧(종량제)이 부족합니다', { detail }) : `X: ${detail}`;
+    throw new ProviderError(kind, `x.http_${res.status}`, message, String(res.status));
   }
   return body;
 }
@@ -137,13 +139,13 @@ export const x: Provider = {
   },
   appFields: [
     { key: 'clientId', label: 'OAuth 2.0 Client ID', secret: false },
-    { key: 'clientSecret', label: 'Client Secret (confidential 앱일 때만)', secret: true, optional: true },
-    { key: 'redirectUri', label: `CLI용 Redirect URI (기본 ${DEFAULT_REDIRECT})`, secret: false, optional: true },
+    { key: 'clientSecret', label: msg('Client Secret (confidential 앱일 때만)'), secret: true, optional: true },
+    { key: 'redirectUri', label: msg('CLI용 Redirect URI (기본 {DEFAULT_REDIRECT})', { DEFAULT_REDIRECT }), secret: false, optional: true },
   ],
   connectMethod: 'oauth',
 
   setupGuide() {
-    return `X — 내 X 개발자 앱 만들기 (BYO, 유료)
+    return msg(`X — 내 X 개발자 앱 만들기 (BYO, 유료)
 
 X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.20 — 2026년 기준). 크레딧을 먼저 충전하세요.
 
@@ -152,12 +154,12 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
    권한: Read and write
 3. Callback URI에 둘 다 등록:
      대시보드: http://127.0.0.1:8780/oauth/x/callback
-     CLI:      ${DEFAULT_REDIRECT}
+     CLI:      {DEFAULT_REDIRECT}
 4. fanout app set x --clientId <ID> [--clientSecret <SECRET>]
 5. fanout connect x --name main   (또는 대시보드 설정 탭)
 6. fanout doctor x
 
-요청 범위: ${SCOPES}`;
+요청 범위: {SCOPES}`, { DEFAULT_REDIRECT, SCOPES });
   },
 
   async connect(ctx, name) {
@@ -166,10 +168,10 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     const loop = await startLoopback(Number(u.port), u.pathname, u.hostname);
     try {
       const start = x.oauthBegin!(ctx, redirectUri);
-      ctx.log.info(`브라우저에서 X에 로그인하고 권한을 승인하세요:\n${start.url}`);
+      ctx.log.info(msg('브라우저에서 X에 로그인하고 권한을 승인하세요:\n{url}', { url: start.url }));
       openBrowser(start.url);
       const params = await loop.waitForCallback;
-      if (params.get('state') !== start.state) throw new ProviderError('auth', 'x.state', 'OAuth state 불일치');
+      if (params.get('state') !== start.state) throw new ProviderError('auth', 'x.state', msg('OAuth state 불일치'));
       return await x.oauthFinish!(ctx, name, params, redirectUri, start.verifier);
     } finally {
       loop.close();
@@ -194,7 +196,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
 
   async oauthFinish(ctx, name, params, redirectUri, verifier) {
     const code = params.get('code');
-    if (!code) throw new ProviderError('auth', 'x.denied', `인증 거부: ${params.get('error_description') ?? params.get('error') ?? 'unknown'}`);
+    if (!code) throw new ProviderError('auth', 'x.denied', msg('인증 거부: {params}', { params: params.get('error_description') ?? params.get('error') ?? 'unknown' }));
     const tok = await tokenRequest(ctx, { code, grant_type: 'authorization_code', redirect_uri: redirectUri, code_verifier: verifier });
     const account: Account = { platform: 'x', name, credentials: { ...tok, userId: '', username: '' }, profile: {} };
     const me = await api<{ data: { id: string; username: string; name: string } }>(ctx, account, '/2/users/me');
@@ -206,7 +208,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
   async refresh(ctx, account) {
     const c = creds(account);
     if (c.expiresAt - ctx.now().getTime() > 120_000) return account;
-    if (!c.refreshToken) throw new ProviderError('auth', 'x.no_refresh', 'X 토큰이 만료됐습니다 — 다시 연결하세요');
+    if (!c.refreshToken) throw new ProviderError('auth', 'x.no_refresh', msg('X 토큰이 만료됐습니다 — 다시 연결하세요'));
     // Another process may have refreshed already (X refresh tokens are single-use): take its pair.
     const stored = ctx.store.getAccount('x', account.name);
     const sc = stored ? creds(stored) : c;
@@ -229,11 +231,11 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     const text = tweetText(post, target.options as XOptions);
     const len = weightedLength(text);
     if (len > TEXT_MAX) {
-      issues.push({ severity: 'warning', code: 'text', message: `X 글이 ${len}(가중치) / ${TEXT_MAX}입니다. Premium이 아니면 거부됩니다 — options.text로 줄이세요` });
+      issues.push({ severity: 'warning', code: 'text', message: msg('X 글이 {len}(가중치) / {TEXT_MAX}입니다. Premium이 아니면 거부됩니다 — options.text로 줄이세요', { len, TEXT_MAX }) });
     }
-    if (hasUrl(text)) issues.push({ severity: 'warning', code: 'url_cost', message: 'X는 URL이 들어간 게시물 요금이 훨씬 비쌉니다(약 $0.20)' });
-    if (post.scheduledAt) issues.push({ severity: 'warning', code: 'schedule', message: 'X는 API 예약 게시가 없어 fanout이 예약 시각에 올립니다 (fanout worker 필요)' });
-    if (post.thumbnailPath || post.captions.length) issues.push({ severity: 'warning', code: 'extras', message: 'X에는 썸네일·자막을 보내지 않습니다' });
+    if (hasUrl(text)) issues.push({ severity: 'warning', code: 'url_cost', message: msg('X는 URL이 들어간 게시물 요금이 훨씬 비쌉니다(약 $0.20)') });
+    if (post.scheduledAt) issues.push({ severity: 'warning', code: 'schedule', message: msg('X는 API 예약 게시가 없어 fanout이 예약 시각에 올립니다 (fanout worker 필요)') });
+    if (post.thumbnailPath || post.captions.length) issues.push({ severity: 'warning', code: 'extras', message: msg('X에는 썸네일·자막을 보내지 않습니다') });
     return issues;
   },
 
@@ -248,7 +250,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     let expiresAt = resume.expiresAt;
     // Upload sessions expire (expires_after_secs, 24h): don't keep appending to a dead one.
     if (mediaId && expiresAt !== undefined && ctx.now().getTime() > expiresAt - 10 * 60_000) {
-      ctx.log.info('x: 이전 업로드 세션이 만료돼 처음부터 올립니다');
+      ctx.log.info(msg('x: 이전 업로드 세션이 만료돼 처음부터 올립니다'));
       mediaId = undefined;
     }
     const initialize = async () => {
@@ -264,7 +266,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     };
     const resumed = Boolean(mediaId);
     if (!mediaId) await initialize();
-    else if (segment > 0) ctx.log.info(`x: ${segment}번째 조각부터 이어 올립니다`);
+    else if (segment > 0) ctx.log.info(msg('x: {segment}번째 조각부터 이어 올립니다', { segment }));
 
     // Access tokens last 2 hours; a long upload can outlive one. Refresh once on 401 and carry on.
     let acct = account;
@@ -295,7 +297,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     } catch (err) {
       // A resumed session X no longer accepts (expired, unknown id) gets one fresh start.
       if (!resumed || !(err instanceof ProviderError) || err.kind !== 'rejected') throw err;
-      ctx.log.info(`x: 이어 올리던 세션을 받지 않아 처음부터 올립니다 (${err.message})`);
+      ctx.log.info(msg('x: 이어 올리던 세션을 받지 않아 처음부터 올립니다 ({message})', { message: err.message }));
       await initialize();
       await sendAll();
     }
@@ -313,14 +315,14 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     const state = status.data.processing_info?.state;
     if (state === 'failed') {
       const e = status.data.processing_info?.error;
-      throw new ProviderError('rejected', 'x.processing_failed', `X 영상 처리 실패: ${e?.message ?? e?.name ?? 'unknown'}`, e?.name);
+      throw new ProviderError('rejected', 'x.processing_failed', msg('X 영상 처리 실패: {reason}', { reason: e?.message ?? e?.name ?? 'unknown' }), e?.name);
     }
     if (state === 'pending' || state === 'in_progress') return { state: 'processing', remoteId: mediaId };
 
     // X has no idempotency key for posts. If a previous attempt may already have posted, stop
     // and let the user check instead of risking a duplicate.
     if (resume.posting) {
-      throw new ProviderError('rejected', 'x.maybe_posted', `이전 시도에서 이미 게시됐을 수 있습니다. https://x.com/${username} 에서 확인한 뒤, 없으면 다시 시도하세요`, undefined, { keepResume: true });
+      throw new ProviderError('rejected', 'x.maybe_posted', msg('이전 시도에서 이미 게시됐을 수 있습니다. https://x.com/{username} 에서 확인한 뒤, 없으면 다시 시도하세요', { username }), undefined, { keepResume: true });
     }
     ctx.store.updateTarget(target.id, { resume: { ...resume, posting: true } });
     const tweet = await api<{ data: { id: string } }>(ctx, account, '/2/tweets', {
@@ -340,30 +342,30 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     const checks: DoctorCheck[] = [];
     try {
       app(ctx);
-      checks.push({ name: 'BYO 앱', status: 'ok', detail: 'client id 등록됨' });
+      checks.push({ name: msg('BYO 앱'), status: 'ok', detail: msg('client id 등록됨') });
     } catch (err) {
-      checks.push({ name: 'BYO 앱', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('BYO 앱'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
     let acct = account;
     try {
       acct = await x.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
-      checks.push({ name: '토큰 갱신', status: 'ok', detail: 'refresh token 유효' });
+      checks.push({ name: msg('토큰 갱신'), status: 'ok', detail: msg('refresh token 유효') });
     } catch (err) {
-      checks.push({ name: '토큰 갱신', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('토큰 갱신'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
     try {
       const me = await api<{ data: { username: string } }>(ctx, acct, '/2/users/me');
-      checks.push({ name: '계정', status: 'ok', detail: `@${me.data.username}` });
+      checks.push({ name: msg('계정'), status: 'ok', detail: `@${me.data.username}` });
     } catch (err) {
-      checks.push({ name: '계정', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('계정'), status: 'fail', detail: (err as Error).message });
     }
-    checks.push({ name: '요금', status: 'info', detail: 'X API는 종량제입니다. 게시마다 크레딧이 차감됩니다(console.x.com에서 잔액 확인)' });
+    checks.push({ name: msg('요금'), status: 'info', detail: msg('X API는 종량제입니다. 게시마다 크레딧이 차감됩니다(console.x.com에서 잔액 확인)') });
     return checks;
   },
 
-  statsCost: 'X API는 읽기도 요금이 듭니다',
+  statsCost: msg('X API는 읽기도 요금이 듭니다'),
   async stats({ ctx, account, target }) {
     const res = await api<{ data?: { public_metrics?: { impression_count?: number; like_count?: number; reply_count?: number; retweet_count?: number; quote_count?: number } } }>(
       ctx,
@@ -371,7 +373,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       `/2/tweets/${target.remoteId}?tweet.fields=public_metrics`,
     );
     const m = res.data?.public_metrics;
-    if (!m) return { note: '게시물을 찾을 수 없습니다' };
+    if (!m) return { note: msg('게시물을 찾을 수 없습니다') };
     return { views: m.impression_count, likes: m.like_count, comments: m.reply_count, shares: (m.retweet_count ?? 0) + (m.quote_count ?? 0) };
   },
 
