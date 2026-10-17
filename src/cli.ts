@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { openContext } from './core/context.ts';
 import { ProviderError } from './core/errors.ts';
+import { CONFIG_FILE, EXAMPLE_CONFIG, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { probe } from './core/media.ts';
 import { assessMedia, createScheduledPost } from './core/posting.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
@@ -221,6 +222,10 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout run                             밀린 작업 처리 후 종료
   fanout worker [--interval 60]          예약·재시도 작업을 계속 처리
   fanout serve [--port 8780] [--host 127.0.0.1]   웹 대시보드 (작업 처리 포함)
+  fanout watch <폴더> --init             감시 폴더와 예시 설정(fanout.watch.json) 만들기
+  fanout watch <폴더> [--yes] [--once] [--interval 15] [--settle 10]
+                                         폴더에 넣은 영상을 설정대로 자동으로 올림
+                                         (--once: 지금 있는 영상만 올리고 종료, cron용)
 
 post 공통 옵션
   --description 텍스트 | --description-file 파일   --tags a,b,c
@@ -369,6 +374,83 @@ async function cmdWorker(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
   }
 }
 
+async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const dirArg = args.positionals[1];
+  if (!dirArg) throw new UsageError('fanout watch <폴더> [--init] [--once] [--yes] [--interval 15] [--settle 10]');
+  const dir = resolve(dirArg);
+  if (args.flags.init) {
+    mkdirSync(dir, { recursive: true });
+    const path = join(dir, CONFIG_FILE);
+    if (existsSync(path)) throw new UsageError(`이미 있습니다: ${path}`);
+    writeFileSync(path, `${JSON.stringify(EXAMPLE_CONFIG, null, 2)}\n`);
+    console.log(`예시 설정을 만들었습니다: ${path}\n올릴 곳(to)과 플랫폼별 옵션을 확인한 뒤 fanout watch ${dirArg} 로 시작하세요.`);
+    return 0;
+  }
+  if (!existsSync(dir)) throw new UsageError(`폴더 없음: ${dir}`);
+  let config: WatchConfig;
+  try {
+    config = loadWatchConfig(dir);
+  } catch (err) {
+    if (err instanceof WatchConfigError) throw new UsageError(err.message);
+    throw err;
+  }
+
+  // YouTube policy: show the destination accounts and visibility before anything is uploaded.
+  console.log(`\n감시 폴더: ${dir}`);
+  for (const spec of config.to ?? []) {
+    const [platform = '', account = 'main'] = spec.split(':');
+    if (!deps.providers.has(platform)) throw new UsageError(`${CONFIG_FILE}: 알 수 없는 플랫폼 ${platform}`);
+    const t: TargetInput = { platform, account, options: config.options?.[platform] ?? {} };
+    console.log(`  ${accountLabel(ctx, t).padEnd(40)} ${visibilityLabel(t, config.at)}`);
+  }
+  console.log('  (영상별 <이름>.json 이 있으면 그 값이 우선합니다)');
+  const missing = (config.to ?? []).map((s) => s.split(':')).filter(([p = '', a = 'main']) => !ctx.store.getAccount(p, a));
+  if (missing.length) {
+    throw new UsageError(`연결되지 않은 계정이 있어 시작하지 않습니다: ${missing.map(([p, a = 'main']) => `${p}/${a}`).join(', ')}\n먼저 fanout connect 또는 대시보드 설정 탭에서 연결하세요.`);
+  }
+  if (!args.flags.yes && !(await confirm('이 폴더에 들어오는 영상을 위 설정대로 올릴까요?'))) return 1;
+
+  const once = Boolean(args.flags.once);
+  const interval = (num(args, 'interval') ?? 15) * 1000;
+  const scanner = new Scanner(dir, (num(args, 'settle') ?? 10) * 1000);
+  const probeFn = deps.probe ?? probe;
+  let failures = 0;
+
+  const scan = async (): Promise<void> => {
+    for (const videoPath of scanner.ready(!once)) {
+      scanner.forget(videoPath);
+      const r = await ingest({ dir, config, videoPath, providers: deps.providers, store: ctx.store, probe: probeFn, now: ctx.now() });
+      if (!r.ok) {
+        failures++;
+        console.log(`✗ ${basename(videoPath)}: ${r.error}\n    → ${r.movedTo}`);
+        continue;
+      }
+      console.log(`+ ${basename(videoPath)} → post ${r.postId.slice(0, 8)} "${r.plan.input.title}" (${r.plan.targets.map((t) => t.platform).join(', ')})`);
+      for (const s of r.plan.skipped) console.log(`    건너뜀 ${s.platform}: ${s.reason}`);
+    }
+  };
+
+  if (once) {
+    await scan();
+    const code = await cmdRun(ctx, deps);
+    return failures ? 1 : code;
+  }
+
+  console.log(`감시 시작 (${interval / 1000}s 간격, Ctrl+C로 종료). 올린 영상은 posted/, 실패한 영상은 failed/ 로 옮깁니다.`);
+  let stop = false;
+  process.once('SIGINT', () => {
+    stop = true;
+    console.log('\n종료 중… 진행 중인 업로드는 다음 실행 때 이어서 처리됩니다');
+  });
+  while (!stop) {
+    await scan();
+    const ids = ctx.store.workableTargets().map((t) => t.id);
+    if (ids.length) await settle(deps, ids, { ...settleOpts(ctx), timeoutMs: interval });
+    else await new Promise((r) => setTimeout(r, interval));
+  }
+  return 0;
+}
+
 async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const host = str(args, 'host') ?? '127.0.0.1';
   const loopback = ['127.0.0.1', 'localhost', '::1'].includes(host);
@@ -484,6 +566,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdWorker(ctx, deps, args);
       case 'serve':
         return await cmdServe(ctx, deps, args);
+      case 'watch':
+        return await cmdWatch(ctx, deps, args);
       default:
         throw new UsageError(`알 수 없는 명령: ${cmd}\n\n${HELP}`);
     }

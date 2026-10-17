@@ -1,0 +1,333 @@
+// Watch folder ("inbox"): drop a video into a folder and fanout posts it to the platforms set in that
+// folder's fanout.watch.json, with optional per-video overrides in a sidecar <video>.json.
+//
+// Pure planning lives here (config parsing, templating, deciding targets); the CLI owns the loop.
+
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { basename, extname, join, resolve } from 'node:path';
+import type { MediaInfo } from './media.ts';
+import { assessMedia, createScheduledPost } from './posting.ts';
+import type { Provider } from './provider.ts';
+import type { Store } from './store.ts';
+import type { CaptionFile, PostInput, TargetInput } from './types.ts';
+
+export const CONFIG_FILE = 'fanout.watch.json';
+export const VIDEO_EXTENSIONS = ['.mp4', '.mov', '.m4v', '.webm', '.mkv'];
+
+/** Shared by the folder config and the sidecar; the sidecar wins field by field. */
+export interface WatchFields {
+  /** Targets as "platform" or "platform:account". */
+  to?: string[];
+  title?: string;
+  description?: string;
+  tags?: string[];
+  /** Provider option objects keyed by platform, e.g. { youtube: { privacy: 'public', madeForKids: false } }. */
+  options?: Record<string, Record<string, unknown>>;
+  /** Template variables, e.g. { artist: 'NewJeans', song: 'Ditto' } → "{artist} - {song}". */
+  vars?: Record<string, string>;
+  ai?: boolean;
+  /** ISO-8601 time to publish at. */
+  at?: string;
+  thumbnail?: string;
+  /** language → subtitle file, relative to the watched folder. */
+  captions?: Record<string, string>;
+}
+
+export interface WatchConfig extends WatchFields {
+  /**
+   * What to do with a platform whose limits the video breaks in a way transcoding cannot fix (e.g. a
+   * 2-minute video for Facebook Reels): "skip" posts to the rest, "fail" rejects the whole video.
+   */
+  onBlocked?: 'skip' | 'fail';
+}
+
+export class WatchConfigError extends Error {}
+
+export interface Plan {
+  input: PostInput;
+  targets: TargetInput[];
+  /** Platforms dropped because the video cannot be posted there, with the reason. */
+  skipped: Array<{ platform: string; reason: string }>;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !Array.isArray(v);
+}
+
+function checkFields(raw: Record<string, unknown>, where: string): WatchFields {
+  const strArray = (k: string) => {
+    const v = raw[k];
+    if (v === undefined) return;
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new WatchConfigError(`${where}: "${k}"는 문자열 배열이어야 합니다`);
+  };
+  const str = (k: string) => {
+    if (raw[k] !== undefined && typeof raw[k] !== 'string') throw new WatchConfigError(`${where}: "${k}"는 문자열이어야 합니다`);
+  };
+  const strMap = (k: string) => {
+    const v = raw[k];
+    if (v === undefined) return;
+    if (!isRecord(v) || Object.values(v).some((x) => typeof x !== 'string')) throw new WatchConfigError(`${where}: "${k}"는 문자열 값만 가진 객체여야 합니다`);
+  };
+  strArray('to');
+  strArray('tags');
+  for (const k of ['title', 'description', 'at', 'thumbnail']) str(k);
+  strMap('vars');
+  strMap('captions');
+  if (raw.ai !== undefined && typeof raw.ai !== 'boolean') throw new WatchConfigError(`${where}: "ai"는 true 또는 false`);
+  if (raw.options !== undefined && (!isRecord(raw.options) || Object.values(raw.options).some((o) => !isRecord(o)))) {
+    throw new WatchConfigError(`${where}: "options"는 { 플랫폼: { 옵션 } } 형태여야 합니다`);
+  }
+  if (typeof raw.at === 'string' && Number.isNaN(Date.parse(raw.at))) throw new WatchConfigError(`${where}: "at"은 ISO-8601 시각이어야 합니다`);
+  return raw as WatchFields;
+}
+
+function readJson(path: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (err) {
+    throw new WatchConfigError(`${basename(path)}: JSON을 읽을 수 없습니다 (${(err as Error).message})`);
+  }
+  if (!isRecord(parsed)) throw new WatchConfigError(`${basename(path)}: 최상위가 객체여야 합니다`);
+  return parsed;
+}
+
+export function loadWatchConfig(dir: string): WatchConfig {
+  const path = join(dir, CONFIG_FILE);
+  if (!existsSync(path)) throw new WatchConfigError(`${path} 가 없습니다. fanout watch --init ${dir} 로 예시를 만드세요`);
+  const raw = readJson(path);
+  const config = checkFields(raw, CONFIG_FILE) as WatchConfig;
+  if (raw.onBlocked !== undefined && raw.onBlocked !== 'skip' && raw.onBlocked !== 'fail') {
+    throw new WatchConfigError(`${CONFIG_FILE}: "onBlocked"는 "skip" 또는 "fail"`);
+  }
+  if (!config.to?.length) throw new WatchConfigError(`${CONFIG_FILE}: "to"에 올릴 곳을 하나 이상 적으세요 (예: ["youtube", "tiktok"])`);
+  return config;
+}
+
+/** Sidecar next to the video: "clip.mp4" → "clip.json" (or "clip.mp4.json"). */
+export function sidecarPath(videoPath: string): string | undefined {
+  const stem = videoPath.slice(0, -extname(videoPath).length);
+  return [`${stem}.json`, `${videoPath}.json`].find((p) => existsSync(p));
+}
+
+export function loadSidecar(videoPath: string): WatchFields {
+  const path = sidecarPath(videoPath);
+  return path ? checkFields(readJson(path), basename(path)) : {};
+}
+
+/** Replace {key} with vars[key]; unknown keys are an error so typos don't get published. */
+export function render(template: string, vars: Record<string, string>, field: string): string {
+  return template.replace(/\{(\w+)\}/g, (_, key: string) => {
+    const v = vars[key];
+    if (v === undefined) throw new WatchConfigError(`${field}: 템플릿 변수 {${key}}의 값이 없습니다 (vars에 넣으세요)`);
+    return v;
+  });
+}
+
+function renderDeep(value: unknown, vars: Record<string, string>, field: string): unknown {
+  if (typeof value === 'string') return render(value, vars, field);
+  if (Array.isArray(value)) return value.map((v) => renderDeep(v, vars, field));
+  if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, renderDeep(v, vars, `${field}.${k}`)]));
+  return value;
+}
+
+function localDate(d: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/**
+ * Merge folder config + sidecar into a post and its targets for one video. Platforms the video cannot
+ * go to are skipped or rejected according to `onBlocked`.
+ */
+export function planPost(args: {
+  videoPath: string;
+  dir: string;
+  config: WatchConfig;
+  sidecar: WatchFields;
+  media: MediaInfo;
+  providers: Map<string, Provider>;
+  now: Date;
+}): Plan {
+  const { videoPath, dir, config, sidecar, media, providers, now } = args;
+  const name = basename(videoPath, extname(videoPath));
+  const vars: Record<string, string> = { name, date: localDate(now), ...config.vars, ...sidecar.vars };
+
+  const titleTemplate = sidecar.title ?? config.title ?? '{name}';
+  const title = render(titleTemplate, vars, 'title').trim();
+  if (!title) throw new WatchConfigError('제목이 비어 있습니다');
+  vars.title = title;
+
+  const tags = [...new Set([...(config.tags ?? []), ...(sidecar.tags ?? [])].map((t) => render(t, vars, 'tags').trim()).filter(Boolean))];
+  vars.tags = tags.map((t) => `#${t.replace(/\s+/g, '')}`).join(' ');
+  const description = render(sidecar.description ?? config.description ?? '', vars, 'description');
+
+  const fromDir = (p: string) => resolve(dir, p);
+  const thumbnail = sidecar.thumbnail ?? config.thumbnail;
+  const captionsMap = { ...config.captions, ...sidecar.captions };
+  const captions: CaptionFile[] = Object.entries(captionsMap).map(([language, p]) => ({ language, path: fromDir(p) }));
+  for (const c of captions) if (!existsSync(c.path)) throw new WatchConfigError(`자막 파일 없음: ${c.path}`);
+  if (thumbnail && !existsSync(fromDir(thumbnail))) throw new WatchConfigError(`썸네일 파일 없음: ${fromDir(thumbnail)}`);
+
+  const at = sidecar.at ?? config.at;
+  const input: PostInput = {
+    mediaPath: videoPath,
+    title,
+    description,
+    tags,
+    thumbnailPath: thumbnail ? fromDir(thumbnail) : undefined,
+    captions,
+    containsSyntheticMedia: sidecar.ai ?? config.ai ?? false,
+    scheduledAt: at ? new Date(at).toISOString() : undefined,
+  };
+
+  const wanted = (sidecar.to ?? config.to ?? []).map((spec) => {
+    const [platform = '', account = 'main'] = spec.trim().split(':');
+    if (!providers.has(platform)) throw new WatchConfigError(`알 수 없는 플랫폼: ${platform} (가능: ${[...providers.keys()].join(', ')})`);
+    return { platform, account };
+  });
+  if (!wanted.length) throw new WatchConfigError('올릴 곳(to)이 없습니다');
+
+  const assessments = new Map(assessMedia(media, wanted.map((w) => providers.get(w.platform)!)).map((a) => [a.platform, a]));
+  const skipped: Plan['skipped'] = [];
+  const targets: TargetInput[] = [];
+  for (const w of wanted) {
+    const a = assessments.get(w.platform)!;
+    if (a.verdict === 'blocked') {
+      const reason = a.violations.filter((v) => !v.fixable).map((v) => v.message).join(' / ');
+      if ((config.onBlocked ?? 'skip') === 'fail') throw new WatchConfigError(`${w.platform}에 올릴 수 없는 영상입니다: ${reason}`);
+      skipped.push({ platform: w.platform, reason });
+      continue;
+    }
+    const options = { ...config.options?.[w.platform], ...sidecar.options?.[w.platform] };
+    targets.push({ platform: w.platform, account: w.account, options: renderDeep(options, vars, `options.${w.platform}`) as Record<string, unknown> });
+  }
+  if (!targets.length) throw new WatchConfigError(`올릴 수 있는 플랫폼이 없습니다: ${skipped.map((s) => `${s.platform} (${s.reason})`).join(', ')}`);
+  return { input, targets, skipped };
+}
+
+// ── Folder scanning ────────────────────────────────────────────────
+
+export interface FileSeen {
+  size: number;
+  mtimeMs: number;
+}
+
+/**
+ * A file is ready once its size and mtime have not changed between two scans and it is at least
+ * `settleMs` old, so we don't pick up a video that is still being copied or exported.
+ */
+export class Scanner {
+  private seen = new Map<string, FileSeen>();
+  private readonly dir: string;
+  private readonly settleMs: number;
+  private readonly now: () => number;
+  constructor(dir: string, settleMs: number, now: () => number = Date.now) {
+    this.dir = dir;
+    this.settleMs = settleMs;
+    this.now = now;
+  }
+
+  /** `requireTwoScans: false` is for one-shot runs (cron), where only the age check applies. */
+  ready(requireTwoScans = true): string[] {
+    const out: string[] = [];
+    const present = new Set<string>();
+    for (const entry of readdirSync(this.dir, { withFileTypes: true })) {
+      if (!entry.isFile() || entry.name.startsWith('.')) continue;
+      if (!VIDEO_EXTENSIONS.includes(extname(entry.name).toLowerCase())) continue;
+      const path = join(this.dir, entry.name);
+      present.add(path);
+      const st = statSync(path);
+      const prev = this.seen.get(path);
+      this.seen.set(path, { size: st.size, mtimeMs: st.mtimeMs });
+      const stable = !requireTwoScans || (prev && prev.size === st.size && prev.mtimeMs === st.mtimeMs);
+      if (stable && st.size > 0 && this.now() - st.mtimeMs >= this.settleMs) out.push(path);
+    }
+    for (const p of this.seen.keys()) if (!present.has(p)) this.seen.delete(p);
+    return out.sort();
+  }
+
+  forget(path: string): void {
+    this.seen.delete(path);
+  }
+}
+
+/** Move a file into dir/sub, adding " (2)", " (3)"… if the name is taken. Returns the new path. */
+export function moveInto(path: string, dir: string, sub: string): string {
+  const destDir = join(dir, sub);
+  mkdirSync(destDir, { recursive: true });
+  const ext = extname(path);
+  const stem = basename(path, ext);
+  let dest = join(destDir, basename(path));
+  for (let i = 2; existsSync(dest); i++) dest = join(destDir, `${stem} (${i})${ext}`);
+  renameSync(path, dest);
+  return dest;
+}
+
+/** Move a video and its sidecar together. Returns the video's new path. */
+export function moveVideo(videoPath: string, dir: string, sub: string): string {
+  const side = sidecarPath(videoPath);
+  const dest = moveInto(videoPath, dir, sub);
+  if (side) {
+    // Keep the sidecar paired with the (possibly renamed) video: "clip (2).mp4" ↔ "clip (2).json".
+    let pairedSide = dest.slice(0, -extname(dest).length) + '.json';
+    for (let i = 2; existsSync(pairedSide); i++) pairedSide = `${dest}.${i}.json`;
+    renameSync(side, pairedSide);
+  }
+  return dest;
+}
+
+export function writeError(videoPathInFailed: string, message: string): void {
+  writeFileSync(`${videoPathInFailed}.error.txt`, `${new Date().toISOString()}\n${message}\n`);
+}
+
+export type IngestResult =
+  | { ok: true; postId: string; movedTo: string; plan: Plan }
+  | { ok: false; error: string; movedTo: string };
+
+/**
+ * Turn one ready video into a post. On success the video (and sidecar) move to posted/ and the post
+ * points at that path; on any planning error they move to failed/ with a .error.txt next to them,
+ * so nothing is picked up twice and nothing fails silently.
+ */
+export async function ingest(args: {
+  dir: string;
+  config: WatchConfig;
+  videoPath: string;
+  providers: Map<string, Provider>;
+  store: Store;
+  probe: (path: string) => Promise<MediaInfo>;
+  now: Date;
+}): Promise<IngestResult> {
+  const { dir, config, videoPath, providers, store, now } = args;
+  let plan: Plan;
+  try {
+    const media = await args.probe(videoPath);
+    plan = planPost({ videoPath, dir, config, sidecar: loadSidecar(videoPath), media, providers, now });
+  } catch (err) {
+    // ffprobe failures are long; its last line ("…: Invalid data found when processing input") says enough.
+    const detail = (err as Error).message.trim().split('\n').pop()?.replace(/^.*?:\s(?=[^:]+$)/, '') ?? '';
+    const error = err instanceof WatchConfigError ? err.message : `영상을 읽을 수 없습니다: ${detail}`;
+    const movedTo = moveVideo(videoPath, dir, 'failed');
+    writeError(movedTo, error);
+    return { ok: false, error, movedTo };
+  }
+  const movedTo = moveVideo(videoPath, dir, 'posted');
+  plan.input.mediaPath = movedTo;
+  const { post } = createScheduledPost(store, providers, plan.input, plan.targets);
+  return { ok: true, postId: post.id, movedTo, plan };
+}
+
+export const EXAMPLE_CONFIG: WatchConfig = {
+  to: ['youtube:main', 'tiktok:main', 'instagram:main', 'facebook:main'],
+  title: '{name}',
+  description: '{title}\n\n{tags}',
+  tags: ['shorts'],
+  onBlocked: 'skip',
+  options: {
+    youtube: { privacy: 'public', madeForKids: false, categoryId: '27' },
+    tiktok: { mode: 'inbox' },
+    instagram: { shareToFeed: true },
+    facebook: {},
+  },
+};
