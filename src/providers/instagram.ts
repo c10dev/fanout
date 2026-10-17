@@ -2,7 +2,7 @@ import { ProviderError } from '../core/errors.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue } from '../core/types.ts';
-import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, missingScope, pageCreds, rupload } from './meta.ts';
+import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
 
 export interface InstagramOptions {
   caption?: string;
@@ -165,8 +165,9 @@ export const instagram: Provider = {
       fields: 'like_count,comments_count',
       access_token: c.pageToken,
     });
-    // Plays need the instagram_manage_insights permission, which fanout doesn't ask for.
-    return { likes: m.like_count, comments: m.comments_count, note: '조회수는 Instagram 인사이트 권한이 필요해 가져오지 않습니다' };
+    // Views and shares come from media insights (instagram_manage_insights; up to 48 hours late).
+    const ins = await readInsights(ctx, `/${target.remoteId}/insights`, { metric: 'views,shares', access_token: c.pageToken }, 'instagram_manage_insights');
+    return { views: ins.values.views, likes: m.like_count, comments: m.comments_count, shares: ins.values.shares, ...(ins.note ? { note: ins.note } : {}) };
   },
 
   // Needs the instagram_manage_comments permission on the token (see the Meta setup guide).

@@ -2,7 +2,7 @@ import { ProviderError } from '../core/errors.ts';
 import type { DoctorCheck, PollOutcome, Provider, PublishOutcome } from '../core/provider.ts';
 import type { ProviderContext } from '../core/provider.ts';
 import type { Issue, Post } from '../core/types.ts';
-import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, missingScope, pageCreds, rupload } from './meta.ts';
+import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
 
 export interface FacebookOptions {
   caption?: string;
@@ -176,7 +176,9 @@ export const facebook: Provider = {
       `/${target.remoteId}`,
       { fields: 'likes.summary(true).limit(0),comments.summary(true).limit(0)', access_token: c.pageToken },
     );
-    return { likes: v.likes?.summary?.total_count, comments: v.comments?.summary?.total_count, note: '조회수는 페이지 인사이트 권한이 필요해 가져오지 않습니다' };
+    // Plays come from video insights (read_insights on the Page token).
+    const ins = await readInsights(ctx, `/${target.remoteId}/video_insights`, { metric: 'fb_reels_total_plays', period: 'lifetime', access_token: c.pageToken }, 'read_insights');
+    return { views: ins.values.fb_reels_total_plays, likes: v.likes?.summary?.total_count, comments: v.comments?.summary?.total_count, ...(ins.note ? { note: ins.note } : {}) };
   },
 
   async remove({ ctx, account, target }) {

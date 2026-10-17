@@ -24,8 +24,8 @@
 | 플랫폼 | 조회 | 좋아요 | 댓글 | 공유 | 비고 |
 |---|---|---|---|---|---|
 | YouTube | ✓ | ✓ | ✓ | | `videos.list` statistics |
-| Instagram | | ✓ | ✓ | | 조회수는 인사이트 권한(`instagram_manage_insights`) 필요 |
-| Facebook | | ✓ | ✓ | | 조회수는 페이지 인사이트 권한 필요 |
+| Instagram | ✓ | ✓ | ✓ | ✓ | 조회·공유는 미디어 인사이트(`views`, `shares`). 토큰에 `instagram_manage_insights`가 있어야 하고, 없으면 좋아요·댓글만 읽고 이유를 표시. 인사이트는 최대 48시간 늦을 수 있음 |
+| Facebook | ✓ | ✓ | ✓ | | 조회수는 릴스 인사이트(`fb_reels_total_plays`). 페이지 토큰에 `read_insights`가 있어야 하고, 없으면 좋아요·댓글만 읽음 |
 | X | ✓ | ✓ | ✓ | ✓ | 읽기도 요금이 들어 요청할 때만 |
 | Bluesky | | ✓ | ✓ | ✓ | 공개 AppView, 조회수는 공개하지 않음 |
 | Mastodon | | ✓ | ✓ | ✓ | |
