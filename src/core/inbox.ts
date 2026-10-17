@@ -318,16 +318,35 @@ export async function ingest(args: {
   return { ok: true, postId: post.id, movedTo, plan };
 }
 
-export const EXAMPLE_CONFIG: WatchConfig = {
-  to: ['youtube:main', 'tiktok:main', 'instagram:main', 'facebook:main'],
-  title: '{name}',
-  description: '{title}\n\n{tags}',
-  tags: ['shorts'],
-  onBlocked: 'skip',
-  options: {
-    youtube: { privacy: 'public', madeForKids: false, categoryId: '27' },
-    tiktok: { mode: 'inbox' },
-    instagram: { shareToFeed: true },
-    facebook: {},
-  },
+const EXAMPLE_OPTIONS: Record<string, Record<string, unknown>> = {
+  // Unlisted until the folder has been tried once; switch to "public" when happy.
+  youtube: { privacy: 'unlisted', madeForKids: false, categoryId: '22' },
+  tiktok: { mode: 'inbox' },
+  instagram: { shareToFeed: true },
+  facebook: {},
 };
+
+/**
+ * Example fanout.watch.json for `fanout watch --init`. Targets the accounts actually connected
+ * (preferring one named "main"), so the file works as written; falls back to `<platform>:main`.
+ */
+export function exampleConfig(accounts: ReadonlyArray<{ platform: string; name: string }>): WatchConfig {
+  const platforms = Object.keys(EXAMPLE_OPTIONS);
+  const connected = platforms.filter((p) => accounts.some((a) => a.platform === p));
+  const chosen = connected.length ? connected : platforms;
+  return {
+    to: chosen.map((p) => `${p}:${defaultAccountName(accounts, p)}`),
+    title: '{name}',
+    description: '{title}\n\n{tags}',
+    tags: ['shorts'],
+    onBlocked: 'skip',
+    options: Object.fromEntries(chosen.map((p) => [p, EXAMPLE_OPTIONS[p]!])),
+  };
+}
+
+/** "main" if connected, else the only connected account, else "main". */
+export function defaultAccountName(accounts: ReadonlyArray<{ platform: string; name: string }>, platform: string): string {
+  const names = accounts.filter((a) => a.platform === platform).map((a) => a.name);
+  if (names.includes('main') || names.length !== 1) return 'main';
+  return names[0]!;
+}

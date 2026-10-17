@@ -40,7 +40,7 @@ node src/cli.ts post video.mp4 --title "제목" --description "설명" --tags �
 node src/cli.ts status
 ```
 
-`npm run fanout -- <명령>`으로도 실행할 수 있습니다. 데이터는 `FANOUT_HOME`(기본 `~/.fanout`)에 저장되고, 토큰과 앱 비밀값은 AES-256-GCM으로 암호화합니다. 키는 `FANOUT_SECRET_KEY` 환경 변수나 `~/.fanout/secret.key`(권한 0600)에 둡니다.
+`npm run fanout -- <명령>`으로도 실행할 수 있습니다. `--to tiktok`처럼 계정 이름을 생략하면 `main`을 쓰고, `main`이 없고 연결된 계정이 하나뿐이면 그 계정을 씁니다. 데이터는 `FANOUT_HOME`(기본 `~/.fanout`)에 저장되고, 토큰과 앱 비밀값은 AES-256-GCM으로 암호화합니다. 키는 `FANOUT_SECRET_KEY` 환경 변수나 `~/.fanout/secret.key`(권한 0600)에 둡니다.
 
 ## 웹 대시보드
 
@@ -113,6 +113,7 @@ node src/cli.ts watch ~/fanout-inbox --once --yes   # 지금 있는 영상만 �
 - 플랫폼 제한을 변환으로 고칠 수 없으면(예: 90초가 넘는 영상의 Facebook Reels) `onBlocked: "skip"`이면 그 플랫폼만 건너뛰고, `"fail"`이면 영상 전체를 실패로 돌립니다.
 - 게시물을 만든 영상은 `posted/`로, 실패한 영상은 `failed/`로 옮기고 이유를 `<파일>.error.txt`에 남깁니다. 같은 이름은 `clip (2).mp4`처럼 번호를 붙입니다.
 - 설정에 적힌 계정이 하나라도 연결돼 있지 않으면 감시를 시작하지 않습니다.
+- `--init`이 만드는 예시는 지금 연결된 계정 이름을 그대로 씁니다(연결된 게 없으면 `<플랫폼>:main`). YouTube는 처음에 `unlisted`로 만들어지니, 시험해 보고 `public`으로 바꾸세요.
 
 ## 플랫폼별 동작
 

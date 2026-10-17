@@ -4,7 +4,7 @@ import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { openContext } from './core/context.ts';
 import { ProviderError } from './core/errors.ts';
-import { CONFIG_FILE, EXAMPLE_CONFIG, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
+import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { probe } from './core/media.ts';
 import { assessMedia, createScheduledPost } from './core/posting.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
@@ -118,11 +118,12 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
   }
 }
 
-function parseTargets(spec: string, providers: Map<string, Provider>, args: Args): TargetInput[] {
+function parseTargets(spec: string, providers: Map<string, Provider>, args: Args, accounts: ReadonlyArray<{ platform: string; name: string }>): TargetInput[] {
   return spec.split(',').map((s) => {
-    const [platform, account = 'main'] = s.trim().split(':');
+    const [platform, explicit] = s.trim().split(':');
     if (!platform || !providers.has(platform)) throw new UsageError(`알 수 없는 플랫폼: ${platform} (가능: ${[...providers.keys()].join(', ')})`);
-    return { platform, account, options: targetOptions(platform, args) };
+    // Without ":name", use "main" or the platform's only connected account.
+    return { platform, account: explicit || defaultAccountName(accounts, platform), options: targetOptions(platform, args) };
   });
 }
 
@@ -333,7 +334,7 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
     containsSyntheticMedia: Boolean(args.flags.ai),
     scheduledAt: at ? new Date(at).toISOString() : undefined,
   };
-  const targets = parseTargets(to, deps.providers, args);
+  const targets = parseTargets(to, deps.providers, args, ctx.store.listAccounts());
 
   // YouTube policy: show which channel and which visibility before uploading.
   console.log(`\n"${title}"  ${mediaPath}${input.scheduledAt ? `  예약 ${input.scheduledAt}` : ''}`);
@@ -382,7 +383,7 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     mkdirSync(dir, { recursive: true });
     const path = join(dir, CONFIG_FILE);
     if (existsSync(path)) throw new UsageError(`이미 있습니다: ${path}`);
-    writeFileSync(path, `${JSON.stringify(EXAMPLE_CONFIG, null, 2)}\n`);
+    writeFileSync(path, `${JSON.stringify(exampleConfig(ctx.store.listAccounts()), null, 2)}\n`);
     console.log(`예시 설정을 만들었습니다: ${path}\n올릴 곳(to)과 플랫폼별 옵션을 확인한 뒤 fanout watch ${dirArg} 로 시작하세요.`);
     return 0;
   }
