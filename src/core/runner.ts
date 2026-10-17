@@ -110,7 +110,8 @@ async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> 
       if (!target.remoteId) throw new ProviderError('rejected', 'missing_remote_id', 'processing target has no remote id');
       const since = store.stateSince(target.id, 'processing');
       if (since && ctx.now().getTime() - since.getTime() > PROCESSING_MAX_MS) {
-        throw new ProviderError('rejected', 'processing_timeout', `플랫폼 처리가 ${PROCESSING_MAX_MS / 3600_000}시간 넘게 끝나지 않았습니다. 플랫폼에서 직접 확인하세요`);
+        // The remote object may still finish later, so keep its ids: starting over could post twice.
+        throw new ProviderError('rejected', 'processing_timeout', `플랫폼 처리가 ${PROCESSING_MAX_MS / 3600_000}시간 넘게 끝나지 않았습니다. 플랫폼에서 직접 확인하세요`, undefined, { keepResume: true });
       }
       account = await provider.refresh(ctx, account);
       const outcome = await provider.poll({ ctx, post, target: { ...target, remoteId: target.remoteId }, account });
@@ -203,6 +204,11 @@ function handleError(deps: RunnerDeps, targetId: string, err: unknown): Target {
       return store.transition(target.id, 'queued', { ...fields, attempts, notBefore }, pe.code);
     }
     return store.transition(target.id, 'failed', { ...fields, attempts }, pe.code);
+  }
+  if (target.state === 'processing' && !pe.keepResume) {
+    // The platform rejected the remote object itself (processing failed, container expired…). Forget it
+    // so a manual retry uploads afresh instead of polling the same dead id again.
+    return store.transition(target.id, 'failed', { ...fields, remoteId: undefined, remoteUrl: undefined, resume: undefined }, pe.code);
   }
   return store.transition(target.id, 'failed', fields, pe.code);
 }

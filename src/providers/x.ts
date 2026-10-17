@@ -265,7 +265,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     // X has no idempotency key for posts. If a previous attempt may already have posted, stop
     // and let the user check instead of risking a duplicate.
     if (resume.posting) {
-      throw new ProviderError('rejected', 'x.maybe_posted', `이전 시도에서 이미 게시됐을 수 있습니다. https://x.com/${username} 에서 확인한 뒤, 없으면 다시 시도하세요`);
+      throw new ProviderError('rejected', 'x.maybe_posted', `이전 시도에서 이미 게시됐을 수 있습니다. https://x.com/${username} 에서 확인한 뒤, 없으면 다시 시도하세요`, undefined, { keepResume: true });
     }
     ctx.store.updateTarget(target.id, { resume: { ...resume, posting: true } });
     const tweet = await api<{ data: { id: string } }>(ctx, account, '/2/tweets', {

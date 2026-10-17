@@ -261,53 +261,77 @@ function mimeFor(path: string): string {
   return ext === '.png' ? 'image/png' : 'image/jpeg';
 }
 
-async function applyExtras(ctx: ProviderContext, account: Account, post: Post, opts: YouTubeOptions, videoId: string): Promise<string[]> {
+/**
+ * Thumbnail, captions and playlist, each attempted at most once per video: `done` lists what earlier
+ * attempts already sent (captions and playlist items would duplicate if re-sent), and a failure here
+ * only becomes a warning so it never sends the whole upload step round again.
+ */
+async function applyExtras(
+  ctx: ProviderContext,
+  account: Account,
+  post: Post,
+  opts: YouTubeOptions,
+  videoId: string,
+  done: readonly string[],
+  markDone: (key: string) => void,
+): Promise<string[]> {
   const warnings: string[] = [];
   const token = creds(account).accessToken;
+  const attempt = async (key: string, label: string, send: () => Promise<Response>, hint = (_status: number) => '') => {
+    if (done.includes(key)) return;
+    markDone(key);
+    try {
+      const res = await send();
+      if (!res.ok) {
+        const { code, message } = describeGoogle(await res.json().catch(() => undefined));
+        warnings.push(`${label} 실패 (${code ?? res.status}): ${message ?? ''}${hint(res.status)}`);
+      }
+    } catch (err) {
+      warnings.push(`${label} 실패: ${(err as Error).message} — Studio에서 직접 확인하세요`);
+    }
+  };
 
   if (post.thumbnailPath) {
-    const res = await ctx.fetch(`${UPLOAD_API}/thumbnails/set?videoId=${videoId}&uploadType=media`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': mimeFor(post.thumbnailPath) },
-      body: readFileSync(post.thumbnailPath),
-    });
-    if (!res.ok) {
-      const { code, message } = describeGoogle(await res.json().catch(() => undefined));
-      warnings.push(
-        `썸네일 실패 (${code ?? res.status}): ${message ?? ''}${res.status === 403 ? ' — 맞춤 썸네일은 전화번호 인증된 채널만 가능합니다' : ''}`,
-      );
-    }
+    const path = post.thumbnailPath;
+    await attempt(
+      'thumbnail',
+      '썸네일',
+      () =>
+        ctx.fetch(`${UPLOAD_API}/thumbnails/set?videoId=${videoId}&uploadType=media`, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${token}`, 'content-type': mimeFor(path) },
+          body: readFileSync(path),
+        }),
+      (status) => (status === 403 ? ' — 맞춤 썸네일은 전화번호 인증된 채널만 가능합니다' : ''),
+    );
   }
 
   for (const cap of post.captions) {
-    const boundary = `fanout${Date.now().toString(36)}`;
-    const meta = JSON.stringify({ snippet: { videoId, language: cap.language, name: cap.name ?? '' } });
-    const body = Buffer.concat([
-      Buffer.from(`--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\ncontent-type: application/octet-stream\r\n\r\n`),
-      readFileSync(cap.path),
-      Buffer.from(`\r\n--${boundary}--`),
-    ]);
-    const res = await ctx.fetch(`${UPLOAD_API}/captions?uploadType=multipart&part=snippet`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': `multipart/related; boundary=${boundary}` },
-      body,
+    await attempt(`caption:${cap.language}`, `자막(${cap.language})`, () => {
+      const boundary = `fanout${Date.now().toString(36)}`;
+      const meta = JSON.stringify({ snippet: { videoId, language: cap.language, name: cap.name ?? '' } });
+      const body = Buffer.concat([
+        Buffer.from(`--${boundary}\r\ncontent-type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\ncontent-type: application/octet-stream\r\n\r\n`),
+        readFileSync(cap.path),
+        Buffer.from(`\r\n--${boundary}--`),
+      ]);
+      return ctx.fetch(`${UPLOAD_API}/captions?uploadType=multipart&part=snippet`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': `multipart/related; boundary=${boundary}` },
+        body,
+      });
     });
-    if (!res.ok) {
-      const { code, message } = describeGoogle(await res.json().catch(() => undefined));
-      warnings.push(`자막(${cap.language}) 실패 (${code ?? res.status}): ${message ?? ''}`);
-    }
   }
 
   if (opts.playlistId) {
-    const res = await ctx.fetch(`${API}/playlistItems?part=snippet`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ snippet: { playlistId: opts.playlistId, resourceId: { kind: 'youtube#video', videoId } } }),
-    });
-    if (!res.ok) {
-      const { code, message } = describeGoogle(await res.json().catch(() => undefined));
-      warnings.push(`재생목록 추가 실패 (${code ?? res.status}): ${message ?? ''}`);
-    }
+    const playlistId = opts.playlistId;
+    await attempt('playlist', '재생목록 추가', () =>
+      ctx.fetch(`${API}/playlistItems?part=snippet`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ snippet: { playlistId, resourceId: { kind: 'youtube#video', videoId } } }),
+      }),
+    );
   }
   return warnings;
 }
@@ -472,7 +496,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const opts = options(target);
     const size = statSync(mediaPath).size;
     const short = isShort(media);
-    const resume = (target.resume ?? {}) as { sessionUri?: string; size?: number; videoId?: string; extrasDone?: boolean };
+    const resume = (target.resume ?? {}) as { sessionUri?: string; size?: number; videoId?: string; extras?: string[] };
 
     let video: VideoResource | undefined;
     if (resume.videoId) {
@@ -505,11 +529,11 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       saveResume({ videoId: video.id });
     }
 
-    const warnings: string[] = [];
-    if (!resume.extrasDone) {
-      warnings.push(...(await applyExtras(ctx, account, post, opts, video.id)));
-      saveResume({ videoId: video.id, extrasDone: true });
-    }
+    const done = [...(resume.extras ?? [])];
+    const warnings = await applyExtras(ctx, account, post, opts, video.id, done, (key) => {
+      done.push(key);
+      saveResume({ videoId: video.id, extras: [...done] });
+    });
     const outcome: PublishOutcome = video.status
       ? outcomeFor(video, post, opts, short)
       : { state: 'processing', remoteId: video.id, remoteUrl: videoUrl(video.id, short) };
