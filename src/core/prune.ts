@@ -58,7 +58,7 @@ export function planPrune(home: string, store: Store, opts: PruneOptions): Prune
       continue;
     }
     const targets = owners.flatMap((id) => targetsByPost.get(id) ?? []);
-    const allDone = targets.every((t) => t.state === 'published' || t.state === 'handed_off' || t.state === 'removed');
+    const allDone = targets.every((t) => ['published', 'handed_off', 'removed', 'canceled'].includes(t.state));
     const lastChange = Math.max(f.mtimeMs, ...targets.map((t) => Date.parse(t.updatedAt)));
     if (allDone && now - lastChange > keepMs) out.push({ path: f.path, bytes: f.bytes, reason: 'posted_original' });
   }

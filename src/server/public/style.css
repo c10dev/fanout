@@ -242,3 +242,6 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 
 .presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
 .presets select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; min-width: 0; max-width: 100%; }
+
+.row-actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+@media (max-width: 560px) { .row-actions { flex-direction: row; justify-content: flex-start; } }

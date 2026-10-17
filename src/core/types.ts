@@ -9,6 +9,7 @@ export type PlatformId = string;
  *                                   ↘ handed_off   (finished by the user in the platform app, e.g. TikTok inbox)
  *   any non-terminal state → failed | needs_reauth
  *   published → removed   (the user deleted it from the platform through fanout)
+ *   queued | failed | needs_reauth → canceled   (the user gave up on it before it went out)
  */
 export type TargetState =
   | 'queued'
@@ -19,7 +20,8 @@ export type TargetState =
   | 'handed_off'
   | 'failed'
   | 'needs_reauth'
-  | 'removed';
+  | 'removed'
+  | 'canceled';
 
 export interface CaptionFile {
   language: string;

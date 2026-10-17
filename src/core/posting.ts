@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { checkMedia, type MediaInfo, type Violation } from './media.ts';
 import { isTerminal } from './state.ts';
 import type { Provider, ProviderContext } from './provider.ts';
@@ -143,7 +144,7 @@ export function priorPosts(store: Store, hash: string | undefined, targets: Targ
     for (const t of store.targetsForPost(p.id)) {
       const key = `${t.platform}/${t.account}`;
       // Failed posts never went out; removed ones were taken down on purpose, so posting again is fine.
-      if (!wanted.has(key) || t.state === 'failed' || t.state === 'removed') continue;
+      if (!wanted.has(key) || t.state === 'failed' || t.state === 'removed' || t.state === 'canceled') continue;
       out.set(key, [...(out.get(key) ?? []), { postId: p.id, createdAt: p.createdAt, state: t.state, url: t.remoteUrl }]);
     }
   }
@@ -332,4 +333,24 @@ export async function fetchComments(baseCtx: ProviderContext, providers: Map<str
     }
   }
   return out;
+}
+
+/**
+ * Give up on a target that hasn't gone out: queued (incl. scheduled for later), failed or
+ * needs_reauth. Refuses while a process is working on it, since an upload may be mid-flight.
+ */
+export function cancelTarget(store: Store, id: string): Target {
+  const t = store.getTarget(id);
+  if (!t) throw new Error(`대상 없음: ${id}`);
+  if (!['queued', 'failed', 'needs_reauth'].includes(t.state)) {
+    throw new Error(t.state === 'published' ? '이미 게시됐습니다. 지우려면 삭제를 쓰세요' : `${t.state} 상태는 취소할 수 없습니다`);
+  }
+  // Take the target's lease so no worker can start uploading it between this check and the change.
+  const owner = `cancel:${randomUUID()}`;
+  if (!store.claim(id, owner, 30_000)) throw new Error('지금 처리 중이라 취소할 수 없습니다. 잠시 뒤 다시 시도하세요');
+  try {
+    return store.transition(id, 'canceled', { notBefore: undefined }, 'canceled by user');
+  } finally {
+    store.release(id, owner);
+  }
 }
