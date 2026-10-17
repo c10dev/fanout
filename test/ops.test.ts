@@ -58,3 +58,38 @@ describe('health', () => {
     }
   });
 });
+
+describe('fanout doctor for every account', () => {
+  it('checks each connected account and fails if any check fails', async () => {
+    const { main } = await import('../src/cli.ts');
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { openContext } = await import('../src/core/context.ts');
+    const home = mkdtempSync(join(tmpdir(), 'fanout-doctor-'));
+    const prev = process.env.FANOUT_HOME;
+    process.env.FANOUT_HOME = home;
+    try {
+      const ctx = openContext(home);
+      // Mastodon with an unreachable instance: its doctor reports a failing account check.
+      ctx.store.saveAccount({ platform: 'mastodon', name: 'main', credentials: { instance: 'http://127.0.0.1:9', token: 't' }, profile: {} });
+      ctx.store.close();
+      const log: string[] = [];
+      const orig = console.log;
+      console.log = (...a: unknown[]) => void log.push(a.join(' '));
+      let code: number;
+      try {
+        code = await main(['doctor']);
+      } finally {
+        console.log = orig;
+      }
+      assert.equal(code, 1);
+      assert.ok(log.some((l) => l.includes('== mastodon/main')));
+      assert.ok(log.some((l) => l.includes('문제 있음: mastodon/main')));
+      await assert.rejects(main(['doctor', '--live']), /플랫폼을 지정/);
+    } finally {
+      if (prev === undefined) delete process.env.FANOUT_HOME;
+      else process.env.FANOUT_HOME = prev;
+    }
+  });
+});

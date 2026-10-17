@@ -9,7 +9,7 @@ import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
 import { fileHash, probe } from './core/media.ts';
-import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel } from './core/posting.ts';
+import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
@@ -225,7 +225,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
                                          PeerTube: --instance URL --username U --password P [--otp 코드]
   fanout accounts                        연결된 계정
   fanout disconnect <platform> <name>
-  fanout doctor <platform> [--account main] [--live]
+  fanout doctor [platform] [--account main] [--live]   플랫폼 없이: 연결된 모든 계정 점검
   fanout check <video> [--to youtube,tiktok]
   fanout post <video> --title T --to youtube,tiktok:main,instagram,facebook [옵션]
   fanout add <postId> --to tiktok,x [플랫폼 옵션] [--yes]   이미 만든 게시물에 플랫폼 추가 (원본이 남아 있을 때)
@@ -324,6 +324,38 @@ async function cmdDoctor(ctx: ProviderContext, provider: Provider, args: Args): 
   const icon = { ok: '✓', warn: '⚠', fail: '✗', info: 'ℹ' } as const;
   for (const c of checks) console.log(`${icon[c.status]} ${c.name}: ${c.detail}`);
   return checks.some((c) => c.status === 'fail') ? 1 : 0;
+}
+
+/** `fanout doctor` with no platform: check every connected account (never --live, which posts). */
+async function cmdDoctorAll(ctx: ProviderContext, providers: Map<string, Provider>, args: Args): Promise<number> {
+  if (args.flags.live) throw new UsageError('--live 는 테스트 게시물을 실제로 올리므로 플랫폼을 지정해서 하나씩 실행하세요: fanout doctor <platform> --live');
+  const accounts = ctx.store.listAccounts();
+  if (!accounts.length) {
+    console.log('연결된 계정이 없습니다. fanout setup <platform> 부터 시작하세요');
+    return 1;
+  }
+  const icon = { ok: '✓', warn: '⚠', fail: '✗', info: 'ℹ' } as const;
+  const failed: string[] = [];
+  for (const a of accounts) {
+    const provider = providers.get(a.platform);
+    console.log(`\n== ${a.platform}/${a.name}`);
+    if (!provider) {
+      console.log('✗ 이 버전의 fanout이 모르는 플랫폼입니다');
+      failed.push(`${a.platform}/${a.name}`);
+      continue;
+    }
+    let checks: DoctorCheck[];
+    try {
+      const account = ctx.store.getAccount(a.platform, a.name)!;
+      checks = await provider.doctor({ ctx: withTimeout(ctx, 30_000), account, live: false });
+    } catch (err) {
+      checks = [{ name: '점검', status: 'fail', detail: err instanceof Error ? err.message : String(err) }];
+    }
+    for (const c of checks) console.log(`${icon[c.status]} ${c.name}: ${c.detail}`);
+    if (checks.some((c) => c.status === 'fail')) failed.push(`${a.platform}/${a.name}`);
+  }
+  console.log(`\n${accounts.length}개 계정 점검${failed.length ? `, 문제 있음: ${failed.join(', ')}` : ', 모두 정상'}`);
+  return failed.length ? 1 : 0;
 }
 
 async function cmdCheck(providers: Map<string, Provider>, args: Args): Promise<void> {
@@ -899,7 +931,7 @@ export async function main(argv: string[]): Promise<number> {
         return 0;
       }
       case 'doctor':
-        return await cmdDoctor(ctx, needProvider(), args);
+        return args.positionals[1] ? await cmdDoctor(ctx, needProvider(), args) : await cmdDoctorAll(ctx, providers, args);
       case 'post':
         return await cmdPost(ctx, deps, args);
       case 'status': {
