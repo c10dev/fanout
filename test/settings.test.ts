@@ -117,7 +117,8 @@ describe('dashboard settings', () => {
     assert.equal((await put({ url: 'https://hooks.slack.com/services/T/B/SECRET', events: ['failed', 'bogus'] })).status, 200);
     const text = await (await fetch(`${base}/api/notify`, { headers: auth })).text();
     assert.ok(!text.includes('SECRET'));
-    assert.deepEqual(JSON.parse(text), { configured: true, host: 'hooks.slack.com', format: 'slack', events: ['failed'], fromEnv: false });
+    assert.deepEqual(JSON.parse(text), { configured: true, host: 'hooks.slack.com', detectedFormat: 'slack', events: ['failed'], fromEnv: false });
+    assert.equal((await put({ url: 'https://hooks example.com/x', events: ['failed'] })).status, 400, 'unparseable URL refused');
     // Keeping the saved URL while changing events.
     assert.equal((await put({ events: ['published', 'failed'] })).status, 200);
     assert.deepEqual((await get()).events, ['published', 'failed']);

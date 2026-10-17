@@ -426,8 +426,10 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
 
   async remove({ ctx, account, target }) {
     const c = creds(account);
-    const rkey = target.remoteId.split('/').pop()!;
-    await xrpc(ctx, c.pds, 'com.atproto.repo.deleteRecord', { token: c.accessJwt, json: { repo: c.did, collection: 'app.bsky.feed.post', rkey } });
+    // at://<did>/app.bsky.feed.post/<rkey>: only delete from the repo the post actually lives in.
+    const [, , repo, , rkey] = target.remoteId.split('/');
+    if (repo !== c.did) throw new ProviderError('rejected', 'bluesky.not_owner', `이 게시물은 지금 연결된 계정(@${c.handle})의 것이 아니라 지울 수 없습니다`);
+    await xrpc(ctx, c.pds, 'com.atproto.repo.deleteRecord', { token: c.accessJwt, json: { repo, collection: 'app.bsky.feed.post', rkey } });
   },
 
   async comments({ ctx, target, limit }) {

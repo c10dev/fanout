@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { openContext, stderrLogger } from './core/context.ts';
-import { DEFAULT_EVENTS, detectFormat, flushNotifications, notifyConfig, send, type NotifyConfig } from './core/notify.ts';
+import { DEFAULT_EVENTS, detectFormat, flushNotifications, notifyConfig, send, validWebhookUrl, type NotifyConfig } from './core/notify.ts';
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { fileHash, probe } from './core/media.ts';
@@ -550,7 +550,7 @@ async function cmdNotify(ctx: ProviderContext, args: Args): Promise<number> {
   const sub = args.positionals[1];
   if (sub === 'set') {
     const url = args.positionals[2];
-    if (!url || !/^https:\/\//.test(url)) throw new UsageError('fanout notify set <https://… webhook URL>');
+    if (!url || !validWebhookUrl(url)) throw new UsageError('fanout notify set <올바른 https://… webhook URL>');
     const events = str(args, 'events')?.split(',').map((e) => e.trim()) as TargetState[] | undefined;
     const known: readonly string[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed'];
     if (events?.some((e) => !known.includes(e))) throw new UsageError(`--events 는 ${known.join(', ')} 중에서`);
