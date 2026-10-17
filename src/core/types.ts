@@ -78,6 +78,25 @@ export interface PostStats {
   note?: string;
 }
 
+/** One dated stats reading (see Store.recordStats). */
+export interface StatsPoint {
+  at: string;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+}
+
+/** Change over a period: current reading minus the one at its start. */
+export interface StatsTrend {
+  /** Reading the change is measured from. */
+  since: string;
+  views?: number;
+  likes?: number;
+  comments?: number;
+  shares?: number;
+}
+
 export interface Target {
   id: string;
   postId: string;

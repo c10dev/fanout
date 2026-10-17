@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type { SecretBox } from './crypto.ts';
 import { assertTransition } from './state.ts';
-import type { Post, PostInput, PostStats, Target, TargetEvent, TargetInput, TargetState } from './types.ts';
+import type { Post, PostInput, PostStats, StatsPoint, Target, TargetEvent, TargetInput, TargetState } from './types.ts';
 
 export interface Account<C = Record<string, unknown>> {
   platform: string;
@@ -58,6 +58,15 @@ CREATE TABLE IF NOT EXISTS events (
   from_state TEXT,
   to_state TEXT NOT NULL,
   detail TEXT
+);
+CREATE TABLE IF NOT EXISTS stats_history (
+  target_id TEXT NOT NULL,
+  at TEXT NOT NULL,
+  views INTEGER,
+  likes INTEGER,
+  comments INTEGER,
+  shares INTEGER,
+  PRIMARY KEY (target_id, at)
 );
 CREATE TABLE IF NOT EXISTS usage (
   platform TEXT NOT NULL,
@@ -400,6 +409,36 @@ export class Store {
   /** Stats are observations, not state: saving them doesn't touch updated_at or the event log. */
   saveStats(id: string, stats: PostStats): void {
     this.#db.prepare('UPDATE targets SET stats = ? WHERE id = ?').run(JSON.stringify(stats), id);
+  }
+
+  /** Keep a dated copy of a successful stats read, for trends. */
+  recordStats(id: string, stats: PostStats): void {
+    this.#db
+      .prepare('INSERT OR IGNORE INTO stats_history (target_id, at, views, likes, comments, shares) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(id, stats.fetchedAt, stats.views ?? null, stats.likes ?? null, stats.comments ?? null, stats.shares ?? null);
+  }
+
+  /** Stats readings of a target, oldest first. */
+  statsHistory(id: string, sinceIso?: string): StatsPoint[] {
+    const rows = this.#db
+      .prepare('SELECT at, views, likes, comments, shares FROM stats_history WHERE target_id = ? AND at >= ? ORDER BY at')
+      .all(id, sinceIso ?? '') as Array<{ at: string; views: number | null; likes: number | null; comments: number | null; shares: number | null }>;
+    return rows.map((r) => ({ at: r.at, views: r.views ?? undefined, likes: r.likes ?? undefined, comments: r.comments ?? undefined, shares: r.shares ?? undefined }));
+  }
+
+  /**
+   * Published targets of posts created since `postedSince` whose stats are older than `staleBefore`
+   * (or were never read), oldest reading first.
+   */
+  statsDue(postedSince: string, staleBefore: string, limit = 50): Array<{ id: string; postId: string; platform: string }> {
+    return this.#db
+      .prepare(
+        `SELECT t.id, t.post_id AS postId, t.platform FROM targets t JOIN posts p ON p.id = t.post_id
+         WHERE t.state = 'published' AND t.remote_id IS NOT NULL AND p.created_at >= ?
+           AND (t.stats IS NULL OR json_extract(t.stats, '$.fetchedAt') < ?)
+         ORDER BY json_extract(t.stats, '$.fetchedAt') LIMIT ?`,
+      )
+      .all(postedSince, staleBefore, limit) as Array<{ id: string; postId: string; platform: string }>;
   }
 
   bumpUsage(platform: string, account: string, day: string): number {

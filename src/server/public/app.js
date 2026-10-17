@@ -634,12 +634,19 @@ async function post(form) {
 
 const fmtNum = (n) => (n === undefined || n === null ? '-' : Number(n).toLocaleString('ko-KR'));
 
-function statsLine(st) {
-  const parts = [['조회', st.views], ['좋아요', st.likes], ['댓글', st.comments], ['공유', st.shares]].filter(([, v]) => v !== undefined && v !== null);
+function statsLine(st, trend) {
+  const parts = [
+    ['조회', st.views, trend?.views],
+    ['좋아요', st.likes, trend?.likes],
+    ['댓글', st.comments, trend?.comments],
+    ['공유', st.shares, trend?.shares],
+  ].filter(([, v]) => v !== undefined && v !== null);
+  // Growth since the reading a day ago (the worker records one every few hours).
+  const delta = (d) => (d === undefined || d === null || d === 0 ? null : h('span', { class: d > 0 ? 'up' : 'down' }, ` ${d > 0 ? '+' : ''}${fmtNum(d)}`));
   return h(
     'div',
-    { class: 'stats', title: st.note ?? '' },
-    parts.map(([k, v]) => h('span', {}, `${k} `, h('strong', {}, fmtNum(v)))),
+    { class: 'stats', title: [trend ? `+숫자: ${fmtTime(trend.since)} 이후 늘어난 만큼` : '', st.note ?? ''].filter(Boolean).join('\n') },
+    parts.map(([k, v, d]) => h('span', {}, `${k} `, h('strong', {}, fmtNum(v)), delta(d))),
     h('span', { class: 'muted' }, ` · ${fmtTime(st.fetchedAt)} 기준`),
     st.note && !parts.length ? h('span', { class: 'muted' }, ` · ${st.note}`) : null,
   );
@@ -652,7 +659,7 @@ function targetRow(t) {
   if (t.errorCode) detail.append(h('div', { class: 'err' }, `${t.errorCode}: ${t.errorMessage ?? ''}`));
   for (const w of t.warnings) detail.append(h('div', { class: 'warnline' }, `⚠ ${w}`));
   if (t.attempts > 1) detail.append(h('div', { class: 'muted' }, `시도 ${t.attempts}회`));
-  if (t.stats) detail.append(statsLine(t.stats));
+  if (t.stats) detail.append(statsLine(t.stats, t.trend));
   if (t.state === 'published' && t.statsCost) {
     detail.append(
       h(

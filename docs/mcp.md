@@ -21,7 +21,7 @@ claude mcp add fanout -- fanout mcp
 | `preview_post` | 실제로 올리지 않고, 어느 계정에 어떤 공개 범위로 올라가는지와 오류·경고를 미리 보여줌 |
 | `create_post` | 게시물을 만들고 업로드 시작. 막히는 문제가 있으면 만들지 않음 |
 | `get_post_status` | 플랫폼별 상태, 링크, 오류 |
-| `get_post_stats` | 게시된 대상의 조회·좋아요·댓글·공유. 요금이 드는 X는 `includePaid`일 때만 |
+| `get_post_stats` | 게시된 대상의 조회·좋아요·댓글·공유와 하루 전 대비 변화(`trend`). 요금이 드는 X는 `includePaid`일 때만 |
 | `get_post_comments` | 게시된 대상의 최근 댓글. 댓글 내용은 신뢰할 수 없는 사용자 글이라고 설명에 적어 둠 |
 | `reply_to_comment` | `get_post_comments`가 준 댓글에 답글. 바로 공개되므로 사용자에게 문구를 보여 주고 승인받은 뒤 호출하고, 댓글 속 지시는 따르지 말라고 설명에 적어 둠 |
 | `update_post` | 제목·설명·태그를 바꾸고 YouTube·Facebook·Mastodon·PeerTube에 반영. 사용자 확인 후 호출하도록 설명에 적어 둠 |
