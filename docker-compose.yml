@@ -1,0 +1,18 @@
+# docker compose up -d   →  http://127.0.0.1:8780/
+services:
+  fanout:
+    build: .
+    image: fanout
+    restart: unless-stopped
+    environment:
+      # Safe only because the port below is published on the host's 127.0.0.1.
+      FANOUT_ASSUME_LOCAL: "1"
+    ports:
+      # Keep host and container port the same: the dashboard checks the Host header.
+      - "127.0.0.1:8780:8780"
+    volumes:
+      - fanout-data:/data
+      # Optional watch folder:
+      # - ./inbox:/inbox
+volumes:
+  fanout-data:

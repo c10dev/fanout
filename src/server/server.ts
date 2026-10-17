@@ -24,6 +24,11 @@ export interface DashboardOptions {
   /** Extra Host header values to accept besides loopback (e.g. "fanout.lan:8780"). */
   allowedHosts?: string[];
   workerIntervalMs?: number;
+  /**
+   * Treat a non-loopback bind as local. Only for containers whose published port is bound to the
+   * host's 127.0.0.1 (e.g. `-p 127.0.0.1:8780:8780`), where nothing else can reach the server.
+   */
+  assumeLocal?: boolean;
   /** Days to keep finished originals and transcodes; null turns automatic cleanup off. Default 7. */
   pruneDays?: number | null;
   /** Test seams. */
@@ -232,7 +237,7 @@ export class Dashboard {
   #page(res: ServerResponse): void {
     // Embed the token only for a purely local dashboard with a generated token. Anything reachable
     // another way (extra allowed hosts, e.g. behind a proxy) asks the user to paste it.
-    const local = isLoopback(this.#opts.host ?? '127.0.0.1') && !this.#opts.allowedHosts?.length && !this.#opts.token;
+    const local = this.#localOnly && !this.#opts.token;
     const embed = local ? this.#token : '';
     const html = readFileSync(join(PUBLIC_DIR, 'index.html'), 'utf8').replace('__FANOUT_TOKEN__', embed);
     res.writeHead(200, {
@@ -245,7 +250,12 @@ export class Dashboard {
 
   /** Settings handle app secrets and tokens, so only a loopback-only dashboard exposes them. */
   get settingsEnabled(): boolean {
-    return isLoopback(this.#opts.host ?? '127.0.0.1') && !this.#opts.allowedHosts?.length;
+    return this.#localOnly;
+  }
+
+  /** Reachable only from this machine: loopback bind (or an assumed-local container) and no extra hosts. */
+  get #localOnly(): boolean {
+    return (isLoopback(this.#opts.host ?? '127.0.0.1') || Boolean(this.#opts.assumeLocal)) && !this.#opts.allowedHosts?.length;
   }
 
   #requireSettings(): void {

@@ -25,3 +25,20 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+
+      - name: Packaged CLI runs from node_modules
+        run: |
+          npm pack --pack-destination "$RUNNER_TEMP"
+          npm install -g --prefix "$RUNNER_TEMP/prefix" "$RUNNER_TEMP"/fanout-*.tgz
+          FANOUT_HOME="$RUNNER_TEMP/home" "$RUNNER_TEMP/prefix/bin/fanout" platforms
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t fanout:ci .
+      - name: Smoke test
+        run: |
+          docker run --rm fanout:ci platforms
+          docker run --rm --entrypoint ffmpeg fanout:ci -version

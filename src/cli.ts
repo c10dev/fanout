@@ -457,7 +457,8 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
 
 async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const host = str(args, 'host') ?? '127.0.0.1';
-  const loopback = ['127.0.0.1', 'localhost', '::1'].includes(host);
+  const assumeLocal = process.env.FANOUT_ASSUME_LOCAL === '1';
+  const loopback = ['127.0.0.1', 'localhost', '::1'].includes(host) || assumeLocal;
   const token = process.env.FANOUT_DASHBOARD_TOKEN;
   if (!loopback && !token) {
     throw new UsageError('127.0.0.1이 아닌 주소로 열려면 FANOUT_DASHBOARD_TOKEN 환경 변수로 접속 토큰을 정하세요');
@@ -470,6 +471,7 @@ async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     token,
     allowedHosts: str(args, 'allow-host')?.split(','),
     pruneDays: args.flags['no-prune'] ? null : (num(args, 'keep-days') ?? 7),
+    assumeLocal,
   });
   const url = await dashboard.start();
   console.log(`fanout 대시보드: ${url}`);

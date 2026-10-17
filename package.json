@@ -3,14 +3,39 @@
   "version": "0.1.0",
   "description": "Video-first, self-hosted uploader: post one video to YouTube, TikTok, Instagram Reels and Facebook Reels using your own platform apps.",
   "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/c10dev/fanout.git"
+  },
+  "keywords": [
+    "youtube",
+    "tiktok",
+    "instagram",
+    "facebook",
+    "reels",
+    "shorts",
+    "uploader",
+    "cross-posting",
+    "self-hosted"
+  ],
   "type": "module",
   "engines": {
     "node": ">=24"
   },
+  "bin": {
+    "fanout": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "fanout": "node src/cli.ts",
     "test": "node --test \"test/**/*.test.ts\"",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "build": "node scripts/build.mjs",
+    "prepare": "npm run build"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
