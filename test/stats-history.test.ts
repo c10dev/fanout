@@ -122,3 +122,17 @@ describe('stats history, seventh review fixes', () => {
     assert.deepEqual(statsTrend(store, ids[0]!, NOW), { since: ago(80), views: 15 });
   });
 });
+
+describe('stats window', () => {
+  it('follows a platform added recently to an old post', async () => {
+    let now = new Date(NOW.getTime() - 46 * 86_400_000);
+    const env = makeCtx(mockFetch([]).fetch, () => now);
+    const { post } = env.store.createPost(POST, []);
+    now = NOW;
+    const [t] = env.store.addTargets(post.id, [{ platform: 'youtube', account: 'main', options: {} }]);
+    env.store.transition(t!.id, 'uploading');
+    env.store.transition(t!.id, 'published', { remoteId: 'NEW' });
+    let calls = 0;
+    assert.equal(await refreshDueStats(env.ctx, providerMap(), async () => void calls++, { everyMs: 6 * 3600_000 }), 1);
+  });
+});

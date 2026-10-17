@@ -78,3 +78,29 @@ describe('YouTube schedule that has passed', () => {
     assert.ok(!youtube.validate(post, target({ sessionUri: 'https://upload/s' }), media).some((i) => i.code === 'schedule_past'));
   });
 });
+
+describe('eighth review fixes', () => {
+  it('a target waiting for reconnection still covers its account', () => {
+    const { store, post, first } = setup();
+    store.transition(first.id, 'uploading');
+    store.transition(first.id, 'needs_reauth');
+    assert.throws(() => planAddTargets(store, providerMap(), post.id, [{ platform: 'mastodon', account: 'main', options: MD }], media), /needs_reauth/);
+  });
+
+  it('YouTube publishes now, with a warning, when the schedule has passed', async () => {
+    const { buildMetadata } = await import('../src/providers/youtube.ts');
+    const post = { id: 'p', createdAt: '', mediaPath: '/v', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false, scheduledAt: new Date(Date.now() - 60_000).toISOString() };
+    const meta = buildMetadata(post, { privacy: 'public', madeForKids: false }) as { status: { privacyStatus: string; publishAt?: string } };
+    assert.deepEqual([meta.status.privacyStatus, meta.status.publishAt], ['public', undefined]);
+    const target = { id: 't', postId: 'p', platform: 'youtube', account: 'main', options: { privacy: 'public', madeForKids: false }, state: 'queued' as const, warnings: [], attempts: 0, updatedAt: '' };
+    const issue = youtube.validate(post, target, media).find((i) => i.code === 'schedule_past');
+    assert.equal(issue?.severity, 'warning');
+  });
+
+  it('adds all targets or none', () => {
+    const { store, post } = setup();
+    const before = store.targetsForPost(post.id).length;
+    assert.throws(() => store.addTargets(post.id, [{ platform: 'bluesky', account: 'main', options: {} }, { platform: 'x', account: 'main', options: undefined as never }]));
+    assert.equal(store.targetsForPost(post.id).length, before);
+  });
+});

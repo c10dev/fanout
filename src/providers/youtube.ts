@@ -147,8 +147,13 @@ async function uploadError(res: Response): Promise<ProviderError> {
   return new ProviderError(kindForStatus(res.status), `youtube.http_${res.status}`, message ?? `YouTube HTTP ${res.status}: ${text.slice(0, 300)}`, code);
 }
 
+/** A schedule still ahead; a past one (e.g. picked up late) means publishing now, like Mastodon and PeerTube. */
+function scheduleAhead(post: Post): boolean {
+  return Boolean(post.scheduledAt) && Date.parse(post.scheduledAt!) > Date.now();
+}
+
 export function buildMetadata(post: Post, opts: YouTubeOptions): Record<string, unknown> {
-  const scheduled = Boolean(post.scheduledAt);
+  const scheduled = scheduleAhead(post);
   return {
     snippet: {
       title: post.title,
@@ -340,7 +345,7 @@ function outcomeFor(video: VideoResource, post: Post, opts: YouTubeOptions, shor
     throw new ProviderError('rejected', 'youtube.rejected', `YouTube 거부: ${video.status?.rejectionReason ?? 'unknown'}`, video.status?.rejectionReason);
   }
   if (upload === 'deleted') throw new ProviderError('rejected', 'youtube.deleted', '영상이 삭제됐습니다');
-  const warning = forcedPrivateWarning(opts.privacy, video, Boolean(post.scheduledAt));
+  const warning = forcedPrivateWarning(opts.privacy, video, Boolean(video.status?.publishAt));
   const warnings = warning ? [warning] : [];
   if (post.scheduledAt && video.status?.publishAt) warnings.push(`예약 게시: ${video.status.publishAt}`);
   const base = { remoteId: video.id, remoteUrl: videoUrl(video.id, short), warnings };
@@ -472,8 +477,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     // publishAt in the past is refused; e.g. a platform added to a post after its scheduled time. An
     // upload already under way set publishAt when it started, so resuming it is fine.
     const started = Boolean((target.resume as { sessionUri?: string; videoId?: string } | undefined)?.sessionUri || (target.resume as { videoId?: string } | undefined)?.videoId);
-    if (post.scheduledAt && !started && Date.parse(post.scheduledAt) <= Date.now()) {
-      issues.push({ severity: 'error', code: 'schedule_past', message: 'YouTube 예약 시각이 이미 지났습니다. 새 게시물로 올리세요' });
+    if (post.scheduledAt && !started && !scheduleAhead(post)) {
+      issues.push({ severity: 'warning', code: 'schedule_past', message: 'YouTube 예약 시각이 이미 지나 예약 없이 바로 게시합니다' });
     }
     if (post.scheduledAt && o.privacy && o.privacy !== 'public') {
       issues.push({ severity: 'error', code: 'schedule_privacy', message: 'YouTube 예약 게시는 public으로 공개되는 경우만 지원합니다' });
