@@ -42,7 +42,8 @@ export const META_SETUP_GUIDE = `Instagram · Facebook — 내 Meta 앱 만들�
 5. Graph API 탐색기(https://developers.facebook.com/tools/explorer/)에서 내 앱을 고르고
    권한 pages_show_list, pages_read_engagement, pages_manage_posts,
    instagram_basic, instagram_content_publish, business_management 를 선택해 "Generate Access Token"
-   (댓글 모아보기·Instagram 답글: instagram_manage_comments, Facebook 답글: pages_manage_engagement 도 선택)
+   (댓글 모아보기·Instagram 답글: instagram_manage_comments, Facebook 답글: pages_manage_engagement,
+    조회수: Instagram은 instagram_manage_insights, Facebook은 read_insights 도 선택)
 6. 그 토큰으로 연결 (장기 토큰으로 바꾼 뒤, 만료되지 않는 페이지 토큰을 저장합니다):
      fanout connect instagram --name main [--page <페이지 ID>]
      fanout connect facebook  --name main [--page <페이지 ID>]
@@ -198,6 +199,37 @@ export function missingScope(err: unknown, scope: string): unknown {
     `권한이 없습니다: ${scope} 권한을 더해 Graph API 탐색기에서 토큰을 다시 만들고 다시 연결하세요 (${err.message})`,
     err.platformCode,
   );
+}
+
+interface InsightRow {
+  name: string;
+  values?: Array<{ value?: number }>;
+  total_value?: { value?: number };
+}
+
+/**
+ * Read lifetime insight metrics; resolves to the numbers by name, or to why they couldn't be read.
+ * Insights need extra permissions the posting scopes don't include, so a refusal is expected and
+ * only costs the view count.
+ */
+export async function readInsights(
+  ctx: ProviderContext,
+  path: string,
+  params: Record<string, string>,
+  scope: string,
+): Promise<{ values: Record<string, number>; note?: string }> {
+  try {
+    const res = await graph<{ data?: InsightRow[] }>(ctx, 'GET', path, params);
+    const values: Record<string, number> = {};
+    for (const row of res.data ?? []) {
+      const v = row.values?.[0]?.value ?? row.total_value?.value;
+      if (typeof v === 'number') values[row.name] = v;
+    }
+    return { values };
+  } catch (err) {
+    if (err instanceof ProviderError && err.kind === 'auth') return { values: {}, note: `조회수는 ${scope} 권한이 있어야 가져올 수 있습니다` };
+    return { values: {}, note: `조회수를 가져오지 못했습니다: ${err instanceof Error ? err.message : String(err)}` };
+  }
 }
 
 export function pageCreds(account: Account): MetaPageCredentials {

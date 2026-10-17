@@ -38,6 +38,37 @@ describe('provider stats', () => {
     assert.match(new URL(fb.calls[0]!.url).searchParams.get('fields')!, /likes\.summary\(true\)/);
   });
 
+  it('Instagram and Facebook add views from insights when the token allows it', async () => {
+    const ig = mockFetch([
+      ['GET', '/M/insights', () => json({ data: [{ name: 'views', period: 'lifetime', values: [{ value: 321 }] }, { name: 'shares', period: 'lifetime', values: [{ value: 5 }] }] })],
+      ['GET', '/M?', () => json({ like_count: 10, comments_count: 2 })],
+    ]);
+    const env = makeCtx(ig.fetch);
+    env.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    assert.deepEqual(await instagram.stats!({ ctx: env.ctx, account: acct('instagram', { pageToken: 'PT' }), target: target('instagram', 'M') }), { views: 321, likes: 10, comments: 2, shares: 5 });
+    assert.equal(new URL(ig.calls.find((c) => c.url.includes('/insights'))!.url).searchParams.get('metric'), 'views,shares');
+
+    const fb = mockFetch([
+      ['GET', '/R/video_insights', () => json({ data: [{ name: 'fb_reels_total_plays', period: 'lifetime', values: [{ value: 900 }] }] })],
+      ['GET', '/R?', () => json({ likes: { summary: { total_count: 4 } }, comments: { summary: { total_count: 1 } } })],
+    ]);
+    const env2 = makeCtx(fb.fetch);
+    env2.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    assert.deepEqual(await facebook.stats!({ ctx: env2.ctx, account: acct('facebook', { pageToken: 'PT' }), target: target('facebook', 'R') }), { views: 900, likes: 4, comments: 1 });
+  });
+
+  it('without the insights permission, likes and comments still come back with a note', async () => {
+    const ig = mockFetch([
+      ['GET', '/M/insights', () => json({ error: { code: 10, message: '(#10) Application does not have permission for this action' } }, 403)],
+      ['GET', '/M?', () => json({ like_count: 10, comments_count: 2 })],
+    ]);
+    const env = makeCtx(ig.fetch);
+    env.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const s = await instagram.stats!({ ctx: env.ctx, account: acct('instagram', { pageToken: 'PT' }), target: target('instagram', 'M') });
+    assert.deepEqual([s.views, s.likes, s.comments], [undefined, 10, 2]);
+    assert.match(s.note ?? '', /instagram_manage_insights/);
+  });
+
   it('X reads public metrics and is marked as billed', async () => {
     assert.ok(x.statsCost);
     const { fetch } = mockFetch([['GET', '/2/tweets/T?tweet.fields=public_metrics', () => json({ data: { public_metrics: { impression_count: 900, like_count: 30, reply_count: 3, retweet_count: 4, quote_count: 1 } } })]]);
