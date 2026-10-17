@@ -203,6 +203,17 @@ describe('dashboard server', () => {
     assert.equal(env.store.listPosts(100).length, before, 'nothing created');
   });
 
+  it('warns in the preview when the same video already went to that account', async () => {
+    const body = (id: string) => JSON.stringify({ mediaId: id, title: 'dup', targets: [{ platform: 'alpha', account: 'main', options: {} }] });
+    const first = (await (await upload()).json()) as { id: string };
+    await fetch(`${base}/api/posts`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: body(first.id) });
+    await dashboard.idle();
+    const second = (await (await upload()).json()) as { id: string }; // same bytes as the first upload
+    const res = await fetch(`${base}/api/preview`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: body(second.id) });
+    const { targets } = (await res.json()) as { targets: Array<{ warnings: string[] }> };
+    assert.ok(targets[0]!.warnings.some((w) => w.includes('이미 올렸습니다')));
+  });
+
   it('validates post requests', async () => {
     const post = (body: unknown) => fetch(`${base}/api/posts`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await post({ mediaId: '../../etc/passwd', title: 't', targets: [{ platform: 'alpha', account: 'main' }] })).status, 400);

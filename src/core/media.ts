@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -268,4 +269,19 @@ export async function makeTestClip(output: string, seconds = 4): Promise<void> {
     '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-movflags', '+faststart',
     output,
   ]);
+}
+
+const hashCache = new Map<string, string>();
+
+/** SHA-256 of a file's contents (streamed), cached by path + size + mtime. */
+export async function fileHash(path: string): Promise<string> {
+  const st = statSync(path);
+  const key = `${path}:${st.size}:${st.mtimeMs}`;
+  const cached = hashCache.get(key);
+  if (cached) return cached;
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+  const hex = hash.digest('hex');
+  hashCache.set(key, hex);
+  return hex;
 }

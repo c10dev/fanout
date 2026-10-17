@@ -248,6 +248,14 @@ export class Store {
     return { post, targets: created };
   }
 
+  /** Posts of the same video (by content hash), newest first. */
+  postsWithHash(hash: string): Post[] {
+    const rows = this.#db
+      .prepare("SELECT body FROM posts WHERE json_extract(body, '$.mediaHash') = ? ORDER BY created_at DESC")
+      .all(hash) as Array<{ body: string }>;
+    return rows.map((r) => JSON.parse(r.body) as Post);
+  }
+
   getPost(id: string): Post | undefined {
     const row = this.#db.prepare('SELECT body FROM posts WHERE id = ?').get(id) as { body: string } | undefined;
     return row ? (JSON.parse(row.body) as Post) : undefined;

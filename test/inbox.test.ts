@@ -16,9 +16,9 @@ function folder(config?: WatchConfig): string {
   return dir;
 }
 
-function video(dir: string, name: string, ageMs = 60_000): string {
+function video(dir: string, name: string, ageMs = 60_000, fill = 1): string {
   const path = join(dir, name);
-  writeFileSync(path, Buffer.alloc(1024, 1));
+  writeFileSync(path, Buffer.alloc(1024, fill));
   const t = (Date.now() - ageMs) / 1000;
   utimesSync(path, t, t);
   return path;
@@ -168,9 +168,48 @@ describe('ingest', () => {
     const dir = folder(config);
     const probe = async () => fakeMedia();
     const first = await ingest({ dir, config, videoPath: video(dir, 'clip.mp4'), providers, store, probe, now: NOW });
-    const second = await ingest({ dir, config, videoPath: video(dir, 'clip.mp4'), providers, store, probe, now: NOW });
+    const second = await ingest({ dir, config, videoPath: video(dir, 'clip.mp4', 60_000, 2), providers, store, probe, now: NOW });
     assert.ok(first.ok && second.ok);
     assert.equal(second.movedTo, join(dir, 'posted', 'clip (2).mp4'));
+  });
+});
+
+describe('duplicate videos', () => {
+  const config: WatchConfig = { to: ['youtube', 'tiktok'], options: { youtube: { privacy: 'private', madeForKids: false }, tiktok: { mode: 'inbox' } } };
+  const probe = async () => fakeMedia();
+
+  it('skips platform accounts that already got the same video', async () => {
+    const { store } = makeCtx();
+    const dir = folder(config);
+    const first = await ingest({ dir, config: { ...config, to: ['youtube'] }, videoPath: video(dir, 'a.mp4'), providers, store, probe, now: NOW });
+    assert.ok(first.ok);
+    const copy = await ingest({ dir, config, videoPath: video(dir, 'a-copy.mp4'), providers, store, probe, now: NOW });
+    assert.ok(copy.ok);
+    if (copy.ok) {
+      assert.deepEqual(copy.plan.targets.map((t) => t.platform), ['tiktok']);
+      assert.ok(copy.plan.skipped.some((s) => s.platform === 'youtube' && s.reason.includes('이미 올렸습니다')));
+    }
+  });
+
+  it('moves a video that went everywhere already to failed/, unless onDuplicate is "post"', async () => {
+    const { store } = makeCtx();
+    const dir = folder(config);
+    assert.ok((await ingest({ dir, config, videoPath: video(dir, 'b.mp4'), providers, store, probe, now: NOW })).ok);
+    const again = await ingest({ dir, config, videoPath: video(dir, 'b2.mp4'), providers, store, probe, now: NOW });
+    assert.equal(again.ok, false);
+    assert.match(again.movedTo, /failed/);
+    assert.match(readFileSync(`${again.movedTo}.error.txt`, 'utf8'), /이미 올린 영상/);
+    const forced = await ingest({ dir, config: { ...config, onDuplicate: 'post' }, videoPath: video(dir, 'b3.mp4'), providers, store, probe, now: NOW });
+    assert.ok(forced.ok);
+  });
+
+  it('ignores earlier attempts that failed', async () => {
+    const { store } = makeCtx();
+    const dir = folder(config);
+    const first = await ingest({ dir, config, videoPath: video(dir, 'c.mp4'), providers, store, probe, now: NOW });
+    assert.ok(first.ok);
+    if (first.ok) for (const t of store.targetsForPost(first.postId)) store.transition(t.id, 'failed');
+    assert.ok((await ingest({ dir, config, videoPath: video(dir, 'c2.mp4'), providers, store, probe, now: NOW })).ok);
   });
 });
 
