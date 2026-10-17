@@ -46,7 +46,11 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 - 플랫폼별 옵션은 정책에 맞춰 기본값 없이 고르게 합니다. YouTube 공개 범위·아동용 여부, TikTok Direct Post 공개 범위·음악 사용 동의가 그렇고, TikTok 댓글·듀엣·이어찍기는 꺼진 상태로 시작합니다.
 - 게시 현황 보드는 플랫폼별 상태, 플랫폼 오류 코드, 경고, 상태 전이 기록을 보여주고, 실패하거나 재연결이 필요한 대상은 "다시 시도"할 수 있습니다.
 - 서버 안에서 작업 처리기가 돌아가므로 `fanout worker`를 따로 켤 필요가 없습니다.
-- 계정 연결(`connect`)과 앱 등록(`app set`)은 아직 터미널에서 합니다.
+- **설정** 탭에서 개발자 앱 등록, 계정 연결·해제, 점검(`doctor`)을 할 수 있습니다. 127.0.0.1 전용으로 연 대시보드에서만 열립니다.
+  - YouTube: 앱 정보를 넣거나 Google에서 받은 JSON 파일을 올린 뒤 "Google 계정으로 연결". 데스크톱 앱 클라이언트라 Redirect URI를 따로 등록하지 않아도 됩니다.
+  - TikTok: 설정 탭에 보이는 Redirect URI(`http://127.0.0.1:8780/oauth/tiktok/callback`)를 TikTok 개발자 포털에 등록해야 합니다. CLI의 `fanout connect tiktok`은 다른 주소(`http://127.0.0.1:8723/callback`)를 쓰므로, 둘 다 쓰려면 둘 다 등록하세요.
+  - Instagram·Facebook: Graph API 탐색기에서 만든 토큰을 붙여넣으면 장기 토큰으로 바꾼 뒤 페이지 토큰을 저장합니다.
+  - "실제 업로드로 점검"은 `doctor --live`와 같습니다. 테스트 영상을 실제로 올리므로 실행 전에 한 번 더 확인을 받습니다.
 - 올린 원본은 `~/.fanout/media/`에 쌓입니다. 게시가 끝난 파일은 아직 직접 지워야 합니다.
 
 보안: 기본으로 127.0.0.1에만 열립니다. API는 실행할 때마다 새로 만드는 토큰을 요구하고(페이지에 자동으로 넣는 것은 127.0.0.1 전용으로 열었을 때뿐), Host 헤더를 검사해 DNS rebinding을 막습니다. 다른 기기에서 접속하려면 `FANOUT_DASHBOARD_TOKEN`을 정하고 `--host 0.0.0.0 --allow-host 내주소:8780`으로 열되, HTTPS 리버스 프록시 뒤에 두세요.
@@ -58,6 +62,9 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 | `POST /api/posts` | `{ mediaId, title, description, tags, scheduledAt, containsSyntheticMedia, targets: [{ platform, account, options }] }` |
 | `GET /api/posts`, `GET /api/posts/:id` | 게시 현황, 상태 전이 기록 |
 | `POST /api/targets/:id/retry` | 실패·재연결 필요 대상 다시 시도 |
+| `GET /api/settings`, `PUT /api/apps/:key` | 앱 등록 상태, 앱 정보 저장 (비밀값은 응답에 넣지 않음). 127.0.0.1 전용 |
+| `POST /api/connect/:platform`, `DELETE /api/accounts/:platform/:name` | 계정 연결(OAuth는 인증 URL을 돌려줌)·해제. 127.0.0.1 전용 |
+| `POST /api/doctor/:platform` | `{ account, live }` 점검. 127.0.0.1 전용 |
 
 ## 플랫폼별 동작
 
@@ -120,7 +127,7 @@ npm run typecheck
 
 ## 로드맵
 
-- 대시보드에서 계정 연결·썸네일·자막 지원, MCP 서버
+- 대시보드에서 썸네일·자막 지원, MCP 서버
 - X, Threads(공개 URL 필요), LinkedIn, Bluesky·Mastodon·PeerTube
 - TikTok: 심사를 통과한 앱 연결 모드, Upload-Post·Ayrshare 어댑터
 - 네이버 클립 실험 플러그인 (별도 저장소, 사용자가 직접 로그인한 브라우저 프로필만 사용)

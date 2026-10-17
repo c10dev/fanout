@@ -364,14 +364,32 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
 한도: 프로젝트당 하루 업로드 ${DAILY_UPLOADS}회(태평양 시간 자정 초기화).`;
   },
 
+  connectMethod: 'oauth',
+
   async connect(ctx, name) {
-    const { clientId, clientSecret } = app(ctx);
     const loop = await startLoopback(0);
+    const start = youtube.oauthBegin!(ctx, loop.redirectUri);
+    ctx.log.info(`브라우저에서 업로드할 채널의 Google 계정으로 로그인하세요:\n${start.url}`);
+    openBrowser(start.url);
+    let params: URLSearchParams;
+    try {
+      params = await loop.waitForCallback;
+    } finally {
+      loop.close();
+    }
+    if (params.get('state') !== start.state) throw new ProviderError('auth', 'youtube.state', 'OAuth state 불일치');
+    return youtube.oauthFinish!(ctx, name, params, loop.redirectUri, start.verifier);
+  },
+
+  // Google "Desktop app" clients accept any loopback redirect, so the CLI's random port and the
+  // dashboard's own address both work without registering anything.
+  oauthBegin(ctx, redirectUri) {
+    const { clientId } = app(ctx);
     const { verifier, challenge } = pkcePair();
     const state = crypto.randomUUID();
     const url = `${AUTH_URL}?${new URLSearchParams({
       client_id: clientId,
-      redirect_uri: loop.redirectUri,
+      redirect_uri: redirectUri,
       response_type: 'code',
       scope: SCOPE,
       code_challenge: challenge,
@@ -380,22 +398,18 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       prompt: 'consent',
       state,
     })}`;
-    ctx.log.info(`브라우저에서 업로드할 채널의 Google 계정으로 로그인하세요:\n${url}`);
-    openBrowser(url);
-    let params: URLSearchParams;
-    try {
-      params = await loop.waitForCallback;
-    } finally {
-      loop.close();
-    }
-    if (params.get('state') !== state) throw new ProviderError('auth', 'youtube.state', 'OAuth state 불일치');
+    return { url, state, verifier };
+  },
+
+  async oauthFinish(ctx, name, params, redirectUri, verifier) {
+    const { clientId, clientSecret } = app(ctx);
     const code = params.get('code');
     if (!code) throw new ProviderError('auth', 'youtube.denied', `인증 거부: ${params.get('error') ?? 'unknown'}`);
     const tok = await tokenRequest(ctx, {
       code,
       client_id: clientId,
       client_secret: clientSecret,
-      redirect_uri: loop.redirectUri,
+      redirect_uri: redirectUri,
       grant_type: 'authorization_code',
       code_verifier: verifier,
     });

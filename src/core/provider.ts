@@ -50,6 +50,12 @@ export interface DoctorCheck {
   detail: string;
 }
 
+export interface OAuthStart {
+  url: string;
+  state: string;
+  verifier: string;
+}
+
 export interface DoctorArgs {
   ctx: ProviderContext;
   account: Account;
@@ -74,8 +80,19 @@ export interface Provider {
   /** Fields `fanout app set <platform>` asks for. */
   readonly appFields: ReadonlyArray<{ key: string; label: string; secret: boolean; optional?: boolean }>;
 
-  /** Interactive account connection; returns the account to store. */
+  /**
+   * How an account gets connected: `oauth` (browser redirect, see oauthBegin/oauthFinish) or
+   * `token` (the user pastes a token; `connect` takes it as `flags.token`).
+   */
+  readonly connectMethod: 'oauth' | 'token';
+
+  /** Interactive account connection (CLI); returns the account to store. */
   connect(ctx: ProviderContext, name: string, flags: Record<string, string | boolean | undefined>): Promise<Account>;
+
+  /** Build the authorization URL for a redirect to `redirectUri`. The caller keeps state + verifier. */
+  oauthBegin?(ctx: ProviderContext, redirectUri: string): OAuthStart;
+  /** Exchange the callback params (state already checked by the caller) for an account. */
+  oauthFinish?(ctx: ProviderContext, name: string, params: URLSearchParams, redirectUri: string, verifier: string): Promise<Account>;
 
   /** Ensure credentials are fresh; persist and return the refreshed account if they changed. */
   refresh(ctx: ProviderContext, account: Account): Promise<Account>;

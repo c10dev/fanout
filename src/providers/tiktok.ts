@@ -319,11 +319,22 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
    inbox 모드는 영상을 TikTok 앱 수신함으로 보내고, 캡션·공개 범위는 앱에서 직접 정합니다.`;
   },
 
+  connectMethod: 'oauth',
+
   async connect(ctx, name) {
-    const a = app(ctx);
-    const redirectUri = a.redirectUri ?? DEFAULT_REDIRECT;
+    const redirectUri = app(ctx).redirectUri ?? DEFAULT_REDIRECT;
     const host = new URL(redirectUri).hostname;
-    const loopback = host === '127.0.0.1' || host === 'localhost';
+    const start = tiktok.oauthBegin!(ctx, redirectUri);
+    ctx.log.info(`브라우저에서 TikTok에 로그인하고 권한을 승인하세요:\n${start.url}`);
+    openBrowser(start.url);
+    const params = await readCallback(host === '127.0.0.1' || host === 'localhost', redirectUri);
+    if (params.get('state') !== start.state) throw new ProviderError('auth', 'tiktok.state', 'OAuth state 불일치');
+    return tiktok.oauthFinish!(ctx, name, params, redirectUri, start.verifier);
+  },
+
+  // TikTok matches redirect_uri exactly against the URIs registered in the developer portal.
+  oauthBegin(ctx, redirectUri) {
+    const a = app(ctx);
     // TikTok's desktop PKCE uses a hex-encoded SHA-256 challenge.
     const { verifier, challenge } = pkcePair('hex');
     const state = crypto.randomUUID();
@@ -336,10 +347,11 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
       code_challenge: challenge,
       code_challenge_method: 'S256',
     })}`;
-    ctx.log.info(`브라우저에서 TikTok에 로그인하고 권한을 승인하세요:\n${url}`);
-    openBrowser(url);
-    const params = await readCallback(loopback, redirectUri);
-    if (params.get('state') !== state) throw new ProviderError('auth', 'tiktok.state', 'OAuth state 불일치');
+    return { url, state, verifier };
+  },
+
+  async oauthFinish(ctx, name, params, redirectUri, verifier) {
+    const a = app(ctx);
     const code = params.get('code');
     if (!code) throw new ProviderError('auth', 'tiktok.denied', `인증 거부: ${params.get('error_description') ?? params.get('error') ?? 'unknown'}`);
     const credentials = await tokenRequest(ctx, {
