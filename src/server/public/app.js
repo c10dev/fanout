@@ -645,7 +645,7 @@ function statsLine(st, trend) {
   const delta = (d) => (d === undefined || d === null || d === 0 ? null : h('span', { class: d > 0 ? 'up' : 'down' }, ` ${d > 0 ? '+' : ''}${fmtNum(d)}`));
   return h(
     'div',
-    { class: 'stats', title: [trend ? `+숫자: ${fmtTime(trend.since)} 이후 늘어난 만큼` : '', st.note ?? ''].filter(Boolean).join('\n') },
+    { class: 'stats', title: [trend ? `+/- 숫자: ${fmtTime(trend.since)} 이후 변화` : '', st.note ?? ''].filter(Boolean).join('\n') },
     parts.map(([k, v, d]) => h('span', {}, `${k} `, h('strong', {}, fmtNum(v)), delta(d))),
     h('span', { class: 'muted' }, ` · ${fmtTime(st.fetchedAt)} 기준`),
     st.note && !parts.length ? h('span', { class: 'muted' }, ` · ${st.note}`) : null,

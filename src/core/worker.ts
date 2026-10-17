@@ -4,6 +4,7 @@ import { refreshDueStats } from './stats.ts';
 
 export const DEFAULT_STATS_EVERY_MS = 6 * 3600_000;
 const STATS_CHECK_MS = 30 * 60_000;
+const STATS_FIRST_MS = 60_000;
 
 export interface WorkerOptions {
   intervalMs?: number;
@@ -24,6 +25,7 @@ export class Worker {
   readonly #running = new Set<Promise<unknown>>();
   #timer?: NodeJS.Timeout;
   #statsTimer?: NodeJS.Timeout;
+  #statsFirst?: NodeJS.Timeout;
   #statsRun?: Promise<number>;
 
   constructor(deps: RunnerDeps, opts: WorkerOptions = {}) {
@@ -35,6 +37,9 @@ export class Worker {
     this.#timer = setInterval(() => this.tick(), this.#opts.intervalMs ?? 15_000);
     this.tick();
     if (this.#statsEvery() > 0) {
+      // First look a minute after start (short-lived MCP sessions too), then every half hour.
+      this.#statsFirst = setTimeout(() => void this.statsTick(), STATS_FIRST_MS);
+      this.#statsFirst.unref();
       this.#statsTimer = setInterval(() => void this.statsTick(), STATS_CHECK_MS);
       this.#statsTimer.unref();
     }
@@ -43,6 +48,7 @@ export class Worker {
   stop(): void {
     clearInterval(this.#timer);
     clearInterval(this.#statsTimer);
+    clearTimeout(this.#statsFirst);
   }
 
   #statsEvery(): number {
@@ -67,6 +73,7 @@ export class Worker {
   /** Wait for in-flight runner work (tests, shutdown). */
   async idle(): Promise<void> {
     while (this.#running.size) await Promise.all(this.#running);
+    await this.#statsRun;
   }
 
   tick(): void {

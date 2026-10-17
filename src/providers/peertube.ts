@@ -139,6 +139,24 @@ async function tokenRequest(ctx: ProviderContext, instance: string, form: Record
   throw apiError(res.status, body, 'token');
 }
 
+/**
+ * Use the refresh token once and store the new pair. A refresh revokes the old pair, so if another
+ * process got there first ours comes back invalid_grant: then take the pair it stored.
+ */
+async function rotate(ctx: ProviderContext, account: Account): Promise<Account> {
+  const c = creds(account);
+  try {
+    const tok = await tokenRequest(ctx, c.instance, { client_id: c.clientId, client_secret: c.clientSecret, grant_type: 'refresh_token', refresh_token: c.refreshToken });
+    const next: Account = { ...account, credentials: { ...fromToken(c, tok, ctx.now().getTime()) } };
+    ctx.store.saveAccount(next);
+    return next;
+  } catch (err) {
+    const again = err instanceof ProviderError && err.kind === 'auth' ? ctx.store.getAccount('peertube', account.name) : undefined;
+    if (again && creds(again).refreshToken !== c.refreshToken) return again;
+    throw err;
+  }
+}
+
 function fromToken(c: Omit<PeerTubeCredentials, 'accessToken' | 'refreshToken' | 'expiresAt'>, tok: { access_token: string; refresh_token: string; expires_in?: number }, now: number): PeerTubeCredentials {
   return { ...c, accessToken: tok.access_token, refreshToken: tok.refresh_token, expiresAt: now + (tok.expires_in ?? 86_400) * 1000 };
 }
@@ -309,13 +327,13 @@ export const peertube: Provider = {
   },
 
   async refresh(ctx, account) {
-    const c = creds(account);
-    // Access tokens live a day: refresh with ten minutes of headroom.
-    if (c.expiresAt - ctx.now().getTime() > 600_000) return account;
-    const tok = await tokenRequest(ctx, c.instance, { client_id: c.clientId, client_secret: c.clientSecret, grant_type: 'refresh_token', refresh_token: c.refreshToken });
-    const next: Account = { ...account, credentials: { ...fromToken(c, tok, ctx.now().getTime()) } };
-    ctx.store.saveAccount(next);
-    return next;
+    // Access tokens live a day: refresh with ten minutes of headroom. Another process may already
+    // have done it, so look at the stored copy first.
+    const fresh = (a: Account) => creds(a).expiresAt - ctx.now().getTime() > 600_000;
+    if (fresh(account)) return account;
+    const stored = ctx.store.getAccount('peertube', account.name);
+    if (stored && fresh(stored)) return stored;
+    return rotate(ctx, stored ?? account);
   },
 
   validate(post, target) {
@@ -359,10 +377,7 @@ export const peertube: Provider = {
         c = sc;
         return;
       }
-      const tok = await tokenRequest(ctx, sc.instance, { client_id: sc.clientId, client_secret: sc.clientSecret, grant_type: 'refresh_token', refresh_token: sc.refreshToken });
-      const next: Account = { ...(stored ?? account), credentials: { ...fromToken(sc, tok, ctx.now().getTime()) } };
-      ctx.store.saveAccount(next);
-      c = creds(next);
+      c = creds(await rotate(ctx, stored ?? account));
     };
     const put: Put = async (headers, body) => {
       const send = () => ctx.fetch(r.location!, { method: 'PUT', headers: { authorization: `Bearer ${c.accessToken}`, ...headers }, body });
@@ -434,7 +449,16 @@ export const peertube: Provider = {
     });
     const loc = init.headers.get('location');
     if (!loc) throw new ProviderError('retryable', 'peertube.no_session', 'PeerTube가 업로드 세션 주소를 주지 않았습니다');
-    save({ location: new URL(loc, c.instance).toString(), total, instance: c.instance, userId: me.id, channelId: channel.id, startedAt: ctx.now().toISOString() });
+    // The server's clock, not ours: the lookup after a lost answer compares it with createdAt.
+    const serverNow = Date.parse(init.headers.get('date') ?? '');
+    save({
+      location: new URL(loc, c.instance).toString(),
+      total,
+      instance: c.instance,
+      userId: me.id,
+      channelId: channel.id,
+      startedAt: new Date(Number.isNaN(serverNow) ? ctx.now().getTime() : serverNow).toISOString(),
+    });
     // 200 means the server already holds this file for us: ask where it is.
     if (init.status === 200) {
       const at = await uploadOffset(put, total);
@@ -459,9 +483,10 @@ export const peertube: Provider = {
         }
         const out = (await res.json().catch(() => ({}))) as ApiError & { video?: { id: number; shortUUID?: string } };
         if (res.ok && out.video) return finishUpload(out.video);
-        // The server refused the last chunk (unreadable file, upload filter): it deleted the upload
-        // and made no video, so the next try starts clean instead of looking for one.
-        if (last && res.status >= 400 && res.status < 500) save({ ...r, location: undefined, finalSent: undefined });
+        // The server refused the file itself (unreadable, upload filter, too large, wrong type): it
+        // deleted the upload and made no video, so the next try starts clean instead of looking for
+        // one. Throttling, timeouts and auth errors leave the session as it is.
+        if (last && [400, 403, 413, 415, 422].includes(res.status)) save({ ...r, location: undefined, finalSent: undefined });
         // A 503 after the last chunk means the server is still assembling it; the next try looks it up.
         throw apiError(res.status, out, 'upload');
       }
@@ -484,8 +509,18 @@ export const peertube: Provider = {
         c,
         '/api/v1/users/me/videos?sort=-createdAt&start=0&count=25',
       );
-      const match = (body.data ?? []).find((v) => v.name === post.title.trim() && v.channel?.id === r.channelId && Date.parse(v.createdAt ?? '') >= since);
-      return match ? { id: match.id, shortUUID: match.shortUUID } : null;
+      // Same title and channel, created since our session started, and not already another target's.
+      const candidates = (body.data ?? []).filter(
+        (v) =>
+          v.name === post.title.trim() &&
+          v.channel?.id === r.channelId &&
+          Date.parse(v.createdAt ?? '') >= since &&
+          !ctx.store.remoteIdInUse('peertube', String(v.id), target.id),
+      );
+      if (!candidates.length) return null;
+      // Two look-alikes (the user uploaded the same title meanwhile): don't guess which is ours.
+      if (candidates.length > 1) return undefined;
+      return { id: candidates[0]!.id, shortUUID: candidates[0]!.shortUUID };
     }
 
     async function finishUpload(video: { id: number; shortUUID?: string }): Promise<PublishOutcome> {

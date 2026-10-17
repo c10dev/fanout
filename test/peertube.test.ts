@@ -68,13 +68,16 @@ describe('PeerTube connect and tokens', () => {
   it('refreshes near expiry and asks to reconnect when the refresh token is gone', async () => {
     const { ctx, store, account, calls } = env([['POST', '/api/v1/users/token', () => json({ access_token: 'AT2', refresh_token: 'RT2', expires_in: 86400 })]]);
     const soon = { ...account, credentials: { ...CREDS, expiresAt: ctx.now().getTime() + 60_000 } };
+    store.saveAccount(soon);
     const next = await peertube.refresh(ctx, soon);
     assert.equal((next.credentials as typeof CREDS).accessToken, 'AT2');
     assert.match(String(calls[0]!.body), /grant_type=refresh_token&refresh_token=RT/);
     assert.equal((store.getAccount('peertube', 'main')!.credentials as typeof CREDS).refreshToken, 'RT2');
 
     const dead = env([['POST', '/api/v1/users/token', () => json({ code: 'invalid_grant', detail: 'Invalid grant: refresh token is invalid' }, 400)]]);
-    await assert.rejects(peertube.refresh(dead.ctx, { ...dead.account, credentials: { ...CREDS, expiresAt: 0 } }), (err: ProviderError) => err.kind === 'auth');
+    const expired = { ...dead.account, credentials: { ...CREDS, expiresAt: 0 } };
+    dead.store.saveAccount(expired);
+    await assert.rejects(peertube.refresh(dead.ctx, expired), (err: ProviderError) => err.kind === 'auth');
   });
 });
 
@@ -299,5 +302,68 @@ describe('PeerTube review fixes', () => {
   it('counts emoji as one character, like the server', () => {
     const { post, target } = env([], { title: '🎬'.repeat(65), tags: ['🎬'.repeat(16)] });
     assert.deepEqual(peertube.validate(post, target, {} as MediaInfo).map((i) => i.code), []);
+  });
+});
+
+describe('PeerTube seventh review fixes', () => {
+  const session = (id: string, extra: Record<string, unknown> = {}) => ({ location: `${I}/api/v1/videos/upload-resumable?upload_id=${id}`, total: 10, instance: I, userId: 7, channelId: 3, startedAt: '2026-10-17T02:59:00Z', finalSent: true, ...extra });
+  const gone = (): [string, string, () => Response] => ['PUT', 'upload_id=S', () => json({ error: { code: 'FileNotFound' } }, 404)];
+  const list = (data: unknown[]): [string, string, () => Response] => ['GET', '/api/v1/users/me/videos', () => json({ data })];
+  const run = async (e: ReturnType<typeof env>) =>
+    peertube.publish({ ctx: e.ctx, post: e.post, target: e.store.getTarget(e.target.id)!, account: e.account, mediaPath: video(10), media: {} as MediaInfo, saveResume: () => {} });
+
+  it('two look-alike videos since the session: stops instead of guessing', async () => {
+    const e = env([gone(), list([{ id: 90, name: '테스트 영상', createdAt: '2026-10-17T03:05:00Z', channel: { id: 3 } }, { id: 77, name: '테스트 영상', createdAt: '2026-10-17T02:59:30Z', channel: { id: 3 } }])]);
+    e.store.updateTarget(e.target.id, { resume: session('S') });
+    await assert.rejects(run(e), (err: ProviderError) => err.code === 'peertube.maybe_posted');
+    assert.equal(e.calls.some((c) => c.method === 'PUT' && c.url.includes('/videos/9')), false, 'nothing written to either video');
+  });
+
+  it('skips a video another target already owns', async () => {
+    const e = env([gone(), list([{ id: 90, shortUUID: 's90', name: '테스트 영상', createdAt: '2026-10-17T03:05:00Z', channel: { id: 3 } }, { id: 77, name: '테스트 영상', createdAt: '2026-10-17T02:59:30Z', channel: { id: 3 } }])]);
+    const { targets } = e.store.createPost(POST, [{ platform: 'peertube', account: 'main', options: { privacy: 'public' } }]);
+    e.store.transition(targets[0]!.id, 'uploading');
+    e.store.transition(targets[0]!.id, 'published', { remoteId: '77' });
+    e.store.updateTarget(e.target.id, { resume: session('S') });
+    assert.equal((await run(e)).remoteId, '90');
+  });
+
+  it('times the session by the server clock', async () => {
+    const path = video(10);
+    const e = env([
+      ...base,
+      // The server runs two minutes behind fanout's clock (2026-10-17T03:00:00Z).
+      ['POST', '/api/v1/videos/upload-resumable', () => empty(201, { location: '/api/v1/videos/upload-resumable?upload_id=SK', date: 'Sat, 17 Oct 2026 02:58:00 GMT' })],
+      ['PUT', 'upload_id=SK', () => json({ video: { id: 1, shortUUID: 's1' } })],
+    ]);
+    const saved: Array<Record<string, unknown>> = [];
+    await peertube.publish({ ctx: e.ctx, post: e.post, target: e.target, account: e.account, mediaPath: path, media: {} as MediaInfo, saveResume: (r) => saved.push(r) });
+    assert.equal(saved.find((r) => r.startedAt)!.startedAt, '2026-10-17T02:58:00.000Z');
+  });
+
+  it('a throttled last chunk keeps the session for the retry', async () => {
+    const path = video(10);
+    const e = env([...base, ['POST', '/api/v1/videos/upload-resumable', () => empty(201, { location: '/api/v1/videos/upload-resumable?upload_id=T' })], ['PUT', 'upload_id=T', () => json({ detail: 'Too many requests' }, 429)]]);
+    const saved: Array<Record<string, unknown>> = [];
+    await assert.rejects(peertube.publish({ ctx: e.ctx, post: e.post, target: e.target, account: e.account, mediaPath: path, media: {} as MediaInfo, saveResume: (r) => saved.push(r) }));
+    assert.ok(saved.at(-1)!.location && saved.at(-1)!.finalSent);
+  });
+
+  it('a refresh token another process already used: take the pair it stored', async () => {
+    const e = env([
+      [
+        'POST',
+        '/api/v1/users/token',
+        () => {
+          // The other process wins the race and stores its new pair before our request is answered.
+          e.store.saveAccount({ ...e.account, credentials: { ...CREDS, accessToken: 'AT-OTHER', refreshToken: 'RT-OTHER', expiresAt: FAR } });
+          return json({ code: 'invalid_grant' }, 400);
+        },
+      ],
+    ]);
+    const expired = { ...e.account, credentials: { ...CREDS, expiresAt: 0 } };
+    e.store.saveAccount(expired);
+    const next = await peertube.refresh(e.ctx, expired);
+    assert.equal((next.credentials as typeof CREDS).accessToken, 'AT-OTHER');
   });
 });

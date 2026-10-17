@@ -411,6 +411,11 @@ export class Store {
     this.#db.prepare('UPDATE targets SET stats = ? WHERE id = ?').run(JSON.stringify(stats), id);
   }
 
+  /** Whether a target other than `exceptId` already points at this remote object. */
+  remoteIdInUse(platform: string, remoteId: string, exceptId: string): boolean {
+    return Boolean(this.#db.prepare('SELECT 1 FROM targets WHERE platform = ? AND remote_id = ? AND id != ? LIMIT 1').get(platform, remoteId, exceptId));
+  }
+
   /** Keep a dated copy of a successful stats read, for trends. */
   recordStats(id: string, stats: PostStats): void {
     this.#db
@@ -430,15 +435,32 @@ export class Store {
    * Published targets of posts created since `postedSince` whose stats are older than `staleBefore`
    * (or were never read), oldest reading first.
    */
-  statsDue(postedSince: string, staleBefore: string, limit = 50): Array<{ id: string; postId: string; platform: string }> {
+  statsDue(postedSince: string, staleBefore: string, platforms: readonly string[], limit = 50): Array<{ id: string; postId: string; platform: string }> {
+    // Filter platforms here, not after the LIMIT: targets that are never read would otherwise sit
+    // at the front of the queue forever and starve everything behind them.
+    if (!platforms.length) return [];
     return this.#db
       .prepare(
         `SELECT t.id, t.post_id AS postId, t.platform FROM targets t JOIN posts p ON p.id = t.post_id
          WHERE t.state = 'published' AND t.remote_id IS NOT NULL AND p.created_at >= ?
+           AND t.platform IN (${platforms.map(() => '?').join(', ')})
            AND (t.stats IS NULL OR json_extract(t.stats, '$.fetchedAt') < ?)
          ORDER BY json_extract(t.stats, '$.fetchedAt') LIMIT ?`,
       )
-      .all(postedSince, staleBefore, limit) as Array<{ id: string; postId: string; platform: string }>;
+      .all(postedSince, ...platforms, staleBefore, limit) as Array<{ id: string; postId: string; platform: string }>;
+  }
+
+  /** The latest stats reading at or before `atOrBefore`. */
+  statsBaseline(id: string, atOrBefore: string): StatsPoint | undefined {
+    const r = this.#db
+      .prepare('SELECT at, views, likes, comments, shares FROM stats_history WHERE target_id = ? AND at <= ? ORDER BY at DESC LIMIT 1')
+      .get(id, atOrBefore) as { at: string; views: number | null; likes: number | null; comments: number | null; shares: number | null } | undefined;
+    return r ? { at: r.at, views: r.views ?? undefined, likes: r.likes ?? undefined, comments: r.comments ?? undefined, shares: r.shares ?? undefined } : undefined;
+  }
+
+  /** The newest stats reading. */
+  latestStats(id: string): StatsPoint | undefined {
+    return this.statsBaseline(id, '9999');
   }
 
   bumpUsage(platform: string, account: string, day: string): number {

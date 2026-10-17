@@ -204,6 +204,8 @@ export async function refreshStats(
     }
     let account = ctx.store.getAccount(t.platform, t.account);
     if (!account) {
+      // Mark it read so background refresh moves on to the next target instead of retrying this one.
+      ctx.store.saveStats(t.id, { ...(t.stats ?? {}), fetchedAt: ctx.now().toISOString(), note: '연결된 계정이 없습니다' });
       out.push({ ...base, skipped: '연결된 계정이 없습니다' });
       continue;
     }

@@ -87,3 +87,38 @@ describe('stats history', () => {
     assert.equal(calls.length, 1);
   });
 });
+
+describe('stats history, seventh review fixes', () => {
+  it('platforms that are never read do not starve the queue', async () => {
+    const { fetch } = mockFetch([]);
+    const env = makeCtx(fetch, () => NOW);
+    for (let i = 0; i < 60; i++) {
+      const { targets } = env.store.createPost(POST, [{ platform: i % 2 ? 'tiktok' : 'x', account: 'main', options: {} }]);
+      env.store.transition(targets[0]!.id, 'uploading');
+      env.store.transition(targets[0]!.id, 'published', { remoteId: `N${i}` });
+    }
+    const { post, targets } = env.store.createPost(POST, [{ platform: 'youtube', account: 'main', options: {} }]);
+    env.store.transition(targets[0]!.id, 'uploading');
+    env.store.transition(targets[0]!.id, 'published', { remoteId: 'Y' });
+    const seen: string[] = [];
+    assert.equal(await refreshDueStats(env.ctx, providerMap(), async (p, platform) => void seen.push(`${p}/${platform}`), { everyMs: 6 * 3600_000 }), 1);
+    assert.deepEqual(seen, [`${post.id}/youtube`]);
+  });
+
+  it('a target with no connected account leaves the queue once read', async () => {
+    const { fetch } = mockFetch([]);
+    const env = makeCtx(fetch, () => NOW);
+    const { post, targets } = env.store.createPost(POST, [{ platform: 'youtube', account: 'gone', options: {} }]);
+    env.store.transition(targets[0]!.id, 'uploading');
+    env.store.transition(targets[0]!.id, 'published', { remoteId: 'Y' });
+    await refreshStats(env.ctx, providerMap(), post.id);
+    assert.equal(env.store.statsDue(ago(24 * 30), ago(6), ['youtube']).length, 0);
+  });
+
+  it('the baseline may be days old', () => {
+    const { store, ids } = published([]);
+    store.recordStats(ids[0]!, { fetchedAt: ago(80), views: 10 });
+    store.recordStats(ids[0]!, { fetchedAt: ago(1), views: 25 });
+    assert.deepEqual(statsTrend(store, ids[0]!, NOW), { since: ago(80), views: 15 });
+  });
+});

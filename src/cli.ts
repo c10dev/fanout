@@ -410,10 +410,18 @@ async function cmdWorker(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
   const interval = (num(args, 'interval') ?? 60) * 1000;
   const everyMs = statsEvery(args);
   console.log(`worker 시작 (${interval / 1000}s 간격, Ctrl+C로 종료)`);
+  // Stats run beside uploads, never in front of them: a slow instance mustn't hold back a scheduled post.
+  let stats: Promise<unknown> | undefined;
   for (;;) {
+    if (everyMs > 0 && !stats) {
+      stats = refreshDueStats(ctx, deps.providers, (postId, platform) => refreshStats(ctx, deps.providers, postId, { platform }), { everyMs })
+        .catch((err: unknown) => ctx.log.warn(`stats: ${String(err)}`))
+        .finally(() => {
+          stats = undefined;
+        });
+    }
     const ids = ctx.store.workableTargets().map((t) => t.id);
     if (ids.length) await settle(deps, ids, { ...settleOpts(ctx), timeoutMs: interval });
-    if (everyMs > 0) await refreshDueStats(ctx, deps.providers, (postId, platform) => refreshStats(ctx, deps.providers, postId, { platform }), { everyMs });
     await new Promise((r) => setTimeout(r, interval));
   }
 }
@@ -707,8 +715,15 @@ async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     console.log(`\n${p.id.slice(0, 8)}  "${p.title}"`);
     for (const r of await refreshStats(ctx, deps.providers, p.id, { includePaid: Boolean(args.flags['include-paid']) })) {
       const name = `${r.platform}/${r.account}`.padEnd(18);
+      const history = () => {
+        if (!args.flags.history) return;
+        for (const h of ctx.store.statsHistory(r.targetId)) {
+          console.log(`  ${''.padEnd(18)} ${h.at.slice(0, 16).replace('T', ' ')}  조회 ${fmt(h.views)} · 좋아요 ${fmt(h.likes)} · 댓글 ${fmt(h.comments)} · 공유 ${fmt(h.shares)}`);
+        }
+      };
       if (r.skipped) {
         console.log(`  ${name} ${r.skipped}`);
+        history();
         continue;
       }
       const t = r.trend;
@@ -716,11 +731,7 @@ async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
         `  ${name} 조회 ${fmt(r.stats?.views)}${delta(t?.views)} · 좋아요 ${fmt(r.stats?.likes)}${delta(t?.likes)} · 댓글 ${fmt(r.stats?.comments)}${delta(t?.comments)} · 공유 ${fmt(r.stats?.shares)}${delta(t?.shares)}${r.stats?.note ? `  (${r.stats.note})` : ''}`,
       );
       if (t) console.log(`  ${''.padEnd(18)} 괄호는 ${t.since.slice(0, 16).replace('T', ' ')} 이후 변화`);
-      if (args.flags.history) {
-        for (const h of ctx.store.statsHistory(r.targetId)) {
-          console.log(`  ${''.padEnd(18)} ${h.at.slice(0, 16).replace('T', ' ')}  조회 ${fmt(h.views)} · 좋아요 ${fmt(h.likes)} · 댓글 ${fmt(h.comments)} · 공유 ${fmt(h.shares)}`);
-        }
-      }
+      history();
     }
   }
   return 0;

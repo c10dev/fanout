@@ -9,12 +9,11 @@ const METRICS = ['views', 'likes', 'comments', 'shares'] as const;
  * that old. Undefined until a reading that old exists, so a young post shows no misleading jump.
  */
 export function statsTrend(store: Store, targetId: string, now: Date, hours = 24): StatsTrend | undefined {
-  const cutoff = new Date(now.getTime() - hours * 3600_000).toISOString();
-  // A little more than the window, to find the baseline just before it.
-  const points = store.statsHistory(targetId, new Date(now.getTime() - 3 * hours * 3600_000).toISOString());
-  const base = [...points].reverse().find((p) => p.at <= cutoff);
-  const latest = points.at(-1);
-  if (!base || !latest || latest === base) return undefined;
+  // However old the baseline is (a CLI user may read only every few days), it is the latest one
+  // from before the window.
+  const base = store.statsBaseline(targetId, new Date(now.getTime() - hours * 3600_000).toISOString());
+  const latest = store.latestStats(targetId);
+  if (!base || !latest || latest.at === base.at) return undefined;
   const trend: StatsTrend = { since: base.at };
   for (const m of METRICS) {
     if (latest[m] !== undefined && base[m] !== undefined) trend[m] = latest[m]! - base[m]!;
@@ -43,12 +42,8 @@ export async function refreshDueStats(
   opts: AutoStatsOptions,
 ): Promise<number> {
   const now = ctx.now().getTime();
-  const due = ctx.store
-    .statsDue(new Date(now - (opts.windowDays ?? 30) * 86_400_000).toISOString(), new Date(now - opts.everyMs).toISOString(), opts.limit ?? 50)
-    .filter((t) => {
-      const p = providers.get(t.platform);
-      return Boolean(p?.stats) && !p?.statsCost;
-    });
+  const readable = [...providers.values()].filter((p) => p.stats && !p.statsCost).map((p) => p.id);
+  const due = ctx.store.statsDue(new Date(now - (opts.windowDays ?? 30) * 86_400_000).toISOString(), new Date(now - opts.everyMs).toISOString(), readable, opts.limit ?? 50);
   // One call per post and platform covers every account of that platform on the post.
   const done = new Set<string>();
   for (const t of due) {
