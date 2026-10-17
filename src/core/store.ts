@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import type { SecretBox } from './crypto.ts';
 import { assertTransition } from './state.ts';
-import type { Post, PostInput, Target, TargetEvent, TargetInput, TargetState } from './types.ts';
+import type { Post, PostInput, PostStats, Target, TargetEvent, TargetInput, TargetState } from './types.ts';
 
 export interface Account<C = Record<string, unknown>> {
   platform: string;
@@ -84,6 +84,7 @@ interface TargetRow {
   attempts: number;
   not_before: string | null;
   updated_at: string;
+  stats: string | null;
 }
 
 function toTarget(row: TargetRow): Target {
@@ -103,6 +104,7 @@ function toTarget(row: TargetRow): Target {
     attempts: row.attempts,
     notBefore: row.not_before ?? undefined,
     updatedAt: row.updated_at,
+    stats: row.stats ? JSON.parse(row.stats) : undefined,
   };
 }
 
@@ -132,6 +134,7 @@ export class Store {
     const cols = new Set((this.#db.prepare('PRAGMA table_info(targets)').all() as Array<{ name: string }>).map((c) => c.name));
     if (!cols.has('lease_owner')) this.#db.exec('ALTER TABLE targets ADD COLUMN lease_owner TEXT');
     if (!cols.has('lease_until')) this.#db.exec('ALTER TABLE targets ADD COLUMN lease_until TEXT');
+    if (!cols.has('stats')) this.#db.exec('ALTER TABLE targets ADD COLUMN stats TEXT');
   }
 
   // ── Leases: one process works on a target at a time ──────────────
@@ -366,6 +369,11 @@ export class Store {
   }
 
   // ── Local usage counters (mirrors of platform quotas) ────────────
+
+  /** Stats are observations, not state: saving them doesn't touch updated_at or the event log. */
+  saveStats(id: string, stats: PostStats): void {
+    this.#db.prepare('UPDATE targets SET stats = ? WHERE id = ?').run(JSON.stringify(stats), id);
+  }
 
   bumpUsage(platform: string, account: string, day: string): number {
     this.#db

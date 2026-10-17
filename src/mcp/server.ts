@@ -3,7 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, retryTarget, type TargetPreview } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, refreshStats, retryTarget, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
 import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
@@ -113,6 +113,15 @@ const TOOLS = [
     description: 'Per-platform state (queued, uploading, processing, published, handed_off, failed, needs_reauth), URLs, errors and warnings. Without postId, the 10 most recent posts.',
     inputSchema: { type: 'object', properties: { postId: { type: 'string', description: 'Full id or unique prefix.' } } },
     annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'get_post_stats',
+    title: 'Get post reactions',
+    description:
+      'Fetch views/likes/comments/shares of a post\'s published targets from each platform (as far as the API and granted scopes allow). ' +
+      'Platforms that bill for reads (X) are skipped unless includePaid is true — ask the user before setting it.',
+    inputSchema: { type: 'object', required: ['postId'], properties: { postId: { type: 'string' }, includePaid: { type: 'boolean' } } },
+    annotations: { readOnlyHint: true, openWorldHint: true },
   },
   {
     name: 'retry_target',
@@ -235,6 +244,11 @@ export class McpServer {
           })),
         };
       }
+      case 'get_post_stats': {
+        const p = store.findPost(String(args.postId ?? ''));
+        if (!p) throw new ToolError(`게시물 없음: ${String(args.postId)}`);
+        return { postId: p.id, results: await refreshStats(this.#deps.ctx, providers, p.id, { includePaid: args.includePaid === true }) };
+      }
       case 'retry_target': {
         let next: Target;
         try {
@@ -313,6 +327,7 @@ function publicTarget(t: Target) {
     error: t.errorCode ? `${t.errorCode}: ${t.errorMessage ?? ''}` : undefined,
     warnings: t.warnings,
     scheduledFor: t.state === 'queued' ? t.notBefore : undefined,
+    stats: t.stats,
   };
 }
 

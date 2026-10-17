@@ -12,6 +12,8 @@ import type { Issue, Post } from '../core/types.ts';
 
 const DEFAULT_SERVICE = 'https://bsky.social';
 const VIDEO_SERVICE = 'https://video.bsky.app';
+/** Public read-only AppView: post counts without auth. */
+const PUBLIC_APPVIEW = 'https://public.api.bsky.app';
 const TEXT_MAX = 300;
 
 export interface BlueskyCredentials {
@@ -408,5 +410,17 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
       checks.push({ name: '영상 업로드 한도', status: 'fail', detail: (err as Error).message });
     }
     return checks;
+  },
+
+  async stats({ ctx, target }) {
+    const res = await xrpc<{ posts?: Array<{ likeCount?: number; replyCount?: number; repostCount?: number; quoteCount?: number }> }>(
+      ctx,
+      PUBLIC_APPVIEW,
+      'app.bsky.feed.getPosts',
+      { query: { uris: target.remoteId } },
+    );
+    const p = res.posts?.[0];
+    if (!p) return { note: '게시물을 찾을 수 없습니다 (삭제됨?)' };
+    return { likes: p.likeCount, comments: p.replyCount, shares: (p.repostCount ?? 0) + (p.quoteCount ?? 0), note: 'Bluesky는 조회수를 공개하지 않습니다' };
   },
 };

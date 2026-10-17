@@ -1,6 +1,6 @@
 import type { MediaInfo, MediaSpec } from './media.ts';
 import type { Account, Store } from './store.ts';
-import type { Capabilities, Issue, Post, Target } from './types.ts';
+import type { Capabilities, Issue, Post, PostStats, Target } from './types.ts';
 
 export interface Logger {
   info(msg: string): void;
@@ -48,6 +48,12 @@ export interface DoctorCheck {
   name: string;
   status: 'ok' | 'warn' | 'fail' | 'info';
   detail: string;
+}
+
+export interface StatsArgs {
+  ctx: ProviderContext;
+  account: Account;
+  target: Target & { remoteId: string };
 }
 
 export interface OAuthStart {
@@ -109,4 +115,9 @@ export interface Provider {
   publish(args: PublishArgs): Promise<PublishOutcome>;
   poll(args: PollArgs): Promise<PollOutcome>;
   doctor(args: DoctorArgs): Promise<DoctorCheck[]>;
+
+  /** Views/likes/comments of a published post. Omit when the API (or granted scopes) can't read them. */
+  stats?(args: StatsArgs): Promise<Omit<PostStats, 'fetchedAt'>>;
+  /** Set when reading stats is billed (X); stats are then fetched only on explicit request. */
+  readonly statsCost?: string;
 }

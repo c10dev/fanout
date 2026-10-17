@@ -1,7 +1,7 @@
 import { checkMedia, type MediaInfo, type Violation } from './media.ts';
-import type { Provider } from './provider.ts';
+import type { Provider, ProviderContext } from './provider.ts';
 import type { Store } from './store.ts';
-import type { Post, PostInput, Target, TargetInput } from './types.ts';
+import type { Post, PostInput, PostStats, Target, TargetInput } from './types.ts';
 
 export type Verdict = 'as_is' | 'transcode' | 'blocked';
 
@@ -151,4 +151,58 @@ export function priorPosts(store: Store, hash: string | undefined, targets: Targ
 export function describePrior(prior: PriorPost): string {
   const when = prior.createdAt.slice(0, 16).replace('T', ' ');
   return `이 영상은 ${when}(UTC)에 이미 올렸습니다 — ${prior.state}${prior.url ? ` ${prior.url}` : ''}`;
+}
+
+export interface StatsResult {
+  targetId: string;
+  platform: string;
+  account: string;
+  stats?: PostStats;
+  /** Why nothing was fetched for this target. */
+  skipped?: string;
+}
+
+/**
+ * Fetch stats for a post's published targets and store them. Platforms that bill for reads (X) are
+ * skipped unless `includePaid`; failures become notes instead of failing the whole refresh.
+ */
+export async function refreshStats(
+  ctx: ProviderContext,
+  providers: Map<string, Provider>,
+  postId: string,
+  opts: { includePaid?: boolean; platform?: string } = {},
+): Promise<StatsResult[]> {
+  const out: StatsResult[] = [];
+  for (const t of ctx.store.targetsForPost(postId)) {
+    if (opts.platform && t.platform !== opts.platform) continue;
+    const base = { targetId: t.id, platform: t.platform, account: t.account };
+    const provider = providers.get(t.platform);
+    if (t.state !== 'published' || !t.remoteId) {
+      out.push({ ...base, skipped: t.state === 'handed_off' ? '앱에서 마무리한 게시물은 id를 몰라 가져올 수 없습니다' : '게시되지 않았습니다' });
+      continue;
+    }
+    if (!provider?.stats) {
+      out.push({ ...base, skipped: `${provider?.displayName ?? t.platform}는 반응 통계를 가져올 수 없습니다` });
+      continue;
+    }
+    if (provider.statsCost && !opts.includePaid) {
+      out.push({ ...base, skipped: provider.statsCost });
+      continue;
+    }
+    let account = ctx.store.getAccount(t.platform, t.account);
+    if (!account) {
+      out.push({ ...base, skipped: '연결된 계정이 없습니다' });
+      continue;
+    }
+    let stats: PostStats;
+    try {
+      account = await provider.refresh(ctx, account);
+      stats = { ...(await provider.stats({ ctx, account, target: { ...t, remoteId: t.remoteId } })), fetchedAt: ctx.now().toISOString() };
+    } catch (err) {
+      stats = { ...(t.stats ?? {}), fetchedAt: ctx.now().toISOString(), note: `가져오지 못함: ${err instanceof Error ? err.message : String(err)}` };
+    }
+    ctx.store.saveStats(t.id, stats);
+    out.push({ ...base, stats });
+  }
+  return out;
 }

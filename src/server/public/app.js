@@ -477,6 +477,19 @@ async function post(form) {
 
 // ── Status board ─────────────────────────────────────────────────
 
+const fmtNum = (n) => (n === undefined || n === null ? '-' : Number(n).toLocaleString('ko-KR'));
+
+function statsLine(st) {
+  const parts = [['조회', st.views], ['좋아요', st.likes], ['댓글', st.comments], ['공유', st.shares]].filter(([, v]) => v !== undefined && v !== null);
+  return h(
+    'div',
+    { class: 'stats', title: st.note ?? '' },
+    parts.map(([k, v]) => h('span', {}, `${k} `, h('strong', {}, fmtNum(v)))),
+    h('span', { class: 'muted' }, ` · ${fmtTime(st.fetchedAt)} 기준`),
+    st.note && !parts.length ? h('span', { class: 'muted' }, ` · ${st.note}`) : null,
+  );
+}
+
 function targetRow(t) {
   const detail = h('div', { class: 'tdetail' });
   if (t.remoteUrl) detail.append(h('a', { href: t.remoteUrl, target: '_blank', rel: 'noopener noreferrer' }, t.remoteUrl));
@@ -484,6 +497,26 @@ function targetRow(t) {
   if (t.errorCode) detail.append(h('div', { class: 'err' }, `${t.errorCode}: ${t.errorMessage ?? ''}`));
   for (const w of t.warnings) detail.append(h('div', { class: 'warnline' }, `⚠ ${w}`));
   if (t.attempts > 1) detail.append(h('div', { class: 'muted' }, `시도 ${t.attempts}회`));
+  if (t.stats) detail.append(statsLine(t.stats));
+  if (t.state === 'published' && t.statsCost) {
+    detail.append(
+      h(
+        'button',
+        {
+          class: 'small',
+          type: 'button',
+          title: t.statsCost,
+          onclick: async (e) => {
+            if (!confirm(`${t.statsCost}. 이 게시물의 반응을 가져올까요?`)) return;
+            e.target.disabled = true;
+            await api(`/posts/${t.postId}/stats`, { method: 'POST', body: JSON.stringify({ includePaid: true, platform: t.platform }) }).catch((err) => alert(err.message));
+            refreshBoard();
+          },
+        },
+        '반응 가져오기 (요금)',
+      ),
+    );
+  }
 
   const retry =
     t.state === 'failed' || t.state === 'needs_reauth'
@@ -545,12 +578,29 @@ function postCard({ post, targets }) {
       openHistory.delete(post.id);
     }
   });
+  const published = targets.filter((t) => t.state === 'published' && !t.statsCost);
+  const refreshStats = published.length
+    ? h(
+        'button',
+        {
+          class: 'small',
+          type: 'button',
+          onclick: async (e) => {
+            e.target.disabled = true;
+            e.target.textContent = '가져오는 중…';
+            await api(`/posts/${post.id}/stats`, { method: 'POST', body: '{}' }).catch((err) => alert(err.message));
+            refreshBoard();
+          },
+        },
+        '반응 새로고침',
+      )
+    : null;
   return h(
     'article',
     { class: 'post' },
     h('div', { class: 'post-head' }, h('span', { class: 'post-title' }, post.title), h('span', { class: 'muted' }, [fmtTime(post.createdAt), post.scheduledAt && `예약 ${fmtTime(post.scheduledAt)}`, post.hasThumbnail && '썸네일', post.captionLanguages?.length && `자막 ${post.captionLanguages.join(', ')}`].filter(Boolean).join(' · '))),
     targets.map(targetRow),
-    history,
+    h('div', { class: 'post-foot' }, history, refreshStats),
   );
 }
 

@@ -158,4 +158,14 @@ export const instagram: Provider = {
     }
     return checks;
   },
+
+  async stats({ ctx, account, target }) {
+    const c = pageCreds(account);
+    const m = await graph<{ like_count?: number; comments_count?: number }>(ctx, 'GET', `/${target.remoteId}`, {
+      fields: 'like_count,comments_count',
+      access_token: c.pageToken,
+    });
+    // Plays need the instagram_manage_insights permission, which fanout doesn't ask for.
+    return { likes: m.like_count, comments: m.comments_count, note: '조회수는 Instagram 인사이트 권한이 필요해 가져오지 않습니다' };
+  },
 };
