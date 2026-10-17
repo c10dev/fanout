@@ -6,6 +6,7 @@ import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { probe as realProbe, type MediaInfo } from '../core/media.ts';
 import { assessMedia, createScheduledPost } from '../core/posting.ts';
+import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { settle, type RunnerDeps } from '../core/runner.ts';
@@ -23,6 +24,8 @@ export interface DashboardOptions {
   /** Extra Host header values to accept besides loopback (e.g. "fanout.lan:8780"). */
   allowedHosts?: string[];
   workerIntervalMs?: number;
+  /** Days to keep finished originals and transcodes; null turns automatic cleanup off. Default 7. */
+  pruneDays?: number | null;
   /** Test seams. */
   probe?: (path: string) => Promise<MediaInfo>;
   ensureVariant?: RunnerDeps['ensureVariant'];
@@ -37,6 +40,7 @@ const STATIC: Record<string, string> = {
 const MEDIA_ID = /^[0-9a-f-]{36}\.[a-z0-9]{1,5}$/;
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi']);
 const JSON_LIMIT = 1024 * 1024;
+const PRUNE_INTERVAL_MS = 6 * 3600_000;
 const ACCOUNT_NAME = /^[A-Za-z0-9_-]{1,32}$/;
 const OAUTH_TTL_MS = 10 * 60_000;
 
@@ -103,6 +107,7 @@ export class Dashboard {
   readonly #busyPlatforms = new Set<string>();
   #server?: Server;
   #timer?: NodeJS.Timeout;
+  #pruneTimer?: NodeJS.Timeout;
   #allowedHosts = new Set<string>();
   #running = new Set<Promise<unknown>>();
   readonly #pendingOAuth = new Map<string, PendingOAuth>();
@@ -138,12 +143,17 @@ export class Dashboard {
     for (const h of this.#opts.allowedHosts ?? []) this.#allowedHosts.add(h);
 
     this.#timer = setInterval(() => this.tick(), this.#opts.workerIntervalMs ?? 15_000);
+    if (this.#opts.pruneDays !== null) {
+      this.prune();
+      this.#pruneTimer = setInterval(() => this.prune(), PRUNE_INTERVAL_MS);
+    }
     this.tick();
     return `http://${host.includes(':') ? `[${host}]` : host}:${port}/`;
   }
 
   async stop(): Promise<void> {
     clearInterval(this.#timer);
+    clearInterval(this.#pruneTimer);
     // Drop in-flight requests first so a long upload can't hold Ctrl+C; interrupted work resumes next start.
     this.#server?.closeAllConnections();
     await new Promise<void>((r) => (this.#server ? this.#server.close(() => r()) : r()));
@@ -152,6 +162,16 @@ export class Dashboard {
   /** Wait for in-flight runner work (tests). */
   async idle(): Promise<void> {
     while (this.#running.size) await Promise.all(this.#running);
+  }
+
+  /** Delete finished originals and stale transcodes under the fanout home (see planPrune). */
+  prune(): void {
+    try {
+      const items = planPrune(this.#opts.ctx.home, this.#opts.ctx.store, { days: this.#opts.pruneDays ?? 7, now: this.#opts.ctx.now() });
+      if (items.length) this.#opts.ctx.log.info(`정리: 파일 ${items.length}개, ${formatBytes(applyPrune(items))}`);
+    } catch (err) {
+      this.#opts.ctx.log.warn(`정리 실패: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /** Start one runner per idle platform over its due targets; platforms never upload two at once. */

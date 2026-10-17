@@ -7,6 +7,7 @@ import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { probe } from './core/media.ts';
 import { assessMedia, createScheduledPost } from './core/posting.ts';
+import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
 import { isTerminal } from './core/state.ts';
@@ -222,7 +223,9 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout retry <postId> [platform]
   fanout run                             밀린 작업 처리 후 종료
   fanout worker [--interval 60]          예약·재시도 작업을 계속 처리
-  fanout serve [--port 8780] [--host 127.0.0.1]   웹 대시보드 (작업 처리 포함)
+  fanout serve [--port 8780] [--host 127.0.0.1] [--keep-days 7 | --no-prune]
+                                         웹 대시보드 (작업 처리, 6시간마다 자동 정리 포함)
+  fanout prune [--days 7] [--dry-run]    다 올린 원본·오래된 변환 파일 정리 (~/.fanout 안만)
   fanout watch <폴더> --init             감시 폴더와 예시 설정(fanout.watch.json) 만들기
   fanout watch <폴더> [--yes] [--once] [--interval 15] [--settle 10]
                                          폴더에 넣은 영상을 설정대로 자동으로 올림
@@ -466,6 +469,7 @@ async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     port: num(args, 'port') ?? 8780,
     token,
     allowedHosts: str(args, 'allow-host')?.split(','),
+    pruneDays: args.flags['no-prune'] ? null : (num(args, 'keep-days') ?? 7),
   });
   const url = await dashboard.start();
   console.log(`fanout 대시보드: ${url}`);
@@ -476,6 +480,18 @@ async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   });
   console.log('\n대시보드 종료 중… 진행 중인 업로드는 다음 실행 때 이어서 처리됩니다');
   await dashboard.stop();
+  return 0;
+}
+
+function cmdPrune(ctx: ProviderContext, args: Args): number {
+  const days = num(args, 'days') ?? 7;
+  const items = planPrune(ctx.home, ctx.store, { days, now: ctx.now() });
+  const label = { orphan_upload: '게시 안 된 업로드', posted_original: '게시 끝난 원본', old_variant: '오래된 변환 파일' } as const;
+  for (const i of items) console.log(`  ${label[i.reason].padEnd(12)} ${formatBytes(i.bytes).padStart(8)}  ${i.path}`);
+  const total = items.reduce((n, i) => n + i.bytes, 0);
+  if (!items.length) console.log('정리할 파일이 없습니다');
+  else if (args.flags['dry-run']) console.log(`${items.length}개, ${formatBytes(total)} 정리 가능 (--dry-run이라 지우지 않음)`);
+  else console.log(`${items.length}개, ${formatBytes(applyPrune(items))} 정리했습니다`);
   return 0;
 }
 
@@ -559,6 +575,8 @@ export async function main(argv: string[]): Promise<number> {
         if (pending.length) console.log(`\n진행 중 ${pending.length}건 — fanout run 으로 이어서 처리`);
         return 0;
       }
+      case 'prune':
+        return cmdPrune(ctx, args);
       case 'retry':
         return await cmdRetry(ctx, deps, args);
       case 'run':
