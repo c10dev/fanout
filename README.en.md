@@ -9,7 +9,7 @@ A **video-first, self-hosted uploader** that posts one video to YouTube, TikTok,
 ## Why another uploader
 
 - **Original kept, transcode only when needed.** fanout re-encodes to H.264/AAC MP4 only when a platform's spec (codec, fps, resolution, sample rate, size) is violated, and caches the result. Violations that would change the content (duration, aspect ratio) are caught before uploading.
-- **No silent failures.** Every post shows a per-platform state (`queued → transcoding → uploading → processing → published / handed_off / failed / needs_reauth`), the platform's error code, retry count, and a state history.
+- **No silent failures.** Every post shows a per-platform state (`queued → transcoding → uploading → processing → published / handed_off / failed / needs_reauth`, plus `canceled` and `removed`), the platform's error code, retry count, and a state history.
 - **Never posts twice.** Interrupted uploads resume. A lost response doesn't create a second post: fanout looks for the existing object first, uses idempotency keys where the platform has them, and stops to ask when it can't tell. Several fanout processes can share one database without picking up the same job, and posting the same video to the same account again is flagged before it happens.
 - **Light to run.** Zero runtime dependencies: Node 24's built-in SQLite, fetch and crypto, plus ffmpeg. No Postgres, Redis or Temporal.
 - **Bring your own app.** YouTube and TikTok policies forbid shipping API credentials in open source, so each user registers their own developer app. `fanout setup <platform>` and the dashboard's settings tab walk you through it.
@@ -63,7 +63,7 @@ Data is stored in `FANOUT_HOME` (default `~/.fanout`). Tokens and app secrets ar
 
 - **Web dashboard** (`fanout serve`): drag-and-drop upload with per-platform verdicts, a preview of exactly which account and visibility each post will use before anything uploads, a live status board with retry, per-platform reactions (views, likes, comments), a combined comments panel, editing and deletion, and a settings tab for app registration, account connection and checks. Loopback-only by default, per-start API token, Host-header check against DNS rebinding.
 - **Watch folder** (`fanout watch <dir>`): drop videos into a folder and they're posted according to `fanout.watch.json`, with per-video overrides in a sidecar JSON.
-- **AI agents over MCP** (`fanout mcp`): tools `list_accounts`, `check_video`, `preview_post`, `create_post`, `get_post_status`, `retry_target`. Register with `claude mcp add fanout -- fanout mcp`.
+- **AI agents over MCP** (`fanout mcp`): tools `list_accounts`, `check_video`, `preview_post`, `create_post`, `get_post_status`, `get_post_stats`, `get_post_comments`, `update_post`, `cancel_target`, `retry_target`. Register with `claude mcp add fanout -- fanout mcp`.
 - **CLI**: everything above from the terminal (`fanout help`).
 
 ## Platforms

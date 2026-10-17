@@ -3,7 +3,7 @@ import { extname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, createScheduledPost, editPost, fetchComments, previewPost, refreshStats, retryTarget, type TargetPreview } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, cancelTarget, createScheduledPost, editPost, fetchComments, previewPost, refreshStats, retryTarget, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
 import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
@@ -144,6 +144,13 @@ const TOOLS = [
       properties: { postId: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } } },
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+  },
+  {
+    name: 'cancel_target',
+    title: 'Cancel a target that has not gone out',
+    description: 'Give up on a queued (including scheduled-for-later), failed or needs_reauth target so it never uploads. Already published posts are not affected.',
+    inputSchema: { type: 'object', required: ['targetId'], properties: { targetId: { type: 'string' } } },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   {
     name: 'retry_target',
@@ -307,6 +314,13 @@ export class McpServer {
         const p = store.findPost(String(args.postId ?? ''));
         if (!p) throw new ToolError(`게시물 없음: ${String(args.postId)}`);
         return { postId: p.id, results: await refreshStats(this.#deps.ctx, providers, p.id, { includePaid: args.includePaid === true }) };
+      }
+      case 'cancel_target': {
+        try {
+          return { target: publicTarget(cancelTarget(store, String(args.targetId ?? ''))) };
+        } catch (err) {
+          throw new ToolError((err as Error).message);
+        }
       }
       case 'retry_target': {
         const current = store.getTarget(String(args.targetId ?? ''));

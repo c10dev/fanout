@@ -15,7 +15,7 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 - 게시물의 **댓글** 버튼은 플랫폼별 최근 댓글을 한 패널에 모아 보여줍니다(YouTube·Facebook·Instagram·Bluesky·Mastodon).
 - 게시물의 **수정**으로 제목·설명·태그를 바꾸면 YouTube·Facebook·Mastodon에 게시된 글에 반영하고, 아직 올리기 전인 대상은 바뀐 내용으로 올라갑니다. 수정 폼을 열어 둔 동안에는 보드가 새로 그려지지 않습니다.
 - 게시된 대상의 **삭제** 버튼은 플랫폼에서 게시물을 지우고 "삭제됨"으로 표시합니다. 되돌릴 수 없어 한 번 더 확인합니다. API로 지울 수 없는 Instagram·TikTok에는 버튼이 없습니다.
-- 게시 현황 보드는 플랫폼별 상태, 플랫폼 오류 코드, 경고, 상태 전이 기록을 보여주고, 실패하거나 재연결이 필요한 대상은 "다시 시도"할 수 있습니다.
+- 게시 현황 보드는 플랫폼별 상태, 플랫폼 오류 코드, 경고, 상태 전이 기록을 보여주고, 실패하거나 재연결이 필요한 대상은 "다시 시도"할 수 있습니다. 대기 중이거나 실패한 대상은 **취소**로 올리지 않기로 정할 수 있습니다("취소됨"). 이미 처리 중인 대상은 취소되지 않습니다.
 - 서버 안에서 작업 처리기가 돌아가므로 `fanout worker`를 따로 켤 필요가 없습니다.
 - **설정** 탭에서 개발자 앱 등록, 계정 연결·해제, 점검(`doctor`)을 할 수 있습니다. 127.0.0.1 전용으로 연 대시보드에서만 열립니다.
   - YouTube: 앱 정보를 넣거나 Google에서 받은 JSON 파일을 올린 뒤 "Google 계정으로 연결". 데스크톱 앱 클라이언트라 Redirect URI를 따로 등록하지 않아도 됩니다.
@@ -43,6 +43,7 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 | `POST /api/posts/:id/stats` | `{ includePaid?, platform? }` 게시된 대상의 반응 수치를 가져와 저장 |
 | `POST /api/targets/:id/remove` | 게시된 대상을 플랫폼에서 삭제 (YouTube·Facebook·X·Bluesky·Mastodon) |
 | `POST /api/targets/:id/retry` | 실패·재연결 필요 대상 다시 시도 |
+| `POST /api/targets/:id/cancel` | 대기·실패·재연결 필요 대상을 취소. 처리 중이거나 이미 게시됐으면 409 |
 | `GET /api/settings`, `PUT /api/apps/:key` | 앱 등록 상태, 앱 정보 저장 (비밀값은 응답에 넣지 않음). 127.0.0.1 전용 |
 | `POST /api/connect/:platform`, `DELETE /api/accounts/:platform/:name` | 계정 연결(OAuth는 인증 URL을 돌려줌)·해제. 127.0.0.1 전용 |
 | `GET/PUT/DELETE /api/notify`, `POST /api/notify/test` | 알림 webhook 설정. 주소 자체는 돌려주지 않고 호스트만 보여줌. 127.0.0.1 전용 |

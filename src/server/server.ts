@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, createScheduledPost, editPost, fetchComments, previewPost, refreshStats, removeTarget, retryTarget } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, cancelTarget, createScheduledPost, editPost, fetchComments, previewPost, refreshStats, removeTarget, retryTarget } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import { DEFAULT_EVENTS, detectFormat, notifyConfig, send as sendWebhook, validWebhookUrl, type NotifyConfig } from '../core/notify.ts';
@@ -236,6 +236,13 @@ export class Dashboard {
     if (method === 'POST' && parts[0] === 'preview' && parts.length === 1) return send(res, 200, await this.#preview(req));
     if (method === 'GET' && parts[0] === 'posts' && parts[1] && parts.length === 2) return send(res, 200, this.#postDetail(parts[1]));
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'retry') return send(res, 200, this.#retry(parts[1]));
+    if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'cancel') {
+      try {
+        return send(res, 200, this.#publicTarget(cancelTarget(this.#opts.ctx.store, parts[1])));
+      } catch (err) {
+        throw new HttpError(409, err instanceof Error ? err.message : String(err));
+      }
+    }
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'remove') {
       try {
         return send(res, 200, this.#publicTarget(await removeTarget(this.#opts.ctx, this.#opts.providers, parts[1])));

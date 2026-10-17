@@ -56,6 +56,7 @@ const STATE = {
   failed: ['실패', 'bad'],
   needs_reauth: ['재연결 필요', 'bad'],
   removed: ['삭제됨', 'info'],
+  canceled: ['취소됨', 'info'],
 };
 const VERDICT = {
   as_is: ['원본 그대로', 'ok'],
@@ -668,6 +669,22 @@ function targetRow(t) {
         '삭제',
       )
     : null;
+  const cancel = ['queued', 'failed', 'needs_reauth'].includes(t.state)
+    ? h(
+        'button',
+        {
+          class: 'small',
+          type: 'button',
+          onclick: async (e) => {
+            if (!confirm(`${t.platform}/${t.account}에 올리는 것을 취소할까요?`)) return;
+            e.target.disabled = true;
+            await api(`/targets/${t.id}/cancel`, { method: 'POST' }).catch((err) => alert(err.message));
+            refreshBoard();
+          },
+        },
+        '취소',
+      )
+    : null;
   const retry =
     t.state === 'failed' || t.state === 'needs_reauth'
       ? h(
@@ -687,8 +704,9 @@ function targetRow(t) {
           },
           '다시 시도',
         )
-      : remove ?? h('span');
-  return h('div', { class: 'trow' }, h('span', { class: 'tname' }, `${t.platform}/${t.account}`), badge(STATE[t.state] ?? [t.state, 'info']), detail, retry);
+      : null;
+  const actions = h('div', { class: 'row-actions' }, retry, cancel, remove);
+  return h('div', { class: 'trow' }, h('span', { class: 'tname' }, `${t.platform}/${t.account}`), badge(STATE[t.state] ?? [t.state, 'info']), detail, actions);
 }
 
 /** Post ids whose history panel is open, and their last event list; both survive board re-renders. */
