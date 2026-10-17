@@ -105,6 +105,10 @@ export function loadWatchConfig(dir: string): WatchConfig {
   if (raw.onBlocked !== undefined && raw.onBlocked !== 'skip' && raw.onBlocked !== 'fail') {
     throw new WatchConfigError(`${CONFIG_FILE}: "onBlocked"는 "skip" 또는 "fail"`);
   }
+  // A typo here must not quietly mean "post duplicates".
+  if (raw.onDuplicate !== undefined && raw.onDuplicate !== 'skip' && raw.onDuplicate !== 'post') {
+    throw new WatchConfigError(`${CONFIG_FILE}: "onDuplicate"는 "skip" 또는 "post"`);
+  }
   if (!config.to?.length) throw new WatchConfigError(`${CONFIG_FILE}: "to"에 올릴 곳을 하나 이상 적으세요 (예: ["youtube", "tiktok"])`);
   return config;
 }

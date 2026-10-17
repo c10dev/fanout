@@ -8,7 +8,7 @@ import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
 import { accountLabel, appReady, assessMedia, createScheduledPost, editPost, fetchComments, previewPost, refreshStats, removeTarget, retryTarget } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
-import { DEFAULT_EVENTS, detectFormat, notifyConfig, send as sendWebhook, type NotifyConfig } from '../core/notify.ts';
+import { DEFAULT_EVENTS, detectFormat, notifyConfig, send as sendWebhook, validWebhookUrl, type NotifyConfig } from '../core/notify.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import type { RunnerDeps } from '../core/runner.ts';
 import { Worker } from '../core/worker.ts';
@@ -475,7 +475,16 @@ export class Dashboard {
     const describe = () => {
       const c = notifyConfig(ctx);
       return c
-        ? { configured: true, host: new URL(c.url).host, format: c.format ?? detectFormat(c.url), events: c.events ?? DEFAULT_EVENTS, fromEnv: Boolean(process.env.FANOUT_WEBHOOK_URL) }
+        ? {
+            configured: true,
+            host: new URL(c.url).host,
+            // What the user picked (if anything) vs. what the URL suggests, so the form never turns a
+            // guess into a saved choice.
+            format: c.format,
+            detectedFormat: detectFormat(c.url),
+            events: c.events ?? DEFAULT_EVENTS,
+            fromEnv: Boolean(process.env.FANOUT_WEBHOOK_URL),
+          }
         : { configured: false, events: DEFAULT_EVENTS };
     };
     if (method === 'GET') return describe();
@@ -497,7 +506,7 @@ export class Dashboard {
       const body = await readJson<{ url?: string; events?: string[]; format?: string }>(req);
       const saved = ctx.store.getApp<NotifyConfig>('notify') ?? ({} as Partial<NotifyConfig>);
       const url = body.url?.trim() || saved.url;
-      if (!url || !/^https:\/\//.test(url)) throw new HttpError(400, 'https:// 로 시작하는 webhook 주소를 넣으세요');
+      if (!url || !validWebhookUrl(url)) throw new HttpError(400, '올바른 https:// webhook 주소를 넣으세요');
       const known: readonly string[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed'];
       const events = (body.events ?? []).filter((e) => known.includes(e)) as TargetState[];
       if (!events.length) throw new HttpError(400, '알릴 상태를 하나 이상 고르세요');

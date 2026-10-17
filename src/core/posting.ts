@@ -257,9 +257,11 @@ export async function editPost(
     const base = { targetId: t.id, platform: t.platform, account: t.account };
     const provider = providers.get(t.platform);
     if (t.state !== 'published' || !t.remoteId) {
+      // A queued target that already started uploading (resume data) keeps the text it started with.
+      const fresh = (t.state === 'queued' || t.state === 'transcoding') && !t.resume;
       const detail = isTerminal(t.state)
         ? `${t.state} 상태라 고치지 않았습니다`
-        : t.state === 'queued' || t.state === 'transcoding'
+        : fresh
           ? '아직 올리기 전이라 바뀐 내용으로 올라갑니다'
           : '올리는 중이라 반영되지 않았습니다. 게시된 뒤 다시 수정하세요';
       out.push({ ...base, status: 'skipped', detail });
@@ -267,6 +269,12 @@ export async function editPost(
     }
     if (!provider?.update) {
       out.push({ ...base, status: 'skipped', detail: `${provider?.displayName ?? t.platform}는 API로 게시물을 고칠 수 없습니다` });
+      continue;
+    }
+    // Posted with its own caption/text: the title/description edit wouldn't change what it shows.
+    const own = t.options.caption ?? t.options.text;
+    if (typeof own === 'string' && own.trim()) {
+      out.push({ ...base, status: 'skipped', detail: '이 대상은 플랫폼별 글(caption/text)을 따로 지정해 올려서 바꾸지 않았습니다' });
       continue;
     }
     try {

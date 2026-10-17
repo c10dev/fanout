@@ -871,6 +871,8 @@ function postCard({ post, targets }) {
           class: 'small',
           type: 'button',
           onclick: (e) => {
+            // One edit form at a time: closing one must not leave another unsaved form to be wiped.
+            for (const other of document.querySelectorAll('#board .edit-form')) other.remove();
             editingPost = post.id;
             const card = e.target.closest('.post');
             card.querySelector('.edit-form')?.remove();
@@ -1110,8 +1112,8 @@ const NOTIFY_EVENTS = [
 function notifyCard(n) {
   const status = h('span', { class: 'msg' });
   const url = h('input', { name: 'url', type: 'password', autocomplete: 'off', placeholder: n.configured ? `저장됨 (${n.host}) · 바꿀 때만 입력` : 'https://hooks.slack.com/… 또는 Discord webhook' });
-  const format = select('format', [['', '주소로 자동 판단'], ['slack', 'Slack'], ['discord', 'Discord'], ['json', 'JSON']]);
-  format.value = n.configured && n.format && n.format !== 'json' ? n.format : '';
+  const format = select('format', [['', `주소로 자동 판단${n.detectedFormat ? ` (지금: ${n.detectedFormat})` : ''}`], ['slack', 'Slack'], ['discord', 'Discord'], ['json', 'JSON']]);
+  format.value = n.configured && n.format ? n.format : '';
   const boxes = NOTIFY_EVENTS.map(([key, label]) => h('label', { class: 'check' }, h('input', { type: 'checkbox', name: key, checked: n.events.includes(key) }), label));
   const act = async (fn, ok) => {
     try {

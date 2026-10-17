@@ -167,13 +167,14 @@ export const facebook: Provider = {
 
   async remove({ ctx, account, target }) {
     const c = pageCreds(account);
-    try {
-      await graph<{ success?: boolean }>(ctx, 'DELETE', `/${target.remoteId}`, { access_token: c.pageToken });
-    } catch (err) {
-      // 100/33: the object doesn't exist (already deleted).
-      if (err instanceof ProviderError && (err.platformCode?.startsWith('100') || err.platformCode?.startsWith('33'))) return;
+    // Graph's "does not exist" (100/33) also covers "this token can't see it" (e.g. the account was
+    // reconnected to another Page), so an error is never taken as "already deleted".
+    await graph<{ success?: boolean }>(ctx, 'DELETE', `/${target.remoteId}`, { access_token: c.pageToken }).catch((err: unknown) => {
+      if (err instanceof ProviderError && err.platformCode?.startsWith('100')) {
+        throw new ProviderError('rejected', 'facebook.not_found', `지우지 못했습니다: 이 페이지 토큰으로는 영상을 찾을 수 없습니다. 페이지에서 직접 확인해 주세요 (${err.platformCode})`, err.platformCode);
+      }
       throw err;
-    }
+    });
   },
 
   async update({ ctx, account, target, post }) {

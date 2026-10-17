@@ -243,7 +243,8 @@ export const mastodon: Provider = {
       if (err instanceof ProviderError && err.kind === 'rejected') ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false } });
       throw err;
     });
-    ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false, statusId: body.id, statusUrl: body.url } });
+    // With scheduled_at the server returns a ScheduledStatus: its id is not a status id until it fires.
+    ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false, statusId: body.id, statusUrl: body.url, ...(body.scheduled_at ? { scheduled: true } : {}) } });
     if (body.scheduled_at) warnings.push(`예약 게시: ${body.scheduled_at}`);
     return { state: 'published', remoteId: body.id, remoteUrl: body.url, warnings };
   },
@@ -278,16 +279,36 @@ export const mastodon: Provider = {
   },
 
   async remove({ ctx, account, target }) {
+    const c = creds(account);
+    if ((target.resume as { scheduled?: boolean } | undefined)?.scheduled) {
+      // Still waiting: cancel the scheduled status. Once it has fired the live post has a new id we
+      // don't know, so say so instead of pretending it's gone.
+      try {
+        await api(ctx, c, `/api/v1/scheduled_statuses/${target.remoteId}`, { method: 'DELETE' });
+        return;
+      } catch (err) {
+        if (err instanceof ProviderError && err.code === 'mastodon.http_404') {
+          throw new ProviderError('rejected', 'mastodon.scheduled_fired', `예약 시각이 지나 이미 게시됐을 수 있습니다. ${c.instance} 에서 직접 지워 주세요`);
+        }
+        throw err;
+      }
+    }
     try {
-      await api(ctx, creds(account), `/api/v1/statuses/${target.remoteId}`, { method: 'DELETE' });
+      await api(ctx, c, `/api/v1/statuses/${target.remoteId}`, { method: 'DELETE' });
     } catch (err) {
-      if (err instanceof ProviderError && err.code === 'mastodon.http_404') return;
-      throw err;
+      if (!(err instanceof ProviderError) || err.code !== 'mastodon.http_404') throw err;
+      // 404 also means "not yours" (e.g. the account was reconnected as someone else): only call it
+      // gone if the status really doesn't exist any more.
+      const still = await api<{ account?: { id?: string } }>(ctx, c, `/api/v1/statuses/${target.remoteId}`).catch(() => undefined);
+      if (still) throw new ProviderError('rejected', 'mastodon.not_owner', `이 게시물은 지금 연결된 계정(${account.profile.username ?? account.name})의 것이 아니라 지울 수 없습니다`);
     }
   },
 
   // Editing must list the media to keep, or the video would be dropped from the post.
   async update({ ctx, account, target, post }) {
+    if ((target.resume as { scheduled?: boolean } | undefined)?.scheduled) {
+      throw new ProviderError('rejected', 'mastodon.scheduled', '예약된 글은 API로 내용을 고칠 수 없습니다. 지우고 다시 예약하세요');
+    }
     const resume = (target.resume ?? {}) as { mediaId?: string };
     const o = target.options as unknown as MastodonOptions;
     await api(ctx, creds(account), `/api/v1/statuses/${target.remoteId}`, {

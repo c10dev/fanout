@@ -55,12 +55,21 @@ export function payloadFor(format: NotifyConfig['format'], text: string, post: P
   };
 }
 
-/** The webhook to use: FANOUT_WEBHOOK_URL overrides what `fanout notify set` saved. */
+/** An https URL that `new URL()` accepts; anything else would break every notification later. */
+export function validWebhookUrl(url: string): boolean {
+  try {
+    return new URL(url).protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+/** The webhook to use: FANOUT_WEBHOOK_URL overrides what `fanout notify set` saved. Invalid ones are ignored. */
 export function notifyConfig(ctx: ProviderContext): NotifyConfig | undefined {
   const env = process.env.FANOUT_WEBHOOK_URL;
-  if (env) return { url: env };
+  if (env) return validWebhookUrl(env) ? { url: env } : undefined;
   const saved = ctx.store.getApp<NotifyConfig>('notify');
-  return saved?.url ? saved : undefined;
+  return saved?.url && validWebhookUrl(saved.url) ? saved : undefined;
 }
 
 export async function send(ctx: ProviderContext, config: NotifyConfig, body: unknown): Promise<void> {
