@@ -1132,25 +1132,32 @@ let boardLimit = BOARD_PAGE;
 let boardQuery = '';
 
 let boardTimer;
+let boardSeq = 0;
 async function refreshBoard() {
   clearTimeout(boardTimer);
   let active = false;
+  const seq = ++boardSeq;
   try {
-    const posts = await api(`/posts?limit=${boardLimit}${boardQuery ? `&q=${encodeURIComponent(boardQuery)}` : ''}`);
-    // A full page means there may be more.
-    $('#board-more').hidden = posts.length < boardLimit;
+    const limit = boardLimit;
+    const posts = await api(`/posts?limit=${limit}${boardQuery ? `&q=${encodeURIComponent(boardQuery)}` : ''}`);
+    // A newer refresh (another search, a click) started meanwhile: its answer wins.
+    if (seq !== boardSeq) return;
+    // A full page means there may be more; set only where the board is actually redrawn.
+    const showMore = () => ($('#board-more').hidden = posts.length < limit);
     // Don't wipe an edit form or reply the user is typing in: refresh every other card around it, or
     // wait if the list itself changed.
     const locked = editingPost ?? replyingTo?.postId;
     if (locked) {
       const cards = [...$('#board').children];
       if (cards.map((c) => c.dataset.post).join() !== posts.map((p) => p.post.id).join()) {
-        $('#board-updated').textContent = '수정·답글을 쓰는 동안 새 게시물 표시를 잠시 미룹니다';
+        $('#board-updated').textContent = '수정·답글을 마치면 목록을 새로 그립니다';
         boardTimer = setTimeout(refreshBoard, 3000);
         return;
       }
       posts.forEach((p, i) => p.post.id !== locked && cards[i].replaceWith(postCard(p)));
+      showMore();
     } else {
+      showMore();
       $('#board').replaceChildren(...(posts.length ? posts.map(postCard) : [h('p', { class: 'empty' }, boardQuery ? `"${boardQuery}"에 맞는 게시물이 없습니다` : '아직 게시물이 없습니다')]));
     }
     active = posts.some((p) => p.targets.some((t) => !t.terminal));

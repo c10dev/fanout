@@ -217,7 +217,7 @@ export async function readInsights(
   path: string,
   params: Record<string, string>,
   scope: string,
-): Promise<{ values: Record<string, number>; note?: string }> {
+): Promise<{ values: Record<string, number>; note?: string; transient?: boolean }> {
   try {
     const res = await graph<{ data?: InsightRow[] }>(ctx, 'GET', path, params);
     const values: Record<string, number> = {};
@@ -228,7 +228,8 @@ export async function readInsights(
     return { values };
   } catch (err) {
     if (err instanceof ProviderError && err.kind === 'auth') return { values: {}, note: `조회수는 ${scope} 권한이 있어야 가져올 수 있습니다` };
-    return { values: {}, note: `조회수를 가져오지 못했습니다: ${err instanceof Error ? err.message : String(err)}` };
+    // A rate limit or server hiccup: the caller keeps the last numbers it had.
+    return { values: {}, note: `조회수를 가져오지 못했습니다: ${err instanceof Error ? err.message : String(err)}`, transient: true };
   }
 }
 

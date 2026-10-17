@@ -167,7 +167,14 @@ export const instagram: Provider = {
     });
     // Views and shares come from media insights (instagram_manage_insights; up to 48 hours late).
     const ins = await readInsights(ctx, `/${target.remoteId}/insights`, { metric: 'views,shares', access_token: c.pageToken }, 'instagram_manage_insights');
-    return { views: ins.values.views, likes: m.like_count, comments: m.comments_count, shares: ins.values.shares, ...(ins.note ? { note: ins.note } : {}) };
+    const last = ins.transient ? target.stats : undefined;
+    return {
+      views: ins.values.views ?? last?.views,
+      likes: m.like_count,
+      comments: m.comments_count,
+      shares: ins.values.shares ?? last?.shares,
+      ...(ins.note ? { note: ins.note } : {}),
+    };
   },
 
   // Needs the instagram_manage_comments permission on the token (see the Meta setup guide).

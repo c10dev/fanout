@@ -104,3 +104,11 @@ describe('eighth review fixes', () => {
     assert.equal(store.targetsForPost(post.id).length, before);
   });
 });
+
+describe('ninth review fixes', () => {
+  it('a passed schedule does not demand public on YouTube', () => {
+    const post = { id: 'p', createdAt: '', mediaPath: '/v', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false, scheduledAt: new Date(Date.now() - 60_000).toISOString() };
+    const target = { id: 't', postId: 'p', platform: 'youtube', account: 'main', options: { privacy: 'unlisted', madeForKids: false }, state: 'queued' as const, warnings: [], attempts: 0, updatedAt: '' };
+    assert.deepEqual(youtube.validate(post, target, media).filter((i) => i.severity === 'error'), []);
+  });
+});

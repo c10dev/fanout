@@ -177,8 +177,8 @@ export const facebook: Provider = {
       { fields: 'likes.summary(true).limit(0),comments.summary(true).limit(0)', access_token: c.pageToken },
     );
     // Plays come from video insights (read_insights on the Page token).
-    const ins = await readInsights(ctx, `/${target.remoteId}/video_insights`, { metric: 'fb_reels_total_plays', period: 'lifetime', access_token: c.pageToken }, 'read_insights');
-    return { views: ins.values.fb_reels_total_plays, likes: v.likes?.summary?.total_count, comments: v.comments?.summary?.total_count, ...(ins.note ? { note: ins.note } : {}) };
+    const ins = await readInsights(ctx, `/${target.remoteId}/video_insights`, { metric: 'fb_reels_total_plays', period: 'lifetime', access_token: c.pageToken }, 'read_insights·pages_manage_engagement');
+    return { views: ins.values.fb_reels_total_plays ?? (ins.transient ? target.stats?.views : undefined), likes: v.likes?.summary?.total_count, comments: v.comments?.summary?.total_count, ...(ins.note ? { note: ins.note } : {}) };
   },
 
   async remove({ ctx, account, target }) {
