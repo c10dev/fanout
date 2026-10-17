@@ -100,3 +100,20 @@ describe('Store', () => {
     assert.equal(store.getUsage('youtube', 'project', '2026-10-17'), 0);
   });
 });
+
+describe('post search', () => {
+  it('matches title, description or an id prefix, newest first', async () => {
+    const { makeCtx } = await import('./helpers.ts');
+    const { store } = makeCtx();
+    const base = { mediaPath: '/v.mp4', tags: [], captions: [], containsSyntheticMedia: false };
+    const a = store.createPost({ ...base, title: '여름 브이로그', description: '바다' }, []).post;
+    store.createPost({ ...base, title: '겨울', description: '눈 100% 진짜' }, []);
+    store.createPost({ ...base, title: 'Summer_trip', description: '' }, []);
+    assert.deepEqual(store.listPosts(10, '브이로그').map((p) => p.title), ['여름 브이로그']);
+    assert.deepEqual(store.listPosts(10, '100%').map((p) => p.title), ['겨울'], '% is literal');
+    assert.deepEqual(store.listPosts(10, 'r_t').map((p) => p.title), ['Summer_trip'], '_ is literal');
+    assert.deepEqual(store.listPosts(10, a.id.slice(0, 8)).map((p) => p.id), [a.id]);
+    assert.equal(store.listPosts(10, '없는 말').length, 0);
+    assert.equal(store.listPosts(10, '').length, 3);
+  });
+});

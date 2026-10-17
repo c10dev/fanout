@@ -254,3 +254,5 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .stats .up { color: var(--ok); font-size: 12px; }
 .stats .down { color: var(--bad); font-size: 12px; }
 .add-banner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; background: var(--bg); border: 1px solid var(--accent); border-radius: 8px; padding: 8px 10px; margin-bottom: 10px; font-size: 14px; }
+#board-search { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px; min-width: 0; flex: 1 1 140px; max-width: 260px; }
+#board-more { display: block; margin: 10px auto 0; }

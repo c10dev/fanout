@@ -311,8 +311,22 @@ export class Store {
     return rows.length === 1 ? (JSON.parse(rows[0]!.body) as Post) : undefined;
   }
 
-  listPosts(limit = 20): Post[] {
-    const rows = this.#db.prepare('SELECT body FROM posts ORDER BY created_at DESC LIMIT ?').all(limit) as Array<{ body: string }>;
+  /** Newest posts first; `query` matches the title, the description or the start of the id. */
+  listPosts(limit = 20, query?: string): Post[] {
+    const q = query?.trim();
+    if (!q) {
+      const rows = this.#db.prepare('SELECT body FROM posts ORDER BY created_at DESC LIMIT ?').all(limit) as Array<{ body: string }>;
+      return rows.map((r) => JSON.parse(r.body) as Post);
+    }
+    const like = `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+    const rows = this.#db
+      .prepare(
+        `SELECT body FROM posts
+         WHERE json_extract(body, '$.title') LIKE ? ESCAPE '\\' OR json_extract(body, '$.description') LIKE ? ESCAPE '\\' OR id LIKE ?
+         ORDER BY created_at DESC LIMIT ?`,
+      )
+      // Only something that looks like an id prefix is matched against ids.
+      .all(like, like, /^[0-9a-f-]{4,}$/i.test(q) ? `${q.toLowerCase()}%` : '\u0000', limit) as Array<{ body: string }>;
     return rows.map((r) => JSON.parse(r.body) as Post);
   }
 
