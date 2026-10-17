@@ -11,6 +11,7 @@
 | X | v2 `initialize` → 4MB `append` → `finalize` → STATUS → `POST /2/tweets` | 내 X 앱(OAuth 2.0 PKCE), **종량제 크레딧 필요** | fanout worker | 기본 20분·8GB(Premium은 더 김). 글은 가중치 280(한글 2). URL이 들어가면 요금이 높음. 게시 응답을 잃으면 중복을 피하려고 멈추고 확인을 요청 |
 | Bluesky | 영상 서비스 `uploadVideo` → 처리 완료 blob → `createRecord` | 앱 비밀번호로 연결 (개발자 앱 필요 없음) | fanout worker | mp4 최대 300MB, 글 300자, 자막은 VTT만(20KB 이하). 이메일 인증된 계정만 영상 가능, 하루 한도는 `getUploadLimits`로 조회 |
 | Mastodon | `POST /api/v2/media`(썸네일 포함) → 처리 대기 → `POST /api/v1/statuses` | 인스턴스에서 만든 액세스 토큰 (개발자 앱 심사 없음) | 네이티브 `scheduled_at` (5분 뒤부터) | 공개 범위 직접 지정. 영상 크기는 인스턴스마다 다르며(기본 99MB) 올리기 전에 조회. `Idempotency-Key`로 중복 게시 방지 |
+| PeerTube | `upload-resumable` 재개형 업로드(8MiB 조각) → 썸네일·자막 → 트랜스코딩 대기 | 인스턴스 계정 로그인. 비밀번호는 토큰을 받는 데만 쓰고 저장하지 않음 (개발자 앱 없음) | 네이티브 `scheduleUpdate`(비공개로 올렸다가 그 시각에 공개 범위 변경) | 공개 범위 직접 지정, 제목 3~120자, 태그 5개(각 2~30자). 올리기 전에 저장 용량 조회. 마지막 조각을 보낸 뒤 세션이 사라지면 멈추고 확인을 요청. 로그인은 2~4주 안 쓰면 만료 |
 
 예약(`--at`)은 네이티브 예약이 있는 플랫폼에는 플랫폼에 그대로 넘기고, 나머지는 예약 시각에 `fanout worker`가 올립니다.
 
@@ -26,6 +27,7 @@
 | X | ✓ | ✓ | ✓ | ✓ | 읽기도 요금이 들어 요청할 때만 |
 | Bluesky | | ✓ | ✓ | ✓ | 공개 AppView, 조회수는 공개하지 않음 |
 | Mastodon | | ✓ | ✓ | ✓ | |
+| PeerTube | ✓ | ✓ | ✓ | | 댓글 수는 7.2 이상 |
 | TikTok | | | | | `video.list` 권한이 필요해 아직 지원하지 않음. 수신함으로 넘긴 게시물은 id도 모름 |
 
 ## 댓글 모아보기
@@ -39,11 +41,12 @@
 | Instagram | `/{media-id}/comments` | 토큰에 `instagram_manage_comments` 추가 필요 |
 | Bluesky | 공개 AppView `getPostThread` | 없음 |
 | Mastodon | `/statuses/:id/context`의 직접 답글 | 이미 받은 토큰 |
+| PeerTube | `/videos/:id/comment-threads` | 로그인 토큰 |
 | X, TikTok | 아직 지원하지 않음(X는 검색 요금, TikTok은 공개 댓글 API 없음) | |
 
 ### 답글
 
-같은 다섯 플랫폼에서는 댓글에 답글도 달 수 있습니다: 대시보드 댓글 패널의 "답글", `fanout reply <postId> <platform> <commentId> <내용>`(댓글 ID는 `fanout comments`가 `[…]`로 보여 줌), MCP `reply_to_comment`.
+같은 플랫폼들에서는 댓글에 답글도 달 수 있습니다: 대시보드 댓글 패널의 "답글", `fanout reply <postId> <platform> <commentId> <내용>`(댓글 ID는 `fanout comments`가 `[…]`로 보여 줌), MCP `reply_to_comment`.
 
 - 그 게시물의 최근 댓글(플랫폼에 따라 50~100개) 중에 있는 댓글에만 답글을 답니다. 다른 글의 댓글 ID를 넣어도 거부합니다.
 - 한 번만 보내고 자동으로 다시 시도하지 않습니다. 응답을 못 받으면 "이미 달렸을 수 있음"으로 알리니 댓글을 다시 불러와 확인하세요. Mastodon은 `Idempotency-Key`를 붙여 같은 답글을 다시 보내도 한 번만 달립니다.
@@ -55,6 +58,7 @@
 | Instagram | `POST /{comment-id}/replies` | `instagram_manage_comments` |
 | Bluesky | 답글 레코드(`reply.root`는 내 게시물, `reply.parent`는 그 댓글), 300자 | 앱 비밀번호 |
 | Mastodon | `in_reply_to_id`. 댓글 쓴 사람을 멘션하고, 댓글이나 원래 글보다 넓은 공개 범위로는 달지 않음 | 이미 받은 토큰 |
+| PeerTube | `POST /videos/:id/comments/:commentId` | 로그인 토큰 |
 
 ## 게시 후 수정
 
@@ -65,6 +69,7 @@
 | YouTube | 제목·설명·태그 | `videos.update`(기존 카테고리·언어 유지) |
 | Facebook | 설명 | `POST /{video-id}` |
 | Mastodon | 글 | `PUT /api/v1/statuses/:id`(영상은 그대로) |
+| PeerTube | 제목·설명·태그 | `PUT /api/v1/videos/:id` |
 | X, Bluesky, Instagram, TikTok | | API로 고칠 수 없음 |
 
 ## 삭제
@@ -80,6 +85,7 @@
 | X | ✓ | `DELETE /2/tweets/:id` (요금) |
 | Bluesky | ✓ | `deleteRecord` |
 | Mastodon | ✓ | `DELETE /api/v1/statuses/:id` |
+| PeerTube | ✓ | `DELETE /api/v1/videos/:id` (다른 인스턴스·사용자로 다시 연결했으면 거부) |
 | Instagram | | API로 지울 수 없음, 앱에서 직접 |
 | TikTok | | API로 지울 수 없음, 앱에서 직접 |
 
@@ -93,6 +99,12 @@
 | 심사 전 TikTok 앱에서 수신함 업로드가 제한 없이 되는가? | `fanout doctor tiktok --live` — 테스트 영상을 수신함으로 보내고 상태 또는 오류 코드를 보고합니다 | **수신함 업로드 성공** (`SEND_TO_USER_INBOX`). 단, 시험한 앱의 심사 상태와 "24시간 5명" 제한 적용 여부는 확인하지 않았습니다. 그 계정의 `creator_info`는 공개 범위로 `PUBLIC_TO_EVERYONE`을 허용했습니다 |
 | Instagram 하루 게시 한도는 100건인가 50건인가? | `fanout doctor instagram` — API가 알려주는 실제 한도를 보여줍니다 | **100건.** `content_publishing_limit`가 `quota_total=100`을 돌려줬습니다. fanout은 계속 매번 조회합니다 |
 | 네이버 클립에 3분 이하 세로 영상을 PC 웹에서 올릴 수 있는가? | 코드로 확인할 수 없습니다. 네이버 클립 PC 웹에서 직접 올려 보세요. 되면 브라우저 자동화 플러그인을 만들 수 있습니다 | 아직 확인하지 않음 |
+
+PeerTube는 공개 인스턴스 계정 대신, Docker로 띄운 로컬 PeerTube 8.3.1 인스턴스에서 CLI로 끝까지 확인했습니다(2026-10-17).
+
+- 확인한 흐름: 연결, 점검, 업로드부터 게시까지, 썸네일·한국어 자막, 태그·설명·댓글 정책, 예약(비공개 → 지정 시각에 public), 제목·태그 수정, 반응, 댓글 읽기와 답글, 삭제
+- 이어 올리기: 20MB 영상을 첫 조각 뒤에 일부러 끊었다가 다시 시도하니, 서버가 받은 위치(`bytes=0-8388607`)부터 이어서 끝까지 올렸습니다
+- 공개 인스턴스마다 다를 수 있는 것(프록시 본문 크기 제한, 업로드 필터 플러그인, 외부 로그인 전용 계정)은 확인하지 않았습니다
 
 ## 정책상 지키는 것
 

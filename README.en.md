@@ -2,7 +2,7 @@
 
 [한국어](README.md)
 
-A **video-first, self-hosted uploader** that posts one video to YouTube, TikTok, Instagram Reels, Facebook Reels, X, Bluesky and Mastodon at once. It uses only the platforms' official APIs, through your own accounts and your own developer apps.
+A **video-first, self-hosted uploader** that posts one video to YouTube, TikTok, Instagram Reels, Facebook Reels, X, Bluesky, Mastodon and PeerTube at once. It uses only the platforms' official APIs, through your own accounts and your own developer apps.
 
 > **Status: v0.1, experimental.** Upload flows follow each platform's official documentation and are covered by HTTP-mocked tests. With real accounts (2026-10-17) we have confirmed an unlisted YouTube post end to end, a TikTok upload to the app inbox, and Instagram/Facebook connection and checks. Run `fanout doctor <platform> --live` on your own setup before relying on it. The detailed docs under `docs/` are in Korean for now.
 
@@ -77,10 +77,11 @@ Data is stored in `FANOUT_HOME` (default `~/.fanout`). Tokens and app secrets ar
 | X | Your X app (OAuth 2.0 PKCE), pay-per-use credits | fanout | 4 MB chunked upload; weighted length (CJK counts 2) |
 | Bluesky | App password | fanout | No developer app; VTT captions; daily limit read live |
 | Mastodon | Instance access token | native `scheduled_at` | No app review; custom thumbnail; Idempotency-Key |
+| PeerTube | Instance login (only tokens are stored) | native `scheduleUpdate` | No developer app; resumable upload; thumbnail, captions, comments and replies |
 
 ## Roadmap
 
-- Threads (needs a public media URL), LinkedIn, PeerTube
+- Threads (needs a public media URL), LinkedIn (member posting needs a live check of the self-serve APIs)
 - TikTok: bring-your-own audited app mode; Upload-Post / Ayrshare adapters
 - Experimental Naver Clip plugin (separate repo, only the user's own logged-in browser profile)
 
