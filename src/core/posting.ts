@@ -8,6 +8,7 @@ import type { Provider, ProviderContext } from './provider.ts';
 import type { Store } from './store.ts';
 import { statsTrend } from './stats.ts';
 import type { Comment, Post, PostInput, PostStats, StatsTrend, Target, TargetInput } from './types.ts';
+import { msg } from './i18n.ts';
 
 export type Verdict = 'as_is' | 'transcode' | 'blocked';
 
@@ -80,13 +81,13 @@ export function visibilityLabel(t: TargetInput, scheduledAt?: string): string {
   const o = t.options as Record<string, unknown>;
   switch (t.platform) {
     case 'youtube':
-      return scheduledAt ? `private → ${scheduledAt}에 public` : String(o.privacy ?? '(미지정)');
+      return scheduledAt ? msg('private → {scheduledAt}에 public', { scheduledAt }) : String(o.privacy ?? msg('(미지정)'));
     case 'mastodon':
-      return `${String(o.visibility ?? '(공개 범위 미지정)')}${scheduledAt ? `, ${scheduledAt}에 게시` : ''}`;
+      return scheduledAt ? msg('{visibility}, {time}에 게시', { visibility: String(o.visibility ?? msg('(공개 범위 미지정)')), time: scheduledAt }) : String(o.visibility ?? msg('(공개 범위 미지정)'));
     case 'peertube':
-      return scheduledAt ? `private → ${scheduledAt}에 ${String(o.privacy ?? '(미지정)')}` : String(o.privacy ?? '(공개 범위 미지정)');
+      return scheduledAt ? msg('private → {time}에 {privacy}', { time: scheduledAt, privacy: String(o.privacy ?? msg('(미지정)')) }) : String(o.privacy ?? msg('(공개 범위 미지정)'));
     case 'tiktok':
-      return o.mode === 'direct' ? `direct, ${String(o.privacyLevel ?? '(공개 범위 미지정)')}` : 'inbox (TikTok 앱에서 마무리)';
+      return o.mode === 'direct' ? 'direct, ' + String(o.privacyLevel ?? msg('(공개 범위 미지정)')) : msg('inbox (TikTok 앱에서 마무리)');
     default:
       return scheduledAt ? `public, ${scheduledAt}` : 'public';
   }
@@ -120,12 +121,12 @@ export function previewPost(
     const provider = providers.get(t.platform);
     const account = store.getAccount(t.platform, t.account);
     const base = { platform: t.platform, account: t.account, connected: Boolean(account), visibility: visibilityLabel(t, input.scheduledAt) };
-    if (!provider) return { ...base, verdict: 'blocked' as const, errors: [`알 수 없는 플랫폼: ${t.platform}`], warnings: [], transcode: [] };
+    if (!provider) return { ...base, verdict: 'blocked' as const, errors: [msg('알 수 없는 플랫폼: {platform}', { platform: t.platform })], warnings: [], transcode: [] };
     const target: Target = { id: 'preview', postId: post.id, platform: t.platform, account: t.account, options: t.options, state: 'queued', warnings: [], attempts: 0, updatedAt: post.createdAt };
     const issues = provider.validate(post, target, media);
     const violations = checkMedia(media, provider.specFor?.(post, target) ?? provider.spec);
     const errors = [...issues.filter((i) => i.severity === 'error').map((i) => i.message), ...violations.filter((v) => !v.fixable).map((v) => v.message)];
-    if (!account) errors.push(`연결되지 않은 계정: ${t.platform}/${t.account}`);
+    if (!account) errors.push(msg('연결되지 않은 계정: {platform}/{account}', { platform: t.platform, account: t.account }));
     return {
       ...base,
       accountLabel: account ? accountLabel(account.profile, t.account) : undefined,
@@ -155,34 +156,34 @@ export interface AddTargetsPlan {
  */
 export function planAddTargets(store: Store, providers: Map<string, Provider>, postId: string, targets: TargetInput[], media: MediaInfo): AddTargetsPlan {
   const post = store.getPost(postId);
-  if (!post) throw new Error(`게시물 없음: ${postId}`);
-  if (!targets.length) throw new Error('추가할 플랫폼을 하나 이상 고르세요');
+  if (!post) throw new Error(msg('게시물 없음: {postId}', { postId }));
+  if (!targets.length) throw new Error(msg('추가할 플랫폼을 하나 이상 고르세요'));
   if (!existsSync(post.mediaPath)) {
-    throw new Error('원본 영상이 이미 정리돼 없습니다(게시가 끝난 원본은 기본 7일 뒤 지워집니다). 영상을 다시 골라 새 게시물로 올리세요');
+    throw new Error(msg('원본 영상이 이미 정리돼 없습니다(게시가 끝난 원본은 기본 7일 뒤 지워집니다). 영상을 다시 골라 새 게시물로 올리세요'));
   }
   const existing = store.targetsForPost(postId);
   const seen = new Set<string>();
   for (const t of targets) {
     const key = `${t.platform}/${t.account}`;
-    if (seen.has(key)) throw new Error(`${key}를 두 번 골랐습니다`);
+    if (seen.has(key)) throw new Error(msg('{key}를 두 번 골랐습니다', { key }));
     seen.add(key);
     const prev = existing.find((e) => e.platform === t.platform && e.account === t.account && (COVERING_STATES.has(e.state) || (e.state === 'failed' && mayBeLive(e))));
-    if (prev) throw new Error(`${key}는 이 게시물에 이미 있습니다 (${prev.state}${prev.errorCode ? `, ${prev.errorCode}` : ''})`);
+    if (prev) throw new Error(msg('{key}는 이 게시물에 이미 있습니다 ({state})', { key, state: prev.errorCode ? `${prev.state}, ${prev.errorCode}` : prev.state }));
   }
   // Attachments live beside uploads and may have been cleaned up with them.
   const dropped: string[] = [];
   let input: Post = post;
   if (post.thumbnailPath && !existsSync(post.thumbnailPath)) {
-    dropped.push('썸네일');
+    dropped.push(msg('썸네일'));
     input = { ...input, thumbnailPath: undefined };
   }
   const captions = post.captions.filter((c) => existsSync(c.path));
   if (captions.length < post.captions.length) {
-    dropped.push(...post.captions.filter((c) => !captions.includes(c)).map((c) => `자막(${c.language})`));
+    dropped.push(...post.captions.filter((c) => !captions.includes(c)).map((c) => msg('자막({language})', { language: c.language })));
     input = { ...input, captions };
   }
   const preview = previewPost(store, providers, input, targets, media).map((p) =>
-    dropped.length ? { ...p, warnings: [`파일이 없어 빼고 올립니다: ${dropped.join(', ')}`, ...p.warnings] } : p,
+    dropped.length ? { ...p, warnings: [msg('파일이 없어 빼고 올립니다: {dropped}', { dropped: dropped.join(', ') }), ...p.warnings] } : p,
   );
   return { post: input, preview, dropped };
 }
@@ -204,8 +205,8 @@ export function addTargets(store: Store, providers: Map<string, Provider>, postI
  */
 export function retryTarget(store: Store, id: string, via: string): Target {
   const t = store.getTarget(id);
-  if (!t) throw new Error(`대상 없음: ${id}`);
-  if (t.state !== 'failed' && t.state !== 'needs_reauth') throw new Error(`${t.state} 상태는 다시 시도할 수 없습니다`);
+  if (!t) throw new Error(msg('대상 없음: {id}', { id }));
+  if (t.state !== 'failed' && t.state !== 'needs_reauth') throw new Error(msg('{state} 상태는 다시 시도할 수 없습니다', { state: t.state }));
   const resume = t.resume && 'posting' in t.resume ? { ...t.resume, posting: false } : t.resume;
   return store.transition(t.id, 'queued', { attempts: 0, errorCode: undefined, errorMessage: undefined, notBefore: undefined, resume }, via);
 }
@@ -240,7 +241,7 @@ export function priorPosts(store: Store, hash: string | undefined, targets: Targ
 
 export function describePrior(prior: PriorPost): string {
   const when = prior.createdAt.slice(0, 16).replace('T', ' ');
-  return `이 영상은 ${when}(UTC)에 이미 올렸습니다 — ${prior.state}${prior.url ? ` ${prior.url}` : ''}`;
+  return msg('이 영상은 {when}(UTC)에 이미 올렸습니다 — {state}', { when, state: prior.url ? `${prior.state} ${prior.url}` : prior.state });
 }
 
 export interface StatsResult {
@@ -271,12 +272,12 @@ export async function refreshStats(
     const base = { targetId: t.id, platform: t.platform, account: t.account };
     const provider = providers.get(t.platform);
     if (t.state !== 'published' || !t.remoteId) {
-      const why = t.state === 'handed_off' ? '앱에서 마무리한 게시물은 id를 몰라 가져올 수 없습니다' : t.state === 'removed' ? '플랫폼에서 삭제했습니다' : '게시되지 않았습니다';
+      const why = t.state === 'handed_off' ? msg('앱에서 마무리한 게시물은 id를 몰라 가져올 수 없습니다') : t.state === 'removed' ? msg('플랫폼에서 삭제했습니다') : msg('게시되지 않았습니다');
       out.push({ ...base, skipped: why });
       continue;
     }
     if (!provider?.stats) {
-      out.push({ ...base, skipped: `${provider?.displayName ?? t.platform}는 반응 통계를 가져올 수 없습니다` });
+      out.push({ ...base, skipped: msg('{provider}는 반응 통계를 가져올 수 없습니다', { provider: provider?.displayName ?? t.platform }) });
       continue;
     }
     if (provider.statsCost && !opts.includePaid) {
@@ -286,8 +287,8 @@ export async function refreshStats(
     let account = ctx.store.getAccount(t.platform, t.account);
     if (!account) {
       // Mark it read so background refresh moves on to the next target instead of retrying this one.
-      ctx.store.saveStats(t.id, { ...(t.stats ?? {}), fetchedAt: ctx.now().toISOString(), note: '연결된 계정이 없습니다' });
-      out.push({ ...base, skipped: '연결된 계정이 없습니다' });
+      ctx.store.saveStats(t.id, { ...(t.stats ?? {}), fetchedAt: ctx.now().toISOString(), note: msg('연결된 계정이 없습니다') });
+      out.push({ ...base, skipped: msg('연결된 계정이 없습니다') });
       continue;
     }
     let stats: PostStats;
@@ -297,7 +298,7 @@ export async function refreshStats(
       stats = { ...(await provider.stats({ ctx, account, target: { ...t, remoteId: t.remoteId } })), fetchedAt: ctx.now().toISOString() };
     } catch (err) {
       failed = true;
-      stats = { ...(t.stats ?? {}), fetchedAt: ctx.now().toISOString(), note: `가져오지 못함: ${err instanceof Error ? err.message : String(err)}` };
+      stats = { ...(t.stats ?? {}), fetchedAt: ctx.now().toISOString(), note: msg('가져오지 못함: {err}', { err: err instanceof Error ? err.message : String(err) }) };
     }
     ctx.store.saveStats(t.id, stats);
     if (!failed) ctx.store.recordStats(t.id, stats);
@@ -313,12 +314,12 @@ export async function refreshStats(
 export async function removeTarget(baseCtx: ProviderContext, providers: Map<string, Provider>, targetId: string): Promise<Target> {
   const ctx = withTimeout(baseCtx);
   const t = ctx.store.getTarget(targetId);
-  if (!t) throw new Error(`대상 없음: ${targetId}`);
-  if (t.state !== 'published' || !t.remoteId) throw new Error(`게시된 대상만 삭제할 수 있습니다 (지금: ${t.state})`);
+  if (!t) throw new Error(msg('대상 없음: {targetId}', { targetId }));
+  if (t.state !== 'published' || !t.remoteId) throw new Error(msg('게시된 대상만 삭제할 수 있습니다 (지금: {state})', { state: t.state }));
   const provider = providers.get(t.platform);
-  if (!provider?.remove) throw new Error(`${provider?.displayName ?? t.platform}는 API로 삭제할 수 없습니다. 앱에서 직접 지우세요`);
+  if (!provider?.remove) throw new Error(msg('{provider}는 API로 삭제할 수 없습니다. 앱에서 직접 지우세요', { provider: provider?.displayName ?? t.platform }));
   let account = ctx.store.getAccount(t.platform, t.account);
-  if (!account) throw new Error(`연결된 계정이 없습니다: ${t.platform}/${t.account}`);
+  if (!account) throw new Error(msg('연결된 계정이 없습니다: {platform}/{account}', { platform: t.platform, account: t.account }));
   account = await provider.refresh(ctx, account);
   await provider.remove({ ctx, account, target: { ...t, remoteId: t.remoteId } });
   return ctx.store.transition(t.id, 'removed', {}, 'removed by user');
@@ -344,8 +345,8 @@ export async function editPost(
 ): Promise<EditResult[]> {
   const ctx = withTimeout(baseCtx);
   const current = ctx.store.getPost(postId);
-  if (!current) throw new Error(`게시물 없음: ${postId}`);
-  if (patch.title !== undefined && !patch.title.trim()) throw new Error('제목이 비어 있습니다');
+  if (!current) throw new Error(msg('게시물 없음: {postId}', { postId }));
+  if (patch.title !== undefined && !patch.title.trim()) throw new Error(msg('제목이 비어 있습니다'));
   const post = ctx.store.updatePost(postId, patch);
   const out: EditResult[] = [];
   for (const t of ctx.store.targetsForPost(postId)) {
@@ -355,26 +356,26 @@ export async function editPost(
       // A queued target that already started uploading (resume data) keeps the text it started with.
       const fresh = (t.state === 'queued' || t.state === 'transcoding') && !t.resume;
       const detail = isTerminal(t.state)
-        ? `${t.state} 상태라 고치지 않았습니다`
+        ? msg('{state} 상태라 고치지 않았습니다', { state: t.state })
         : fresh
-          ? '아직 올리기 전이라 바뀐 내용으로 올라갑니다'
-          : '올리는 중이라 반영되지 않았습니다. 게시된 뒤 다시 수정하세요';
+          ? msg('아직 올리기 전이라 바뀐 내용으로 올라갑니다')
+          : msg('올리는 중이라 반영되지 않았습니다. 게시된 뒤 다시 수정하세요');
       out.push({ ...base, status: 'skipped', detail });
       continue;
     }
     if (!provider?.update) {
-      out.push({ ...base, status: 'skipped', detail: `${provider?.displayName ?? t.platform}는 API로 게시물을 고칠 수 없습니다` });
+      out.push({ ...base, status: 'skipped', detail: msg('{provider}는 API로 게시물을 고칠 수 없습니다', { provider: provider?.displayName ?? t.platform }) });
       continue;
     }
     // Posted with its own caption/text: the title/description edit wouldn't change what it shows.
     const own = t.options.caption ?? t.options.text;
     if (typeof own === 'string' && own.trim()) {
-      out.push({ ...base, status: 'skipped', detail: '이 대상은 플랫폼별 글(caption/text)을 따로 지정해 올려서 바꾸지 않았습니다' });
+      out.push({ ...base, status: 'skipped', detail: msg('이 대상은 플랫폼별 글(caption/text)을 따로 지정해 올려서 바꾸지 않았습니다') });
       continue;
     }
     try {
       let account = ctx.store.getAccount(t.platform, t.account);
-      if (!account) throw new Error('연결된 계정이 없습니다');
+      if (!account) throw new Error(msg('연결된 계정이 없습니다'));
       account = await provider.refresh(ctx, account);
       await provider.update({ ctx, account, target: { ...t, remoteId: t.remoteId }, post });
       out.push({ ...base, status: 'updated' });
@@ -412,16 +413,16 @@ export async function fetchComments(baseCtx: ProviderContext, providers: Map<str
     const base = { targetId: t.id, platform: t.platform, account: t.account };
     const provider = providers.get(t.platform);
     if (t.state !== 'published' || !t.remoteId) {
-      out.push({ ...base, skipped: t.state === 'removed' ? '플랫폼에서 삭제했습니다' : '게시된 대상이 아닙니다' });
+      out.push({ ...base, skipped: t.state === 'removed' ? msg('플랫폼에서 삭제했습니다') : msg('게시된 대상이 아닙니다') });
       continue;
     }
     if (!provider?.comments) {
-      out.push({ ...base, skipped: `${provider?.displayName ?? t.platform} 댓글은 아직 가져올 수 없습니다` });
+      out.push({ ...base, skipped: msg('{provider} 댓글은 아직 가져올 수 없습니다', { provider: provider?.displayName ?? t.platform }) });
       continue;
     }
     try {
       let account = ctx.store.getAccount(t.platform, t.account);
-      if (!account) throw new Error('연결된 계정이 없습니다');
+      if (!account) throw new Error(msg('연결된 계정이 없습니다'));
       account = await provider.refresh(ctx, account);
       out.push({ ...base, comments: await provider.comments({ ctx, account, target: { ...t, remoteId: t.remoteId }, limit }), canReply: Boolean(provider.reply) });
     } catch (err) {
@@ -449,28 +450,28 @@ export async function replyToComment(
 ): Promise<{ id: string; url?: string }> {
   const ctx = withTimeout(baseCtx);
   const t = ctx.store.getTarget(targetId);
-  if (!t) throw new Error(`대상 없음: ${targetId}`);
-  if (t.state !== 'published' || !t.remoteId) throw new Error('게시된 대상의 댓글에만 답글을 달 수 있습니다');
+  if (!t) throw new Error(msg('대상 없음: {targetId}', { targetId }));
+  if (t.state !== 'published' || !t.remoteId) throw new Error(msg('게시된 대상의 댓글에만 답글을 달 수 있습니다'));
   const provider = providers.get(t.platform);
-  if (!provider?.reply || !provider.comments) throw new Error(`${provider?.displayName ?? t.platform}에는 아직 답글을 달 수 없습니다`);
+  if (!provider?.reply || !provider.comments) throw new Error(msg('{provider}에는 아직 답글을 달 수 없습니다', { provider: provider?.displayName ?? t.platform }));
   const body = text.trim();
-  if (!body) throw new Error('답글 내용을 입력하세요');
-  if (body.length > REPLY_MAX_CHARS) throw new Error(`답글은 ${REPLY_MAX_CHARS}자 이하로 써 주세요`);
+  if (!body) throw new Error(msg('답글 내용을 입력하세요'));
+  if (body.length > REPLY_MAX_CHARS) throw new Error(msg('답글은 {REPLY_MAX_CHARS}자 이하로 써 주세요', { REPLY_MAX_CHARS }));
   let account = ctx.store.getAccount(t.platform, t.account);
-  if (!account) throw new Error(`연결된 계정이 없습니다: ${t.platform}/${t.account}`);
+  if (!account) throw new Error(msg('연결된 계정이 없습니다: {platform}/{account}', { platform: t.platform, account: t.account }));
   account = await provider.refresh(ctx, account);
   const target = { ...t, remoteId: t.remoteId };
   const comment = (await provider.comments({ ctx, account, target, limit: REPLY_LOOKBACK })).find((c) => c.id === commentId);
-  if (!comment) throw new Error('이 게시물의 최근 댓글 중에 그 댓글이 없습니다. 댓글을 다시 불러온 뒤 시도하세요');
+  if (!comment) throw new Error(msg('이 게시물의 최근 댓글 중에 그 댓글이 없습니다. 댓글을 다시 불러온 뒤 시도하세요'));
   let sent = false;
   try {
     const out = await provider.reply({ ctx, account, target, comment, text: body, sending: () => (sent = true) });
-    ctx.log.info(`${t.platform}/${t.account}: 댓글 ${commentId}에 답글 ${out.id}`);
+    ctx.log.info(msg('{platform}/{account}: 댓글 {commentId}에 답글 {id}', { platform: t.platform, account: t.account, commentId, id: out.id }));
     return out;
   } catch (err) {
     // A refusal is final and nothing was posted; anything else (timeout, 5xx) may have gone through.
     if (!sent || (err instanceof ProviderError && (err.kind === 'rejected' || err.kind === 'auth'))) throw err;
-    throw new Error(`답글 응답을 받지 못했습니다(${err instanceof Error ? err.message : String(err)}). 이미 달렸을 수 있으니 댓글을 다시 불러와 확인한 뒤 필요하면 다시 쓰세요`);
+    throw new Error(msg('답글 응답을 받지 못했습니다({err}). 이미 달렸을 수 있으니 댓글을 다시 불러와 확인한 뒤 필요하면 다시 쓰세요', { err: err instanceof Error ? err.message : String(err) }));
   }
 }
 
@@ -479,10 +480,10 @@ const REMOTE_PROGRESS_KEYS = ['posting', 'sessionUri', 'videoId', 'finalSent', '
 
 /** Why this not-yet-published target might still be (or become) live on the platform, if it might. */
 export function mayBeLive(t: Target): string | undefined {
-  if (t.errorCode && /maybe_posted|media_attached|processing_timeout/.test(t.errorCode)) return `"${t.errorCode}"로 멈췄습니다`;
-  if (t.remoteId) return '플랫폼에 이미 만들어진 항목이 있습니다';
+  if (t.errorCode && /maybe_posted|media_attached|processing_timeout/.test(t.errorCode)) return msg('"{errorCode}"로 멈췄습니다', { errorCode: t.errorCode });
+  if (t.remoteId) return msg('플랫폼에 이미 만들어진 항목이 있습니다');
   const keys = Object.keys(t.resume ?? {}).filter((k) => REMOTE_PROGRESS_KEYS.includes(k));
-  if (keys.length) return `업로드가 중간까지 진행됐습니다 (${keys.join(', ')})`;
+  if (keys.length) return msg('업로드가 중간까지 진행됐습니다 ({keys})', { keys: keys.join(', ') });
   return undefined;
 }
 
@@ -490,8 +491,11 @@ export class MaybeLiveError extends Error {
   readonly code = 'maybe_live';
   constructor(t: Target, reason: string) {
     super(
-      `${t.platform}/${t.account}: ${reason}. 이미 게시됐거나 나중에 게시될 수 있습니다. ` +
-        '플랫폼에서 올라가지 않은 것을 확인한 뒤에만 취소하세요. 취소하면 다시 시도하거나 삭제할 수 없습니다',
+      msg('{platform}/{account}: {reason}. 이미 게시됐거나 나중에 게시될 수 있습니다. 플랫폼에서 올라가지 않은 것을 확인한 뒤에만 취소하세요. 취소하면 다시 시도하거나 삭제할 수 없습니다', {
+        platform: t.platform,
+        account: t.account,
+        reason,
+      }),
     );
   }
 }
@@ -502,9 +506,9 @@ export class MaybeLiveError extends Error {
  */
 export function cancelTarget(store: Store, id: string, opts: { confirmedNotPosted?: boolean } = {}): Target {
   const t = store.getTarget(id);
-  if (!t) throw new Error(`대상 없음: ${id}`);
+  if (!t) throw new Error(msg('대상 없음: {id}', { id }));
   if (!['queued', 'failed', 'needs_reauth'].includes(t.state)) {
-    throw new Error(t.state === 'published' ? '이미 게시됐습니다. 지우려면 삭제를 쓰세요' : `${t.state} 상태는 취소할 수 없습니다`);
+    throw new Error(t.state === 'published' ? msg('이미 게시됐습니다. 지우려면 삭제를 쓰세요') : msg('{state} 상태는 취소할 수 없습니다', { state: t.state }));
   }
   // Canceled targets can't be retried or removed and stop counting as posted, so a target that may
   // already be on the platform is only canceled once the user has looked and vouched it isn't.
@@ -512,7 +516,7 @@ export function cancelTarget(store: Store, id: string, opts: { confirmedNotPoste
   if (live && !opts.confirmedNotPosted) throw new MaybeLiveError(t, live);
   // Take the target's lease so no worker can start uploading it between this check and the change.
   const owner = `cancel:${randomUUID()}`;
-  if (!store.claim(id, owner, 30_000, isStaleOwner)) throw new Error('지금 처리 중이라 취소할 수 없습니다. 잠시 뒤 다시 시도하세요');
+  if (!store.claim(id, owner, 30_000, isStaleOwner)) throw new Error(msg('지금 처리 중이라 취소할 수 없습니다. 잠시 뒤 다시 시도하세요'));
   try {
     return store.transition(id, 'canceled', { notBefore: undefined }, 'canceled by user');
   } finally {

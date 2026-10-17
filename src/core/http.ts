@@ -5,6 +5,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { extname } from 'node:path';
 import { ProviderError, kindForStatus } from './errors.ts';
+import { msg } from './i18n.ts';
 
 /** Read a JSON body; turn non-2xx into ProviderError using `describe` to extract platform codes. */
 export async function jsonOrThrow<T>(
@@ -63,7 +64,7 @@ export async function startLoopback(port = 0, path = '/callback', host = '127.0.
       return;
     }
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    res.end('<p>fanout: 인증이 끝났습니다. 이 창을 닫고 터미널로 돌아가세요.</p>');
+    res.end(msg('<p>fanout: 인증이 끝났습니다. 이 창을 닫고 터미널로 돌아가세요.</p>'));
     resolve(url.searchParams);
   });
   await new Promise<void>((r) => server.listen(port, host, r));

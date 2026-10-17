@@ -37,7 +37,8 @@ function h(tag, attrs = {}, ...children) {
 async function api(path, opts = {}) {
   const res = await fetch(`/api${path}`, {
     ...opts,
-    headers: { 'x-fanout-token': token, ...(opts.body && !(opts.body instanceof Blob) ? { 'content-type': 'application/json' } : {}), ...opts.headers },
+    // x-fanout-lang: the server translates its own messages (errors, warnings, guides) too.
+    headers: { 'x-fanout-token': token, 'x-fanout-lang': LANG, ...(opts.body && !(opts.body instanceof Blob) ? { 'content-type': 'application/json' } : {}), ...opts.headers },
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { body });
@@ -534,6 +535,7 @@ function uploadFile(file) {
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/media');
   xhr.setRequestHeader('x-fanout-token', token);
+  xhr.setRequestHeader('x-fanout-lang', LANG);
   xhr.setRequestHeader('x-filename', encodeURIComponent(file.name));
   xhr.upload.onprogress = (e) => e.lengthComputable && (bar.value = e.loaded / e.total);
   xhr.onload = () => {
@@ -583,7 +585,7 @@ $('#add-caption').addEventListener('click', () => addCaptionRow($('#captions').c
 async function uploadAsset(kind, file) {
   const res = await fetch(`/api/assets/${kind}`, {
     method: 'POST',
-    headers: { 'x-fanout-token': token, 'x-filename': encodeURIComponent(file.name) },
+    headers: { 'x-fanout-token': token, 'x-fanout-lang': LANG, 'x-filename': encodeURIComponent(file.name) },
     body: file,
   });
   const body = await res.json().catch(() => ({}));

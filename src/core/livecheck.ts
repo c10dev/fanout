@@ -7,6 +7,7 @@ import { sleep } from './http.ts';
 import { makeTestClip, probe } from './media.ts';
 import type { DoctorCheck, Provider, ProviderContext, PublishOutcome } from './provider.ts';
 import { Store, type Account } from './store.ts';
+import { msg } from './i18n.ts';
 
 export interface LiveCheckOptions {
   /** Target options for a post nobody else can see (private, direct, …). */
@@ -30,7 +31,7 @@ export async function liveRoundTrip(ctx: ProviderContext, provider: Provider, ac
   scratch.saveAccount(account);
   let remoteId: string | undefined;
   let removed = false;
-  let step = '테스트 업로드';
+  let step = msg('테스트 업로드');
   let url: string | undefined;
   try {
     await makeTestClip(clip);
@@ -38,8 +39,8 @@ export async function liveRoundTrip(ctx: ProviderContext, provider: Provider, ac
     const { post, targets } = scratch.createPost(
       {
         mediaPath: clip,
-        title: 'fanout doctor test (자동 삭제)',
-        description: 'fanout doctor --live 가 업로드 동작을 확인하려고 올린 테스트 영상입니다.',
+        title: msg('fanout doctor test (자동 삭제)'),
+        description: msg('fanout doctor --live 가 업로드 동작을 확인하려고 올린 테스트 영상입니다.'),
         tags: [],
         captions: [],
         containsSyntheticMedia: false,
@@ -53,8 +54,8 @@ export async function liveRoundTrip(ctx: ProviderContext, provider: Provider, ac
     let out: PublishOutcome = await provider.publish({ ctx: sctx, post, target: current(), account: acct(), mediaPath: clip, media, saveResume: (r) => scratch.updateTarget(id, { resume: r }) });
     remoteId = out.remoteId;
     url = out.remoteUrl;
-    checks.push({ name: '테스트 업로드', status: 'ok', detail: `올림 (${out.remoteUrl ?? out.remoteId})` });
-    step = '처리·게시';
+    checks.push({ name: msg('테스트 업로드'), status: 'ok', detail: msg('올림 ({out})', { out: out.remoteUrl ?? out.remoteId }) });
+    step = msg('처리·게시');
     scratch.transition(id, 'processing', { remoteId: out.remoteId, remoteUrl: out.remoteUrl });
     const deadline = Date.now() + (opts.timeoutMs ?? 180_000);
     while (out.state === 'processing' && Date.now() < deadline) {
@@ -67,22 +68,22 @@ export async function liveRoundTrip(ctx: ProviderContext, provider: Provider, ac
     }
     checks.push(
       out.state === 'published'
-        ? { name: '처리·게시', status: 'ok', detail: `게시됨 ${url ?? ''}`.trim() }
-        : { name: '처리·게시', status: 'warn', detail: `제한 시간 안에 처리가 끝나지 않았습니다 (${out.state})` },
+        ? { name: msg('처리·게시'), status: 'ok', detail: msg('게시됨 {url}', { url: url ?? '' }).trim() }
+        : { name: msg('처리·게시'), status: 'warn', detail: msg('제한 시간 안에 처리가 끝나지 않았습니다 ({state})', { state: out.state }) },
     );
     if (out.state === 'published' && provider.remove) {
       scratch.transition(id, 'published', { remoteId: out.remoteId, remoteUrl: out.remoteUrl });
-      step = '테스트 게시물 삭제';
+      step = msg('테스트 게시물 삭제');
       const t = current();
       await provider.remove({ ctx: sctx, account: acct(), target: { ...t, remoteId: out.remoteId } });
       removed = true;
-      checks.push({ name: '테스트 게시물 삭제', status: 'ok', detail: '삭제함' });
+      checks.push({ name: msg('테스트 게시물 삭제'), status: 'ok', detail: msg('삭제함') });
     }
   } catch (err) {
     checks.push({ name: step, status: 'fail', detail: err instanceof Error ? err.message : String(err) });
   } finally {
     if (remoteId && !removed) {
-      checks.push({ name: '테스트 게시물 삭제', status: 'warn', detail: `지우지 못했습니다. 직접 지워 주세요: ${url ?? remoteId}` });
+      checks.push({ name: msg('테스트 게시물 삭제'), status: 'warn', detail: msg('지우지 못했습니다. 직접 지워 주세요: {url}', { url: url ?? remoteId }) });
     }
     // A token refreshed (and the old one revoked) during the check must not be lost.
     const after = scratch.getAccount(provider.id, account.name);

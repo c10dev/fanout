@@ -7,6 +7,7 @@ import type { Provider, ProviderContext, PublishOutcome } from './provider.ts';
 import { withTimeout } from './posting.ts';
 import { isTerminal } from './state.ts';
 import type { Target } from './types.ts';
+import { msg } from './i18n.ts';
 
 export const MAX_ATTEMPTS = 4;
 /** Renewed every RENEW_MS while a step runs, so it only matters when the holder died or stalled. */
@@ -72,7 +73,7 @@ function stillOwner(deps: RunnerDeps, targetId: string): boolean {
   const holder = deps.ctx.store.leaseHolder(targetId);
   const owner = deps.owner ?? PROCESS_OWNER;
   if (holder === undefined || holder === owner) return true;
-  deps.ctx.log.warn(`작업 잠금을 잃었습니다 (${holder}). 이 대상의 상태는 그 프로세스가 기록합니다`);
+  deps.ctx.log.warn(msg('작업 잠금을 잃었습니다 ({holder}). 이 대상의 상태는 그 프로세스가 기록합니다', { holder }));
   return false;
 }
 
@@ -84,13 +85,13 @@ async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> 
   const post = store.getPost(target.postId)!;
   const provider = providers.get(target.platform);
   if (!provider) {
-    return store.transition(target.id, 'failed', { errorCode: 'unknown_platform', errorMessage: `지원하지 않는 플랫폼: ${target.platform}` });
+    return store.transition(target.id, 'failed', { errorCode: 'unknown_platform', errorMessage: msg('지원하지 않는 플랫폼: {platform}', { platform: target.platform }) });
   }
   let account = store.getAccount(target.platform, target.account);
   if (!account) {
     return store.transition(target.id, 'needs_reauth', {
       errorCode: 'account_missing',
-      errorMessage: `연결된 계정 없음: ${target.platform}/${target.account} — fanout connect ${target.platform} 실행`,
+      errorMessage: msg('연결된 계정 없음: {platform}/{account} — fanout connect {platform} 실행', { platform: target.platform, account: target.account }),
     });
   }
 
@@ -100,7 +101,7 @@ async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> 
       const since = store.stateSince(target.id, 'processing');
       if (since && ctx.now().getTime() - since.getTime() > PROCESSING_MAX_MS) {
         // The remote object may still finish later, so keep its ids: starting over could post twice.
-        throw new ProviderError('rejected', 'processing_timeout', `플랫폼 처리가 ${PROCESSING_MAX_MS / 3600_000}시간 넘게 끝나지 않았습니다. 플랫폼에서 직접 확인하세요`, undefined, { keepResume: true });
+        throw new ProviderError('rejected', 'processing_timeout', msg('플랫폼 처리가 {PROCESSING_MAX_MS}시간 넘게 끝나지 않았습니다. 플랫폼에서 직접 확인하세요', { PROCESSING_MAX_MS: PROCESSING_MAX_MS / 3600_000 }), undefined, { keepResume: true });
       }
       // Status checks are short calls: give them a deadline so a silent platform can't hold the loop.
       const pollCtx = withTimeout(ctx, POLL_TIMEOUT_MS);
@@ -135,7 +136,7 @@ async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> 
       if (variant.transcoded) {
         mediaPath = variant.path;
         uploadMedia = await probeFn(variant.path);
-        if (target.state === 'transcoding') ctx.log.info(`트랜스코딩: ${variant.reasons.join(', ')}`);
+        if (target.state === 'transcoding') ctx.log.info(msg('트랜스코딩: {variant}', { variant: variant.reasons.join(', ') }));
       }
     }
 
@@ -183,14 +184,14 @@ function handleError(deps: RunnerDeps, targetId: string, err: unknown): Target {
   if (pe.kind === 'retryable') {
     if (target.state === 'processing') {
       // The upload already landed; keep polling instead of re-uploading.
-      log.warn(`${target.platform}: 상태 조회 실패, 다음에 다시 확인 — ${pe.message}`);
+      log.warn(msg('{platform}: 상태 조회 실패, 다음에 다시 확인 — {message}', { platform: target.platform, message: pe.message }));
       return store.updateTarget(target.id, fields);
     }
     // Entering `uploading` already counted this attempt; failures before that (probe, transcode) count here.
     const attempts = target.state === 'uploading' ? target.attempts : target.attempts + 1;
     if (attempts < MAX_ATTEMPTS) {
       const notBefore = new Date(deps.ctx.now().getTime() + backoffMs(attempts)).toISOString();
-      log.warn(`${target.platform}: ${pe.message} — ${notBefore}에 재시도`);
+      log.warn(msg('{platform}: {message} — {notBefore}에 재시도', { platform: target.platform, message: pe.message, notBefore }));
       if (target.state === 'queued') return store.updateTarget(target.id, { ...fields, attempts, notBefore });
       return store.transition(target.id, 'queued', { ...fields, attempts, notBefore }, pe.code);
     }
