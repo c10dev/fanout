@@ -204,3 +204,10 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .connect { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 4px 14px; align-items: end; }
 .redirect { font-size: 13px; color: var(--muted); margin: 10px 0 0; overflow-wrap: anywhere; }
 .redirect code { color: var(--text); background: var(--bg); padding: 1px 6px; border-radius: 4px; user-select: all; }
+
+.extras { margin-top: 14px; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; }
+.extras summary { font-size: 14px; color: var(--text); }
+.extras .field input[type=file] { padding: 6px; }
+.caption-rows { display: flex; flex-direction: column; gap: 8px; margin: 10px 0; }
+.caption-row { display: grid; grid-template-columns: 6em minmax(0, 1fr) auto; gap: 8px; align-items: center; }
+.caption-row input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; min-width: 0; }

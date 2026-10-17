@@ -301,6 +301,31 @@ drop.addEventListener('dragover', () => drop.classList.add('over'));
 drop.addEventListener('dragleave', () => drop.classList.remove('over'));
 drop.addEventListener('drop', () => drop.classList.remove('over'));
 
+// ── Thumbnail and captions ───────────────────────────────────────
+
+function addCaptionRow(language = 'ko') {
+  const row = h(
+    'div',
+    { class: 'caption-row' },
+    h('input', { name: 'language', value: language, 'aria-label': '자막 언어 코드', placeholder: 'ko' }),
+    h('input', { type: 'file', name: 'file', accept: '.srt,.vtt,.sbv,.scc,.ttml,.dfxp', 'aria-label': '자막 파일' }),
+    h('button', { type: 'button', class: 'small', onclick: () => row.remove() }, '빼기'),
+  );
+  $('#captions').append(row);
+}
+$('#add-caption').addEventListener('click', () => addCaptionRow($('#captions').children.length ? '' : 'ko'));
+
+async function uploadAsset(kind, file) {
+  const res = await fetch(`/api/assets/${kind}`, {
+    method: 'POST',
+    headers: { 'x-fanout-token': token, 'x-filename': encodeURIComponent(file.name) },
+    body: file,
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
+  return body.id;
+}
+
 // ── Submit ───────────────────────────────────────────────────────
 
 $('#post-form').addEventListener('submit', async (e) => {
@@ -320,6 +345,15 @@ $('#post-form').addEventListener('submit', async (e) => {
   }
   if (!targets.length) errors.push('올릴 곳을 하나 이상 고르세요');
   const scheduled = $('#scheduled').value;
+  const thumbnail = $('#thumbnail').files[0];
+  if (thumbnail && thumbnail.size > 2 * 1024 * 1024) errors.push('썸네일은 2MB 이하여야 합니다');
+  const captionRows = [...document.querySelectorAll('.caption-row')]
+    .map((r) => ({ language: r.querySelector('[name="language"]').value.trim(), file: r.querySelector('[name="file"]').files[0] }))
+    .filter((c) => c.file || c.language);
+  for (const c of captionRows) if (!c.file || !c.language) errors.push('자막은 언어 코드와 파일을 모두 넣어 주세요');
+  if ((thumbnail || captionRows.length) && !targets.some((t) => t.platform === 'youtube')) {
+    errors.push('썸네일·자막은 지금 YouTube에만 적용됩니다. YouTube를 고르거나 비워 주세요');
+  }
   if (errors.length) {
     $('#form-error').textContent = errors.join('\n');
     return;
@@ -328,6 +362,9 @@ $('#post-form').addEventListener('submit', async (e) => {
   const button = $('#submit');
   button.disabled = true;
   try {
+    const thumbnailId = thumbnail ? await uploadAsset('thumbnail', thumbnail) : undefined;
+    const captions = [];
+    for (const c of captionRows) captions.push({ language: c.language, assetId: await uploadAsset('caption', c.file) });
     await api('/posts', {
       method: 'POST',
       body: JSON.stringify({
@@ -338,9 +375,12 @@ $('#post-form').addEventListener('submit', async (e) => {
         scheduledAt: scheduled ? new Date(scheduled).toISOString() : undefined,
         containsSyntheticMedia: $('#ai').checked,
         targets,
+        thumbnailId,
+        captions,
       }),
     });
     $('#post-form').reset();
+    $('#captions').replaceChildren();
     $('#drop-label').textContent = '영상 파일을 고르거나 여기에 끌어다 놓으세요';
     $('#form-error').textContent = '';
     media = null;
@@ -427,7 +467,7 @@ function postCard({ post, targets }) {
   return h(
     'article',
     { class: 'post' },
-    h('div', { class: 'post-head' }, h('span', { class: 'post-title' }, post.title), h('span', { class: 'muted' }, `${fmtTime(post.createdAt)}${post.scheduledAt ? ` · 예약 ${fmtTime(post.scheduledAt)}` : ''}`)),
+    h('div', { class: 'post-head' }, h('span', { class: 'post-title' }, post.title), h('span', { class: 'muted' }, [fmtTime(post.createdAt), post.scheduledAt && `예약 ${fmtTime(post.scheduledAt)}`, post.hasThumbnail && '썸네일', post.captionLanguages?.length && `자막 ${post.captionLanguages.join(', ')}`].filter(Boolean).join(' · '))),
     targets.map(targetRow),
     history,
   );

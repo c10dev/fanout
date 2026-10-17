@@ -69,6 +69,16 @@ describe('prune', () => {
     assert.ok(existsSync(variant));
   });
 
+  it('treats a pending post\'s thumbnail and captions as in use', () => {
+    const { store, home } = makeCtx(undefined, () => NOW);
+    const media = join(home, 'media');
+    const video = file(media, 'v.mp4', 5);
+    const thumb = file(media, 't.png', 5);
+    const sub = file(media, 'ko.srt', 5);
+    store.createPost({ ...post(video), thumbnailPath: thumb, captions: [{ language: 'ko', path: sub }] }, [{ platform: 'youtube', account: 'main', options: {} }]);
+    assert.deepEqual(planPrune(home, store, { days: 7, now: NOW }), []);
+  });
+
   it('never looks outside the fanout home', () => {
     const { store, home } = makeCtx(undefined, () => NOW);
     const outside = file(join(home, '..', `watch-${Date.now()}`, 'posted'), 'clip.mp4', 100);
