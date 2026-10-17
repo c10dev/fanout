@@ -28,6 +28,17 @@
 | Mastodon | | ✓ | ✓ | ✓ | |
 | TikTok | | | | | `video.list` 권한이 필요해 아직 지원하지 않음. 수신함으로 넘긴 게시물은 id도 모름 |
 
+## 게시 후 수정
+
+`fanout edit <postId> --title … --description … --tags …`, 대시보드 "수정", MCP `update_post`로 고칩니다.
+
+| 플랫폼 | 수정 | 방법 |
+|---|---|---|
+| YouTube | 제목·설명·태그 | `videos.update`(기존 카테고리·언어 유지) |
+| Facebook | 설명 | `POST /{video-id}` |
+| Mastodon | 글 | `PUT /api/v1/statuses/:id`(영상은 그대로) |
+| X, Bluesky, Instagram, TikTok | | API로 고칠 수 없음 |
+
 ## 삭제
 
 `fanout remove <postId> <platform>`이나 대시보드의 삭제 버튼으로 게시물을 플랫폼에서 지울 수 있습니다. 대상은 "삭제됨"(`removed`)으로 남고, 같은 영상을 다시 올려도 중복 경고를 하지 않습니다. MCP에는 일부러 넣지 않았습니다.

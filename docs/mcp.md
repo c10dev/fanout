@@ -22,6 +22,7 @@ claude mcp add fanout -- fanout mcp
 | `create_post` | 게시물을 만들고 업로드 시작. 막히는 문제가 있으면 만들지 않음 |
 | `get_post_status` | 플랫폼별 상태, 링크, 오류 |
 | `get_post_stats` | 게시된 대상의 조회·좋아요·댓글·공유. 요금이 드는 X는 `includePaid`일 때만 |
+| `update_post` | 제목·설명·태그를 바꾸고 YouTube·Facebook·Mastodon에 반영. 사용자 확인 후 호출하도록 설명에 적어 둠 |
 | `retry_target` | 실패했거나 재연결이 필요한 대상을 다시 시도. "이미 게시됐을 수 있음"으로 멈춘 대상은 사용자가 확인했다는 `confirmedNotPosted: true` 없이는 거부 |
 
 `create_post`는 실제 계정에 게시합니다. 도구 설명과 서버 안내문에 "`preview_post` 결과를 사용자에게 보여주고 승인받은 뒤 호출하라"고 적어 두었고, 읽기 전용 도구에는 `readOnlyHint`를 붙였습니다. 앱 등록과 계정 연결은 MCP로 하지 않고 대시보드나 CLI에서 합니다.

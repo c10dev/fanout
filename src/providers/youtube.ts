@@ -686,4 +686,18 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     if (res.ok || res.status === 404) return;
     throw await uploadError(res);
   },
+
+  // videos.update replaces the whole snippet, so start from the current one (title and categoryId are
+  // required) and change only what fanout owns.
+  async update({ ctx, account, target, post }) {
+    const res = await api<{ items?: Array<{ snippet: Record<string, unknown> }> }>(ctx, account, `/videos?part=snippet&id=${target.remoteId}`);
+    const snippet = res.items?.[0]?.snippet;
+    if (!snippet) throw new ProviderError('rejected', 'youtube.not_found', '영상을 찾을 수 없습니다');
+    const { title, description, tags, categoryId, defaultLanguage } = { ...snippet, title: post.title, description: post.description, tags: post.tags } as Record<string, unknown>;
+    await api(ctx, account, '/videos?part=snippet', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: target.remoteId, snippet: { title, description, tags, categoryId, ...(defaultLanguage ? { defaultLanguage } : {}) } }),
+    });
+  },
 };

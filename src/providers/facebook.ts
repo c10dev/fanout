@@ -175,4 +175,12 @@ export const facebook: Provider = {
       throw err;
     }
   },
+
+  async update({ ctx, account, target, post }) {
+    const c = pageCreds(account);
+    await graph<{ success?: boolean }>(ctx, 'POST', `/${target.remoteId}`, {
+      description: metaCaption(post, (target.options as FacebookOptions).caption),
+      access_token: c.pageToken,
+    });
+  },
 };

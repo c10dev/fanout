@@ -583,6 +583,51 @@ async function fillHistory(details, postId) {
   }
 }
 
+/** Post id whose edit form is open; the board doesn't re-render under it. */
+let editingPost = null;
+
+function editForm(post, card) {
+  const status = h('div', { class: 'msg' });
+  const title = h('input', { name: 'title', value: post.title, maxlength: 100, autocomplete: 'off' });
+  const description = h('textarea', { name: 'description', rows: 3 }, post.description ?? '');
+  const tags = h('input', { name: 'tags', value: (post.tags ?? []).join(', '), autocomplete: 'off' });
+  const close = () => {
+    editingPost = null;
+    refreshBoard();
+  };
+  return h(
+    'form',
+    {
+      class: 'edit-form',
+      onsubmit: async (e) => {
+        e.preventDefault();
+        const save = e.target.querySelector('[type="submit"]');
+        save.disabled = true;
+        try {
+          const { results } = await api(`/posts/${post.id}/edit`, {
+            method: 'POST',
+            body: JSON.stringify({ title: title.value, description: description.value, tags: tags.value.split(',').map((t) => t.trim()).filter(Boolean) }),
+          });
+          const icon = { updated: '✓', skipped: '·', failed: '✗' };
+          status.replaceChildren(
+            ...results.map((r) => h('div', { class: r.status === 'failed' ? 'err' : r.status === 'updated' ? 'okline' : 'muted' }, `${icon[r.status]} ${r.platform}/${r.account} ${r.status === 'updated' ? '반영함' : (r.detail ?? '')}`)),
+          );
+        } catch (err) {
+          message(status, err.message, false);
+        } finally {
+          save.disabled = false;
+        }
+      },
+    },
+    h('label', { class: 'field' }, '제목', title),
+    h('label', { class: 'field' }, '설명', description),
+    h('label', { class: 'field' }, '태그', tags),
+    h('p', { class: 'note' }, 'YouTube·Facebook·Mastodon에 게시된 글에 반영됩니다. 다른 플랫폼은 API로 고칠 수 없습니다.'),
+    h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'submit' }, '수정 반영'), h('button', { class: 'small', type: 'button', onclick: close }, '닫기')),
+    status,
+  );
+}
+
 function postCard({ post, targets }) {
   const wasOpen = openHistory.has(post.id);
   // Show the cached list at once so a re-render doesn't flicker; the toggle handler then refreshes it.
@@ -613,12 +658,29 @@ function postCard({ post, targets }) {
         '반응 새로고침',
       )
     : null;
+  const editable = targets.some((t) => t.state !== 'failed' && t.state !== 'removed');
+  const editButton = editable
+    ? h(
+        'button',
+        {
+          class: 'small',
+          type: 'button',
+          onclick: (e) => {
+            editingPost = post.id;
+            const card = e.target.closest('.post');
+            card.querySelector('.edit-form')?.remove();
+            card.append(editForm(post, card));
+          },
+        },
+        '수정',
+      )
+    : null;
   return h(
     'article',
-    { class: 'post' },
+    { class: 'post', 'data-post': post.id },
     h('div', { class: 'post-head' }, h('span', { class: 'post-title' }, post.title), h('span', { class: 'muted' }, [fmtTime(post.createdAt), post.scheduledAt && `예약 ${fmtTime(post.scheduledAt)}`, post.hasThumbnail && '썸네일', post.captionLanguages?.length && `자막 ${post.captionLanguages.join(', ')}`].filter(Boolean).join(' · '))),
     targets.map(targetRow),
-    h('div', { class: 'post-foot' }, history, refreshStats),
+    h('div', { class: 'post-foot' }, history, h('div', { class: 'actions-inline' }, editButton, refreshStats)),
   );
 }
 
@@ -628,6 +690,11 @@ async function refreshBoard() {
   let active = false;
   try {
     const posts = await api('/posts?limit=30');
+    // Don't wipe an edit form the user is typing in; refresh once it's closed.
+    if (editingPost) {
+      boardTimer = setTimeout(refreshBoard, 3000);
+      return;
+    }
     $('#board').replaceChildren(...(posts.length ? posts.map(postCard) : [h('p', { class: 'empty' }, '아직 게시물이 없습니다')]));
     active = posts.some((p) => p.targets.some((t) => !t.terminal));
     $('#board-updated').textContent = `${new Date().toLocaleTimeString('ko-KR')} 갱신`;

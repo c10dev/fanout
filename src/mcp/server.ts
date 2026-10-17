@@ -3,7 +3,7 @@ import { extname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, refreshStats, retryTarget, type TargetPreview } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, createScheduledPost, editPost, previewPost, refreshStats, retryTarget, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
 import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
@@ -124,6 +124,19 @@ const TOOLS = [
       'Platforms that bill for reads (X) are skipped unless includePaid is true — ask the user before setting it.',
     inputSchema: { type: 'object', required: ['postId'], properties: { postId: { type: 'string' }, includePaid: { type: 'boolean' } } },
     annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  {
+    name: 'update_post',
+    title: 'Edit a post\'s title, description or tags',
+    description:
+      'Change the title/description/tags and apply them to published posts where the platform allows editing (YouTube, Facebook, Mastodon). ' +
+      'This changes live posts — confirm the new text with the user first.',
+    inputSchema: {
+      type: 'object',
+      required: ['postId'],
+      properties: { postId: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } } },
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
   {
     name: 'retry_target',
@@ -261,6 +274,21 @@ export class McpServer {
             targets: store.targetsForPost(p.id).map(publicTarget),
           })),
         };
+      }
+      case 'update_post': {
+        const p = store.findPost(String(args.postId ?? ''));
+        if (!p) throw new ToolError(`게시물 없음: ${String(args.postId)}`);
+        const patch = {
+          ...(typeof args.title === 'string' ? { title: args.title } : {}),
+          ...(typeof args.description === 'string' ? { description: args.description } : {}),
+          ...(Array.isArray(args.tags) ? { tags: args.tags.map(String) } : {}),
+        };
+        if (!Object.keys(patch).length) throw new ToolError('바꿀 것(title, description, tags)을 하나 이상 주세요');
+        try {
+          return { postId: p.id, results: await editPost(this.#deps.ctx, providers, p.id, patch) };
+        } catch (err) {
+          throw new ToolError((err as Error).message);
+        }
       }
       case 'get_post_stats': {
         const p = store.findPost(String(args.postId ?? ''));

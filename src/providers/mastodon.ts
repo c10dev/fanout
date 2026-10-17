@@ -271,4 +271,20 @@ export const mastodon: Provider = {
       throw err;
     }
   },
+
+  // Editing must list the media to keep, or the video would be dropped from the post.
+  async update({ ctx, account, target, post }) {
+    const resume = (target.resume ?? {}) as { mediaId?: string };
+    const o = target.options as unknown as MastodonOptions;
+    await api(ctx, creds(account), `/api/v1/statuses/${target.remoteId}`, {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        status: statusText(post, o),
+        ...(resume.mediaId ? { media_ids: [resume.mediaId] } : {}),
+        ...(o.language ? { language: o.language } : {}),
+        ...(o.spoilerText ? { spoiler_text: o.spoilerText, sensitive: true } : {}),
+      }),
+    });
+  },
 };
