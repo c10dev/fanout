@@ -4,6 +4,7 @@ import { basename } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
 import { imageMime } from '../core/http.ts';
+import { liveRoundTrip } from '../core/livecheck.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
@@ -161,6 +162,7 @@ export const mastodon: Provider = {
 4. fanout connect mastodon --name main --instance mastodon.social --token <토큰>
    또는 대시보드 설정 탭의 Mastodon 칸
 5. fanout doctor mastodon 으로 인스턴스의 영상 크기·글자 수 한도를 확인
+   fanout doctor mastodon --live 는 나만 보이는(direct) 테스트 글을 실제로 올렸다가 지웁니다
 
 공개 범위(visibility)는 매번 직접 고릅니다: public, unlisted(조용히 공개), private(팔로워만).`;
   },
@@ -297,7 +299,7 @@ export const mastodon: Provider = {
     return { state: 'published', remoteId: body.id, remoteUrl: body.url, warnings };
   },
 
-  async doctor({ ctx, account }): Promise<DoctorCheck[]> {
+  async doctor({ ctx, account, live }): Promise<DoctorCheck[]> {
     const c = creds(account);
     const checks: DoctorCheck[] = [];
     try {
@@ -318,6 +320,9 @@ export const mastodon: Provider = {
     } catch (err) {
       checks.push({ name: '인스턴스 한도', status: 'warn', detail: (err as Error).message });
     }
+    // "direct" with nobody mentioned: a status only this account can see.
+    if (live) checks.push(...(await liveRoundTrip(ctx, mastodon, account, { options: { visibility: 'direct' } })));
+    else checks.push({ name: '실제 게시 점검', status: 'info', detail: '확인하려면 --live 로 다시 실행 (나만 보이는 테스트 글을 올리고 지웁니다)' });
     return checks;
   },
 

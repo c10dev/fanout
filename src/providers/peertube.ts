@@ -3,6 +3,7 @@ import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
 import { imageMime, readChunk } from '../core/http.ts';
+import { liveRoundTrip } from '../core/livecheck.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Comment, Issue, Post } from '../core/types.ts';
@@ -267,6 +268,7 @@ export const peertube: Provider = {
    비밀번호는 로그인에만 쓰고 저장하지 않습니다. 인스턴스가 준 토큰만 암호화해 저장합니다.
    OIDC·LDAP 같은 외부 로그인만 쓰는 계정(비밀번호 없음)은 아직 연결할 수 없습니다.
 3. fanout doctor peertube 로 서버 버전, 채널, 남은 저장 용량을 확인
+   fanout doctor peertube --live 는 비공개 테스트 영상을 실제로 올리고, 처리를 기다렸다가 지웁니다
 
 공개 범위(privacy)는 매번 직접 고릅니다: public, unlisted, private, internal(인스턴스 사용자만).
 로그인은 인스턴스 설정에 따라 2~4주 동안 쓰지 않으면 만료되니 그때 다시 연결하세요.`;
@@ -519,8 +521,10 @@ export const peertube: Provider = {
   async doctor({ ctx, account, live }): Promise<DoctorCheck[]> {
     const checks: DoctorCheck[] = [];
     let c = creds(account);
+    let fresh = account;
     try {
-      c = creds(await peertube.refresh(ctx, account));
+      fresh = await peertube.refresh(ctx, account);
+      c = creds(fresh);
       const { body: me } = await api<Me>(ctx, c, '/api/v1/users/me');
       const channels = me.videoChannels ?? [];
       checks.push({ name: '계정', status: 'ok', detail: `${me.username} (${c.instance})` });
@@ -534,7 +538,8 @@ export const peertube: Provider = {
     }
     const version = await serverVersion(ctx, c);
     checks.push({ name: '서버 버전', status: version ? 'info' : 'warn', detail: version ? version.join('.') : '알 수 없음' });
-    if (live) checks.push({ name: '실제 업로드 점검', status: 'info', detail: 'PeerTube는 아직 --live 점검을 하지 않습니다' });
+    if (live) checks.push(...(await liveRoundTrip(ctx, peertube, fresh, { options: { privacy: 'private' }, timeoutMs: 300_000 })));
+    else checks.push({ name: '실제 업로드 점검', status: 'info', detail: '확인하려면 --live 로 다시 실행 (비공개 테스트 영상을 올리고 지웁니다)' });
     return checks;
   },
 
