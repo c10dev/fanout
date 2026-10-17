@@ -47,6 +47,7 @@
 
 ### 운영
 - 디스크 정리 `fanout prune`과 대시보드 자동 정리(#7)
+- `fanout restore`: 백업을 검사한 뒤 되돌리고, 지금 데이터는 따로 보관
 - `fanout doctor peertube --live`, `fanout doctor mastodon --live`: 나만 보이는 테스트 게시물을 올렸다가 지우며 전체 경로 확인
 - `dist/` 빌드, GitHub에서 바로 설치, Docker 이미지와 compose(#9, #10)
 - GitHub Actions CI: 타입 검사, 테스트, 패키지 설치 확인, Docker 빌드(#2, #9)

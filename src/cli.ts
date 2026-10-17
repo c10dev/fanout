@@ -2,7 +2,8 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
-import { openContext, stderrLogger } from './core/context.ts';
+import { fanoutHome, openContext, stderrLogger } from './core/context.ts';
+import { restoreBackup, RestoreError } from './core/restore.ts';
 import { DEFAULT_EVENTS, detectFormat, flushNotifications, notifyConfig, send, validWebhookUrl, type NotifyConfig } from './core/notify.ts';
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
@@ -244,6 +245,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off] [--format slack|discord|json]
   fanout notify test | off               상태 알림 (Slack·Discord·JSON webhook)
   fanout backup <폴더> [--without-key]    DB 스냅샷(+복호화 키) 백업 — 실행 중에도 안전
+  fanout restore <백업 폴더> [--yes]      백업으로 되돌리기 (먼저 검사, 지금 데이터는 따로 보관)
   fanout export [--format csv|json] [--out 파일]   게시 기록 내보내기 (게시물 × 플랫폼, 상태, 링크, 통계)
   fanout prune [--days 7] [--dry-run]    다 올린 원본·오래된 변환 파일 정리 (~/.fanout 안만)
   fanout mcp                             MCP 서버 (stdio) — AI 에이전트용 도구, 업로드 처리 포함
@@ -731,6 +733,23 @@ function cmdBackup(ctx: ProviderContext, args: Args): number {
   return 0;
 }
 
+async function cmdRestore(args: Args): Promise<number> {
+  const dirArg = args.positionals[1];
+  if (!dirArg) throw new UsageError('fanout restore <백업 폴더> [--yes] [--force]');
+  const home = fanoutHome();
+  console.log(`${resolve(dirArg)} 의 백업으로 ${home} 의 데이터를 바꿉니다. 지금 데이터는 지우지 않고 따로 옮겨 둡니다.`);
+  if (!args.flags.yes && !(await confirm('복원할까요?'))) return 1;
+  try {
+    const r = restoreBackup({ home, backupDir: resolve(dirArg), now: new Date(), envKey: process.env.FANOUT_SECRET_KEY, force: Boolean(args.flags.force) });
+    console.log(`복원했습니다: 게시물 ${r.posts}개, 계정 ${r.accounts}개${r.keyRestored ? ', secret.key 포함' : ''}`);
+    if (r.savedTo) console.log(`이전 데이터: ${r.savedTo}`);
+    return 0;
+  } catch (err) {
+    if (err instanceof RestoreError) throw new UsageError(err.message);
+    throw err;
+  }
+}
+
 function cmdExport(ctx: ProviderContext, args: Args): number {
   const format = str(args, 'format') ?? 'csv';
   if (format !== 'csv' && format !== 'json') throw new UsageError('--format 은 csv 또는 json');
@@ -851,6 +870,8 @@ export async function main(argv: string[]): Promise<number> {
   if (cmd === 'check') return cmdCheck(providers, args).then(() => 0);
 
   if (cmd === 'mcp') return cmdMcp(providers);
+  // Before anything opens the database (or creates a key) in the data folder.
+  if (cmd === 'restore') return cmdRestore(args);
 
   const ctx = openContext();
   const deps: RunnerDeps = { ctx, providers };
