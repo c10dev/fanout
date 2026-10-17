@@ -5,6 +5,7 @@
 
 import { accessSync, constants as fsConstants, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, join, resolve } from 'node:path';
+import { msg } from './i18n.ts';
 import { fileHash, type MediaInfo } from './media.ts';
 import { assessMedia, createScheduledPost, describePrior, priorPosts } from './posting.ts';
 import type { Provider } from './provider.ts';
@@ -69,26 +70,26 @@ function checkFields(raw: Record<string, unknown>, where: string): WatchFields {
   const strArray = (k: string) => {
     const v = raw[k];
     if (v === undefined) return;
-    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new WatchConfigError(`${where}: "${k}"는 문자열 배열이어야 합니다`);
+    if (!Array.isArray(v) || v.some((x) => typeof x !== 'string')) throw new WatchConfigError(msg('{where}: "{k}"는 문자열 배열이어야 합니다', { where, k }));
   };
   const str = (k: string) => {
-    if (raw[k] !== undefined && typeof raw[k] !== 'string') throw new WatchConfigError(`${where}: "${k}"는 문자열이어야 합니다`);
+    if (raw[k] !== undefined && typeof raw[k] !== 'string') throw new WatchConfigError(msg('{where}: "{k}"는 문자열이어야 합니다', { where, k }));
   };
   const strMap = (k: string) => {
     const v = raw[k];
     if (v === undefined) return;
-    if (!isRecord(v) || Object.values(v).some((x) => typeof x !== 'string')) throw new WatchConfigError(`${where}: "${k}"는 문자열 값만 가진 객체여야 합니다`);
+    if (!isRecord(v) || Object.values(v).some((x) => typeof x !== 'string')) throw new WatchConfigError(msg('{where}: "{k}"는 문자열 값만 가진 객체여야 합니다', { where, k }));
   };
   strArray('to');
   strArray('tags');
   for (const k of ['title', 'description', 'at', 'thumbnail']) str(k);
   strMap('vars');
   strMap('captions');
-  if (raw.ai !== undefined && typeof raw.ai !== 'boolean') throw new WatchConfigError(`${where}: "ai"는 true 또는 false`);
+  if (raw.ai !== undefined && typeof raw.ai !== 'boolean') throw new WatchConfigError(msg('{where}: "ai"는 true 또는 false', { where }));
   if (raw.options !== undefined && (!isRecord(raw.options) || Object.values(raw.options).some((o) => !isRecord(o)))) {
-    throw new WatchConfigError(`${where}: "options"는 { 플랫폼: { 옵션 } } 형태여야 합니다`);
+    throw new WatchConfigError(msg('{where}: "options"는 { 플랫폼: { 옵션 } } 형태여야 합니다', { where }));
   }
-  if (typeof raw.at === 'string' && Number.isNaN(Date.parse(raw.at))) throw new WatchConfigError(`${where}: "at"은 ISO-8601 시각이어야 합니다`);
+  if (typeof raw.at === 'string' && Number.isNaN(Date.parse(raw.at))) throw new WatchConfigError(msg('{where}: "at"은 ISO-8601 시각이어야 합니다', { where }));
   return raw as WatchFields;
 }
 
@@ -97,34 +98,34 @@ function readJson(path: string): Record<string, unknown> {
   try {
     parsed = JSON.parse(readFileSync(path, 'utf8'));
   } catch (err) {
-    throw new WatchConfigError(`${basename(path)}: JSON을 읽을 수 없습니다 (${(err as Error).message})`);
+    throw new WatchConfigError(msg('{file}: JSON을 읽을 수 없습니다 ({err})', { file: basename(path), err: (err as Error).message }));
   }
-  if (!isRecord(parsed)) throw new WatchConfigError(`${basename(path)}: 최상위가 객체여야 합니다`);
+  if (!isRecord(parsed)) throw new WatchConfigError(msg('{file}: 최상위가 객체여야 합니다', { file: basename(path) }));
   return parsed;
 }
 
 export function loadWatchConfig(dir: string): WatchConfig {
   const path = join(dir, CONFIG_FILE);
-  if (!existsSync(path)) throw new WatchConfigError(`${path} 가 없습니다. fanout watch --init ${dir} 로 예시를 만드세요`);
+  if (!existsSync(path)) throw new WatchConfigError(msg('{path} 가 없습니다. fanout watch --init {dir} 로 예시를 만드세요', { path, dir }));
   const raw = readJson(path);
   const config = checkFields(raw, CONFIG_FILE) as WatchConfig;
   if (raw.onBlocked !== undefined && raw.onBlocked !== 'skip' && raw.onBlocked !== 'fail') {
-    throw new WatchConfigError(`${CONFIG_FILE}: "onBlocked"는 "skip" 또는 "fail"`);
+    throw new WatchConfigError(msg('{file}: "onBlocked"는 "skip" 또는 "fail"', { file: CONFIG_FILE }));
   }
   // A typo here must not quietly mean "post duplicates".
   if (raw.onDuplicate !== undefined && raw.onDuplicate !== 'skip' && raw.onDuplicate !== 'post') {
-    throw new WatchConfigError(`${CONFIG_FILE}: "onDuplicate"는 "skip" 또는 "post"`);
+    throw new WatchConfigError(msg('{file}: "onDuplicate"는 "skip" 또는 "post"', { file: CONFIG_FILE }));
   }
-  if (!config.to?.length) throw new WatchConfigError(`${CONFIG_FILE}: "to"에 올릴 곳을 하나 이상 적으세요 (예: ["youtube", "tiktok"])`);
+  if (!config.to?.length) throw new WatchConfigError(msg('{file}: "to"에 올릴 곳을 하나 이상 적으세요 (예: ["youtube", "tiktok"])', { file: CONFIG_FILE }));
   if (raw.slots !== undefined) {
     if (!Array.isArray(raw.slots) || !raw.slots.length || raw.slots.some((s) => typeof s !== 'string' || !SLOT.test(s))) {
-      throw new WatchConfigError(`${CONFIG_FILE}: "slots"는 "HH:MM" 시각의 배열이어야 합니다 (예: ["12:00", "19:00"])`);
+      throw new WatchConfigError(msg('{file}: "slots"는 "HH:MM" 시각의 배열이어야 합니다 (예: ["12:00", "19:00"])', { file: CONFIG_FILE }));
     }
     // Every slotted video is a scheduled YouTube upload, and YouTube schedules only public videos.
     const youtube = config.to.some((s) => s.split(':')[0] === 'youtube');
     const privacy = config.options?.youtube?.privacy;
     if (youtube && privacy !== 'public') {
-      throw new WatchConfigError(`${CONFIG_FILE}: "slots"를 쓰면 YouTube 영상은 예약 게시가 되는데, YouTube 예약은 public만 됩니다. options.youtube.privacy를 "public"으로 하거나 slots를 빼세요 (지금: ${String(privacy ?? '없음')})`);
+      throw new WatchConfigError(msg('{file}: "slots"를 쓰면 YouTube 영상은 예약 게시가 되는데, YouTube 예약은 public만 됩니다. options.youtube.privacy를 "public"으로 하거나 slots를 빼세요 (지금: {privacy})', { file: CONFIG_FILE, privacy: privacy == null ? msg('없음') : String(privacy) }));
     }
   }
   return config;
@@ -156,7 +157,7 @@ export function nextFreeSlot(slots: string[], taken: ReadonlySet<string>, now: D
       if (!taken.has(iso)) return iso;
     }
   }
-  throw new WatchConfigError(`앞으로 ${SLOT_HORIZON_DAYS}일 동안 빈 예약 슬롯이 없습니다`);
+  throw new WatchConfigError(msg('앞으로 {days}일 동안 빈 예약 슬롯이 없습니다', { days: SLOT_HORIZON_DAYS }));
 }
 
 /** Sidecar next to the video: "clip.mp4" → "clip.json" (or "clip.mp4.json"). */
@@ -174,7 +175,7 @@ export function loadSidecar(videoPath: string): WatchFields {
 export function render(template: string, vars: Record<string, string>, field: string): string {
   return template.replace(/\{(\w+)\}/g, (_, key: string) => {
     const v = vars[key];
-    if (v === undefined) throw new WatchConfigError(`${field}: 템플릿 변수 {${key}}의 값이 없습니다 (vars에 넣으세요)`);
+    if (v === undefined) throw new WatchConfigError(msg('{field}: 템플릿 변수 {{key}}의 값이 없습니다 (vars에 넣으세요)', { field, key }));
     return v;
   });
 }
@@ -210,7 +211,7 @@ export function planPost(args: {
 
   const titleTemplate = sidecar.title ?? config.title ?? '{name}';
   const title = render(titleTemplate, vars, 'title').trim();
-  if (!title) throw new WatchConfigError('제목이 비어 있습니다');
+  if (!title) throw new WatchConfigError(msg('제목이 비어 있습니다'));
   vars.title = title;
 
   const tags = [...new Set([...(config.tags ?? []), ...(sidecar.tags ?? [])].map((t) => render(t, vars, 'tags').trim()).filter(Boolean))];
@@ -221,8 +222,8 @@ export function planPost(args: {
   const thumbnail = sidecar.thumbnail ?? config.thumbnail;
   const captionsMap = { ...config.captions, ...sidecar.captions };
   const captions: CaptionFile[] = Object.entries(captionsMap).map(([language, p]) => ({ language, path: fromDir(p) }));
-  for (const c of captions) if (!existsSync(c.path)) throw new WatchConfigError(`자막 파일 없음: ${c.path}`);
-  if (thumbnail && !existsSync(fromDir(thumbnail))) throw new WatchConfigError(`썸네일 파일 없음: ${fromDir(thumbnail)}`);
+  for (const c of captions) if (!existsSync(c.path)) throw new WatchConfigError(msg('자막 파일 없음: {path}', { path: c.path }));
+  if (thumbnail && !existsSync(fromDir(thumbnail))) throw new WatchConfigError(msg('썸네일 파일 없음: {path}', { path: fromDir(thumbnail) }));
 
   const at = sidecar.at ?? config.at;
   const input: PostInput = {
@@ -238,10 +239,10 @@ export function planPost(args: {
 
   const wanted = (sidecar.to ?? config.to ?? []).map((spec) => {
     const [platform = '', account = 'main'] = spec.trim().split(':');
-    if (!providers.has(platform)) throw new WatchConfigError(`알 수 없는 플랫폼: ${platform} (가능: ${[...providers.keys()].join(', ')})`);
+    if (!providers.has(platform)) throw new WatchConfigError(msg('알 수 없는 플랫폼: {platform} (가능: {providers})', { platform, providers: [...providers.keys()].join(', ') }));
     return { platform, account };
   });
-  if (!wanted.length) throw new WatchConfigError('올릴 곳(to)이 없습니다');
+  if (!wanted.length) throw new WatchConfigError(msg('올릴 곳(to)이 없습니다'));
 
   const assessments = new Map(assessMedia(media, wanted.map((w) => providers.get(w.platform)!)).map((a) => [a.platform, a]));
   const skipped: Plan['skipped'] = [];
@@ -250,14 +251,14 @@ export function planPost(args: {
     const a = assessments.get(w.platform)!;
     if (a.verdict === 'blocked') {
       const reason = a.violations.filter((v) => !v.fixable).map((v) => v.message).join(' / ');
-      if ((config.onBlocked ?? 'skip') === 'fail') throw new WatchConfigError(`${w.platform}에 올릴 수 없는 영상입니다: ${reason}`);
+      if ((config.onBlocked ?? 'skip') === 'fail') throw new WatchConfigError(msg('{platform}에 올릴 수 없는 영상입니다: {reason}', { platform: w.platform, reason }));
       skipped.push({ platform: w.platform, reason });
       continue;
     }
     const options = { ...config.options?.[w.platform], ...sidecar.options?.[w.platform] };
     targets.push({ platform: w.platform, account: w.account, options: renderDeep(options, vars, `options.${w.platform}`) as Record<string, unknown> });
   }
-  if (!targets.length) throw new WatchConfigError(`올릴 수 있는 플랫폼이 없습니다: ${skipped.map((s) => `${s.platform} (${s.reason})`).join(', ')}`);
+  if (!targets.length) throw new WatchConfigError(msg('올릴 수 있는 플랫폼이 없습니다: {skipped}', { skipped: skipped.map((s) => `${s.platform} (${s.reason})`).join(' / ') }));
   return { input, targets, skipped };
 }
 
@@ -368,7 +369,7 @@ export async function ingest(args: {
   } catch (err) {
     // ffprobe failures are long; its last line ("…: Invalid data found when processing input") says enough.
     const detail = (err as Error).message.trim().split('\n').pop()?.replace(/^.*?:\s(?=[^:]+$)/, '') ?? '';
-    const error = err instanceof WatchConfigError ? err.message : `영상을 읽을 수 없습니다: ${detail}`;
+    const error = err instanceof WatchConfigError ? err.message : msg('영상을 읽을 수 없습니다: {detail}', { detail });
     const movedTo = moveVideo(videoPath, dir, 'failed');
     writeError(movedTo, error);
     return { ok: false, error, movedTo };
@@ -382,7 +383,7 @@ export async function ingest(args: {
       if (before) plan.skipped.push({ platform: t.platform, reason: describePrior(before) });
     }
     if (!fresh.length) {
-      const error = `이미 올린 영상이라 건너뜁니다 (다시 올리려면 onDuplicate: "post"): ${plan.skipped.map((s) => `${s.platform} — ${s.reason}`).join(' / ')}`;
+      const error = msg('이미 올린 영상이라 건너뜁니다 (다시 올리려면 onDuplicate: "post"): {skipped}', { skipped: plan.skipped.map((s) => `${s.platform} — ${s.reason}`).join(' / ') });
       const failedTo = moveVideo(videoPath, dir, 'failed');
       writeError(failedTo, error);
       return { ok: false, error, movedTo: failedTo };
@@ -394,7 +395,7 @@ export async function ingest(args: {
     mkdirSync(join(dir, 'posted'), { recursive: true });
     accessSync(join(dir, 'posted'), fsConstants.W_OK);
   } catch (err) {
-    throw new Error(`${join(dir, 'posted')} 에 쓸 수 없습니다: ${(err as Error).message}`);
+    throw new Error(msg('{dir} 에 쓸 수 없습니다: {err}', { dir: join(dir, 'posted'), err: (err as Error).message }));
   }
   // Pick the slot and create the post in one transaction, so two watchers can't take the same slot.
   let created: { postId: string; movedTo: string } | undefined;
@@ -414,7 +415,7 @@ export async function ingest(args: {
         else if ((config.onBlocked ?? 'skip') === 'fail') throw new WatchConfigError(`${t.platform}: ${errors.join(' / ')}`);
         else plan.skipped.push({ platform: t.platform, reason: errors.join(' / ') });
       }
-      if (!kept.length) throw new WatchConfigError(`올릴 수 있는 플랫폼이 없습니다: ${plan.skipped.map((s) => `${s.platform} (${s.reason})`).join(', ')}`);
+      if (!kept.length) throw new WatchConfigError(msg('올릴 수 있는 플랫폼이 없습니다: {skipped}', { skipped: plan.skipped.map((s) => `${s.platform} (${s.reason})`).join(' / ') }));
       plan.targets = kept;
       // The post points at where the video is about to go; files move only once the post is
       // committed, so a refused write leaves the video and its sidecar where they were.
@@ -428,7 +429,7 @@ export async function ingest(args: {
       // The post exists but its file didn't move (e.g. the video vanished, a sync tool renamed it):
       // call the post off rather than leave targets queued for a file that isn't there.
       for (const t of store.targetsForPost(created.postId)) if (t.state === 'queued') store.transition(t.id, 'canceled', {}, 'video could not be moved into posted/');
-      throw new Error(`게시물을 만들었지만 영상을 posted/ 로 옮기지 못해 취소했습니다: ${(err as Error).message}`);
+      throw new Error(msg('게시물을 만들었지만 영상을 posted/ 로 옮기지 못해 취소했습니다: {err}', { err: (err as Error).message }));
     }
   } catch (err) {
     if (!(err instanceof WatchConfigError)) throw err;
