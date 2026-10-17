@@ -824,6 +824,8 @@ function toggleComments(postId) {
   }
   if (openComments.has(postId)) {
     openComments.delete(postId);
+    // A reply box in the closing panel goes with it, or the board would keep waiting on it.
+    if (replyingTo) closeReplyBox();
     refreshBoard();
     return;
   }
@@ -836,6 +838,11 @@ let editingPost = null;
 let replyingTo = null;
 /** Replies sent from this page, marked under their comment. */
 const repliedComments = new Set();
+
+function closeReplyBox() {
+  replyingTo = null;
+  for (const box of document.querySelectorAll('#board .reply-box')) box.remove();
+}
 
 function replyBox(postId, targetId, comment) {
   const status = h('div', { class: 'msg' });
@@ -963,6 +970,7 @@ function postCard({ post, targets }) {
           onclick: (e) => {
             // One edit form at a time: closing one must not leave another unsaved form to be wiped.
             for (const other of document.querySelectorAll('#board .edit-form')) other.remove();
+            closeReplyBox();
             editingPost = post.id;
             const card = e.target.closest('.post');
             card.querySelector('.edit-form')?.remove();
