@@ -127,6 +127,14 @@ const OPTION_FORMS = {
     opt('언어 (선택, 예: ko)', h('input', { type: 'text', name: 'language', autocomplete: 'off' })),
     opt('내용 경고 (선택)', h('input', { type: 'text', name: 'spoilerText', autocomplete: 'off' })),
   ],
+  peertube: () => [
+    opt('공개 범위', select('privacy', [['public', '공개'], ['unlisted', '링크가 있는 사람만'], ['private', '비공개'], ['internal', '인스턴스 사용자만']], { placeholder: '선택하세요' })),
+    opt('채널 (선택, 비우면 첫 채널)', h('input', { type: 'text', name: 'channel', autocomplete: 'off' })),
+    opt('댓글', select('commentsPolicy', [['', '인스턴스 기본'], ['enabled', '허용'], ['approval', '승인 후 공개'], ['disabled', '막기']])),
+    opt('언어 (선택, 예: ko)', h('input', { type: 'text', name: 'language', autocomplete: 'off' })),
+    checkbox('nsfw', '민감한 콘텐츠(NSFW)'),
+    h('p', { class: 'note' }, 'PeerTube 제목은 3~120자, 태그는 5개까지(각 2~30자)만 올라갑니다. 예약하면 비공개로 올렸다가 그 시각에 공개 범위를 바꿉니다.'),
+  ],
   bluesky: () => [
     opt('글 (비우면 제목·설명·태그로 만듦, 300자 이하)', h('textarea', { name: 'text', rows: 2 }), true),
     opt('영상 대체 텍스트 (선택)', h('input', { type: 'text', name: 'alt', autocomplete: 'off' })),
@@ -175,6 +183,8 @@ function readOptions(platform, body) {
       return { text: text('text') };
     case 'mastodon':
       return { visibility: val('visibility').value || undefined, text: text('text'), alt: text('alt'), language: text('language'), spoilerText: text('spoilerText') };
+    case 'peertube':
+      return { privacy: val('privacy').value || undefined, channel: text('channel'), commentsPolicy: val('commentsPolicy').value || undefined, language: text('language'), nsfw: on('nsfw') || undefined };
     case 'bluesky':
       return { text: text('text'), alt: text('alt'), langs: text('langs')?.split(',').map((l) => l.trim()).filter(Boolean) };
     default:
@@ -299,6 +309,7 @@ function missingChoices(platform, o) {
     if (o.madeForKids === undefined) out.push('YouTube 아동용 여부를 고르세요');
   }
   if (platform === 'mastodon' && !o.visibility) out.push('Mastodon 공개 범위를 고르세요');
+  if (platform === 'peertube' && !o.privacy) out.push('PeerTube 공개 범위를 고르세요');
   if (platform === 'tiktok' && o.mode === 'direct') {
     if (!o.privacyLevel) out.push('TikTok 공개 범위를 고르세요');
     if (!o.musicConsent) out.push('TikTok 음악 사용 확인에 동의해야 바로 게시할 수 있습니다');
@@ -520,8 +531,8 @@ function collectForm() {
   for (const c of captionRows) if (!c.file || !c.language) errors.push('자막은 언어 코드와 파일을 모두 넣어 주세요');
   // Which platforms actually use these files (capabilities in the providers).
   const uses = (list) => targets.some((t) => list.includes(t.platform));
-  if (thumbnail && !uses(['youtube', 'mastodon'])) errors.push('썸네일은 YouTube·Mastodon에만 적용됩니다. 해당 플랫폼을 고르거나 썸네일을 비워 주세요');
-  if (captionRows.length && !uses(['youtube', 'bluesky'])) errors.push('자막은 YouTube·Bluesky에만 적용됩니다. 해당 플랫폼을 고르거나 자막을 비워 주세요');
+  if (thumbnail && !uses(['youtube', 'mastodon', 'peertube'])) errors.push('썸네일은 YouTube·Mastodon·PeerTube에만 적용됩니다. 해당 플랫폼을 고르거나 썸네일을 비워 주세요');
+  if (captionRows.length && !uses(['youtube', 'bluesky', 'peertube'])) errors.push('자막은 YouTube·Bluesky·PeerTube에만 적용됩니다. 해당 플랫폼을 고르거나 자막을 비워 주세요');
   const payload = {
     mediaId: media?.id,
     title,
@@ -935,7 +946,7 @@ function editForm(post, card) {
     h('label', { class: 'field' }, '제목', title),
     h('label', { class: 'field' }, '설명', description),
     h('label', { class: 'field' }, '태그', tags),
-    h('p', { class: 'note' }, 'YouTube·Facebook·Mastodon에 게시된 글에 반영됩니다. 다른 플랫폼은 API로 고칠 수 없습니다.'),
+    h('p', { class: 'note' }, 'YouTube·Facebook·Mastodon·PeerTube에 게시된 글에 반영됩니다. 다른 플랫폼은 API로 고칠 수 없습니다.'),
     h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'submit' }, '수정 반영'), h('button', { class: 'small', type: 'button', onclick: close }, '닫기')),
     status,
   );
@@ -1061,7 +1072,7 @@ function banner(text, kind) {
 
 // ── Settings ─────────────────────────────────────────────────────
 
-const APP_TITLE = { youtube: 'YouTube', tiktok: 'TikTok', meta: 'Meta (Instagram · Facebook)', bluesky: 'Bluesky', mastodon: 'Mastodon', x: 'X (Twitter)' };
+const APP_TITLE = { youtube: 'YouTube', tiktok: 'TikTok', meta: 'Meta (Instagram · Facebook)', bluesky: 'Bluesky', mastodon: 'Mastodon', peertube: 'PeerTube', x: 'X (Twitter)' };
 const CHECK_ICON = { ok: '✓', warn: '⚠', fail: '✗', info: 'ℹ' };
 const LIVE_NOTICE = {
   youtube: '4초짜리 테스트 영상을 일부 공개로 올려, 공개 업로드가 실제로 되는지 확인하고 바로 삭제합니다. 오늘 업로드 한도 1회를 씁니다. 처리를 기다리느라 몇 분 걸릴 수 있습니다.',

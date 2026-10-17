@@ -11,6 +11,7 @@
 - X: OAuth 2.0 PKCE, 4MB 조각 업로드, 한글 가중치 글자 수(#18)
 - Bluesky: 앱 비밀번호 연결, 영상 서비스 업로드, VTT 자막(#15)
 - Mastodon: 인스턴스 토큰 연결, 썸네일, 네이티브 예약, `Idempotency-Key`(#17)
+- PeerTube: 인스턴스 계정 로그인(비밀번호는 저장하지 않음), 재개형 업로드, 썸네일·자막, 네이티브 예약, 반응·댓글·답글·수정·삭제
 
 ### 쓰는 방법
 - CLI(`fanout post`, `status`, `retry`, `run`, `worker` 등)
@@ -56,4 +57,5 @@
 - YouTube: 일부 공개 게시, 반응 통계, 댓글 읽기
 - TikTok: 수신함 업로드
 - Instagram·Facebook: 연결과 점검(한도 조회)
+- PeerTube: 로컬 PeerTube 8.3.1(Docker) 인스턴스에서 업로드·이어 올리기·예약·수정·댓글·답글·삭제
 - X·Bluesky·Mastodon과 나머지 경로는 HTTP mock 테스트로만 확인했습니다

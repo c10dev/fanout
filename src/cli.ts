@@ -122,6 +122,14 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
       return drop({ text: str(args, 'x-text') });
     case 'mastodon':
       return drop({ visibility: str(args, 'md-visibility'), text: str(args, 'md-text'), alt: str(args, 'md-alt'), language: str(args, 'md-lang'), spoilerText: str(args, 'md-cw') });
+    case 'peertube':
+      return drop({
+        privacy: str(args, 'pt-privacy'),
+        channel: str(args, 'pt-channel'),
+        commentsPolicy: str(args, 'pt-comments'),
+        nsfw: bool(args, 'pt-nsfw'),
+        language: str(args, 'pt-lang'),
+      });
     case 'bluesky':
       return drop({ text: str(args, 'bsky-text'), alt: str(args, 'bsky-alt'), langs: str(args, 'bsky-lang')?.split(',').map((l) => l.trim()) });
     default:
@@ -212,6 +220,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout setup <platform>                내 개발자 앱(BYO) 만드는 방법
   fanout app set <platform> [--key 값]   BYO 앱 자격증명 저장 (instagram·facebook은 meta)
   fanout connect <platform> [--name main] [--token T] [--page ID] [--handle H] [--instance URL]
+                                         PeerTube: --instance URL --username U --password P [--otp 코드]
   fanout accounts                        연결된 계정
   fanout disconnect <platform> <name>
   fanout doctor <platform> [--account main] [--live]
@@ -224,10 +233,10 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout serve [--port 8780] [--host 127.0.0.1] [--keep-days 7 | --no-prune]
                                          웹 대시보드 (작업 처리, 6시간마다 자동 정리 포함)
   fanout edit <postId> [--title T] [--description D | --description-file F] [--tags a,b]
-                                         제목·설명·태그 수정 (YouTube·Facebook·Mastodon에 반영)
+                                         제목·설명·태그 수정 (YouTube·Facebook·Mastodon·PeerTube에 반영)
   fanout cancel <postId> [platform] [--confirmed-not-posted]   아직 안 올라간(대기·예약·실패) 대상 취소
   fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
-  fanout comments <postId> [--limit 20]  게시된 대상의 최근 댓글 (YouTube·Facebook·Instagram·Bluesky·Mastodon)
+  fanout comments <postId> [--limit 20]  게시된 대상의 최근 댓글 (YouTube·Facebook·Instagram·Bluesky·Mastodon·PeerTube)
   fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]   댓글에 답글 (comments 의 [id])
   fanout stats [postId] [--include-paid]  게시된 영상의 조회·좋아요·댓글 (X는 --include-paid일 때만)
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off] [--format slack|discord|json]
@@ -259,6 +268,8 @@ post 공통 옵션
   Bluesky    --bsky-text 텍스트(300자 이하)  --bsky-alt 대체텍스트  --bsky-lang ko,en
   Mastodon   --md-visibility public|unlisted|private (필수)  --md-text 텍스트  --md-alt 대체텍스트
              --md-lang ko  --md-cw 내용경고
+  PeerTube   --pt-privacy public|unlisted|private|internal (필수)  --pt-channel 채널  --pt-comments enabled|disabled|approval
+             --pt-lang ko  --pt-nsfw
 
 데이터 위치: FANOUT_HOME (기본 ~/.fanout). 토큰은 AES-256-GCM으로 암호화해 저장합니다.`;
 

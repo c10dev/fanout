@@ -2,7 +2,7 @@
 
 [English](README.en.md)
 
-영상 하나를 YouTube · TikTok · Instagram Reels · Facebook Reels · X · Bluesky · Mastodon에 한 번에 올리는 **영상 중심(video-first) 셀프호스팅 업로더**입니다. 모든 플랫폼에 공식 API만 쓰고, 사용자가 자기 계정과 개발자 앱을 연결합니다.
+영상 하나를 YouTube · TikTok · Instagram Reels · Facebook Reels · X · Bluesky · Mastodon · PeerTube에 한 번에 올리는 **영상 중심(video-first) 셀프호스팅 업로더**입니다. 모든 플랫폼에 공식 API만 쓰고, 사용자가 자기 계정과 개발자 앱을 연결합니다.
 
 > **상태: v0.1 실험 단계.** 업로드 흐름은 플랫폼 공식 문서를 기준으로 구현했고 HTTP mock 테스트로 검증했습니다. 실제 계정으로는 YouTube 일부 공개 게시까지, TikTok 수신함 업로드까지, Instagram·Facebook 연결과 점검까지 확인했습니다(2026-10-17, [자세히](docs/platforms.md#실제-계정으로-확인한-것)). 처음 쓰기 전에 `fanout doctor <플랫폼> --live`로 내 환경에서 먼저 확인하세요.
 
@@ -86,10 +86,11 @@ node src/cli.ts status
 | X | 내 X 앱 (OAuth), 종량제 | fanout | 4MB 조각 업로드, 한글 가중치 계산 |
 | Bluesky | 앱 비밀번호 | fanout | 개발자 앱 불필요, VTT 자막 |
 | Mastodon | 인스턴스 액세스 토큰 | 네이티브 | 개발자 앱 심사 불필요, 썸네일 |
+| PeerTube | 인스턴스 계정 로그인(토큰만 저장) | 네이티브 | 개발자 앱 불필요, 재개형 업로드, 썸네일·자막, 댓글·답글 |
 
 ## 로드맵
 
-- Threads(공개 URL 필요), LinkedIn, PeerTube
+- Threads(공개 URL 필요), LinkedIn(개인 계정 게시는 셀프서비스 API로 되는지 실제 확인 필요)
 - TikTok: 심사를 통과한 앱 연결 모드, Upload-Post·Ayrshare 어댑터
 - 네이버 클립 실험 플러그인 (별도 저장소, 사용자가 직접 로그인한 브라우저 프로필만 사용)
 - 여러 대상을 위한 Postgres 큐(pg-boss) 옵션
