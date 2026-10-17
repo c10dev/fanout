@@ -15,6 +15,11 @@ const CONVERTED = [
   'src/core/livecheck.ts',
   'src/core/notify.ts',
   'src/core/http.ts',
+  'src/providers/youtube.ts',
+  'src/providers/tiktok.ts',
+  'src/providers/meta.ts',
+  'src/providers/instagram.ts',
+  'src/providers/facebook.ts',
 ];
 const LITERAL = /'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
 

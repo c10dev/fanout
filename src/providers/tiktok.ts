@@ -8,6 +8,7 @@ import { makeTestClip } from '../core/media.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
+import { msg } from '../core/i18n.ts';
 
 // Docs: https://developers.tiktok.com/doc/content-posting-api-get-started
 //       https://developers.tiktok.com/doc/content-posting-api-media-transfer-guide
@@ -88,12 +89,12 @@ const ERROR_KINDS: Record<string, ErrorKind> = {
 
 const ERROR_HINTS: Record<string, string> = {
   unaudited_client_can_only_post_to_private_accounts:
-    '심사(audit)를 받지 않은 앱은 비공개 계정에 SELF_ONLY로만 게시할 수 있습니다. mode=inbox를 쓰거나 계정을 비공개로 바꾸세요.',
-  reached_active_user_cap: '미심사 앱은 24시간에 5명까지만 게시할 수 있습니다.',
-  spam_risk_too_many_posts: '이 계정의 하루 게시 한도(약 15건, 모든 앱 합산)에 걸렸습니다.',
-  spam_risk_user_banned_from_posting: 'TikTok이 이 계정의 게시를 막았습니다.',
-  privacy_level_option_mismatch: 'privacyLevel이 이 크리에이터가 허용하는 값이 아닙니다 (fanout doctor tiktok 참고).',
-  duration_exceeded: '이 크리에이터가 올릴 수 있는 최대 길이를 넘었습니다.',
+    msg('심사(audit)를 받지 않은 앱은 비공개 계정에 SELF_ONLY로만 게시할 수 있습니다. mode=inbox를 쓰거나 계정을 비공개로 바꾸세요.'),
+  reached_active_user_cap: msg('미심사 앱은 24시간에 5명까지만 게시할 수 있습니다.'),
+  spam_risk_too_many_posts: msg('이 계정의 하루 게시 한도(약 15건, 모든 앱 합산)에 걸렸습니다.'),
+  spam_risk_user_banned_from_posting: msg('TikTok이 이 계정의 게시를 막았습니다.'),
+  privacy_level_option_mismatch: msg('privacyLevel이 이 크리에이터가 허용하는 값이 아닙니다 (fanout doctor tiktok 참고).'),
+  duration_exceeded: msg('이 크리에이터가 올릴 수 있는 최대 길이를 넘었습니다.'),
 };
 
 export function tiktokError(status: number, body: TikTokEnvelope<unknown> | undefined): ProviderError {
@@ -122,7 +123,7 @@ function creds(account: Account): TikTokCredentials {
 function app(ctx: ProviderContext): TikTokApp {
   const a = ctx.store.getApp<TikTokApp>('tiktok');
   if (!a?.clientKey || !a.clientSecret) {
-    throw new ProviderError('auth', 'tiktok.app_missing', 'TikTok 앱이 설정되지 않았습니다 — fanout setup tiktok 참고');
+    throw new ProviderError('auth', 'tiktok.app_missing', msg('TikTok 앱이 설정되지 않았습니다 — fanout setup tiktok 참고'));
   }
   return a;
 }
@@ -158,7 +159,7 @@ async function tokenRequest(ctx: ProviderContext, params: Record<string, string>
     throw new ProviderError(
       res.status === 429 || res.status >= 500 ? 'retryable' : 'auth',
       'tiktok.token',
-      `TikTok 토큰 오류: ${(body.error_description as string) ?? (body.error as string) ?? res.status}`,
+      msg('TikTok 토큰 오류: {body}', { body: (body.error_description as string) ?? (body.error as string) ?? res.status }),
       body.error as string | undefined,
     );
   }
@@ -222,9 +223,9 @@ async function upload(
       body: chunk,
     });
     if (res.status !== 201 && res.status !== 206 && !res.ok) {
-      throw new ProviderError(kindForStatus(res.status), `tiktok.upload_${res.status}`, `TikTok 청크 업로드 실패 HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      throw new ProviderError(kindForStatus(res.status), `tiktok.upload_${res.status}`, msg('TikTok 청크 업로드 실패 HTTP {status}: {body}', { status: res.status, body: (await res.text()).slice(0, 200) }));
     }
-    if (plan.count > 1) ctx.log.info(`tiktok: ${(((end + 1) / size) * 100).toFixed(0)}% 업로드`);
+    if (plan.count > 1) ctx.log.info(msg('tiktok: {end}% 업로드', { end: (((end + 1) / size) * 100).toFixed(0) }));
   }
 }
 
@@ -241,7 +242,7 @@ export function statusOutcome(publishId: string, data: StatusData, username?: st
       return {
         state: 'handed_off',
         remoteId: publishId,
-        warnings: ['TikTok 앱 알림(수신함)에서 캡션·공개 범위를 정하고 게시를 마무리하세요'],
+        warnings: [msg('TikTok 앱 알림(수신함)에서 캡션·공개 범위를 정하고 게시를 마무리하세요')],
       };
     case 'PUBLISH_COMPLETE': {
       const postId = data.publicaly_available_post_id?.[0];
@@ -249,11 +250,11 @@ export function statusOutcome(publishId: string, data: StatusData, username?: st
         state: 'published',
         remoteId: postId ? String(postId) : publishId,
         remoteUrl: postId && username ? `https://www.tiktok.com/@${username}/video/${postId}` : undefined,
-        warnings: postId ? [] : ['게시 완료됐지만 공개 게시물 ID가 없습니다 (SELF_ONLY이거나 검토 중)'],
+        warnings: postId ? [] : [msg('게시 완료됐지만 공개 게시물 ID가 없습니다 (SELF_ONLY이거나 검토 중)')],
       };
     }
     case 'FAILED':
-      throw new ProviderError('rejected', `tiktok.${data.fail_reason ?? 'failed'}`, `TikTok 처리 실패: ${data.fail_reason ?? 'unknown'}`, data.fail_reason);
+      throw new ProviderError('rejected', `tiktok.${data.fail_reason ?? 'failed'}`, msg('TikTok 처리 실패: {reason}', { reason: data.fail_reason ?? 'unknown' }), data.fail_reason);
     default:
       return { state: 'processing', remoteId: publishId };
   }
@@ -275,7 +276,7 @@ async function readCallback(loopback: boolean, redirectUri: string): Promise<URL
   }
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    const pasted = await rl.question('리디렉트된 전체 URL을 붙여넣으세요: ');
+    const pasted = await rl.question(msg('리디렉트된 전체 URL을 붙여넣으세요: '));
     return new URL(pasted.trim()).searchParams;
   } finally {
     rl.close();
@@ -303,19 +304,19 @@ export const tiktok: Provider = {
   appFields: [
     { key: 'clientKey', label: 'Client key', secret: false },
     { key: 'clientSecret', label: 'Client secret', secret: true },
-    { key: 'redirectUri', label: `Redirect URI (기본 ${DEFAULT_REDIRECT})`, secret: false, optional: true },
-    { key: 'scopes', label: `Scopes (기본 ${DEFAULT_SCOPES})`, secret: false, optional: true },
+    { key: 'redirectUri', label: msg('Redirect URI (기본 {DEFAULT_REDIRECT})', { DEFAULT_REDIRECT }), secret: false, optional: true },
+    { key: 'scopes', label: msg('Scopes (기본 {DEFAULT_SCOPES})', { DEFAULT_SCOPES }), secret: false, optional: true },
   ],
 
   setupGuide() {
-    return `TikTok — 내 TikTok 개발자 앱 만들기 (BYO)
+    return msg(`TikTok — 내 TikTok 개발자 앱 만들기 (BYO)
 
 TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지하므로 사용자마다 자기 앱을 만듭니다.
 
 1. https://developers.tiktok.com/ 에서 앱 생성
 2. Products에 Login Kit과 Content Posting API 추가
    - Content Posting API에서 "Upload"(수신함)는 기본, "Direct Post"는 켜야 direct 모드 사용 가능
-3. Login Kit 플랫폼에 Desktop을 추가하고 Redirect URI ${DEFAULT_REDIRECT} 등록
+3. Login Kit 플랫폼에 Desktop을 추가하고 Redirect URI {DEFAULT_REDIRECT} 등록
    (Desktop 플랫폼에서 loopback URI가 거부되면 내가 가진 HTTPS 주소를 등록하고
     redirectUri로 지정하세요. 그 경우 리디렉트된 URL을 터미널에 붙여넣는 방식으로 진행합니다)
 4. Scopes: user.info.basic, video.upload, video.publish
@@ -325,7 +326,7 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
 
 ⚠ 심사(audit) 전 제약: Direct Post는 비공개 계정에 SELF_ONLY로만, 24시간에 5명까지.
    TikTok은 "자기/팀 계정용 유틸리티" 앱을 심사 대상에서 제외하므로 기본 모드는 inbox입니다.
-   inbox 모드는 영상을 TikTok 앱 수신함으로 보내고, 캡션·공개 범위는 앱에서 직접 정합니다.`;
+   inbox 모드는 영상을 TikTok 앱 수신함으로 보내고, 캡션·공개 범위는 앱에서 직접 정합니다.`, { DEFAULT_REDIRECT });
   },
 
   connectMethod: 'oauth',
@@ -334,10 +335,10 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     const redirectUri = app(ctx).redirectUri ?? DEFAULT_REDIRECT;
     const host = new URL(redirectUri).hostname;
     const start = tiktok.oauthBegin!(ctx, redirectUri);
-    ctx.log.info(`브라우저에서 TikTok에 로그인하고 권한을 승인하세요:\n${start.url}`);
+    ctx.log.info(msg('브라우저에서 TikTok에 로그인하고 권한을 승인하세요:\n{url}', { url: start.url }));
     openBrowser(start.url);
     const params = await readCallback(host === '127.0.0.1' || host === 'localhost', redirectUri);
-    if (params.get('state') !== start.state) throw new ProviderError('auth', 'tiktok.state', 'OAuth state 불일치');
+    if (params.get('state') !== start.state) throw new ProviderError('auth', 'tiktok.state', msg('OAuth state 불일치'));
     return tiktok.oauthFinish!(ctx, name, params, redirectUri, start.verifier);
   },
 
@@ -362,7 +363,7 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
   async oauthFinish(ctx, name, params, redirectUri, verifier) {
     const a = app(ctx);
     const code = params.get('code');
-    if (!code) throw new ProviderError('auth', 'tiktok.denied', `인증 거부: ${params.get('error_description') ?? params.get('error') ?? 'unknown'}`);
+    if (!code) throw new ProviderError('auth', 'tiktok.denied', msg('인증 거부: {params}', { params: params.get('error_description') ?? params.get('error') ?? 'unknown' }));
     const credentials = await tokenRequest(ctx, {
       client_key: a.clientKey,
       client_secret: a.clientSecret,
@@ -411,28 +412,28 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     const issues: Issue[] = [];
     const o = target.options as Partial<TikTokOptions>;
     if (o.mode !== 'inbox' && o.mode !== 'direct') {
-      issues.push({ severity: 'error', code: 'mode', message: 'TikTok mode는 inbox 또는 direct' });
+      issues.push({ severity: 'error', code: 'mode', message: msg('TikTok mode는 inbox 또는 direct') });
       return issues;
     }
     if (o.mode === 'direct') {
       if (!o.privacyLevel) {
-        issues.push({ severity: 'error', code: 'privacy', message: 'TikTok direct 게시는 공개 범위(privacyLevel)를 직접 골라야 합니다 (기본값 없음)' });
+        issues.push({ severity: 'error', code: 'privacy', message: msg('TikTok direct 게시는 공개 범위(privacyLevel)를 직접 골라야 합니다 (기본값 없음)') });
       }
       if (o.musicConsent !== true) {
-        issues.push({ severity: 'error', code: 'music_consent', message: "TikTok Music Usage Confirmation 동의(musicConsent)가 필요합니다" });
+        issues.push({ severity: 'error', code: 'music_consent', message: msg("TikTok Music Usage Confirmation 동의(musicConsent)가 필요합니다") });
       }
       if (o.brandedContent && o.privacyLevel === 'SELF_ONLY') {
-        issues.push({ severity: 'error', code: 'branded_private', message: 'TikTok 브랜디드 콘텐츠는 SELF_ONLY로 게시할 수 없습니다' });
+        issues.push({ severity: 'error', code: 'branded_private', message: msg('TikTok 브랜디드 콘텐츠는 SELF_ONLY로 게시할 수 없습니다') });
       }
       const caption = captionFor(post, o as TikTokOptions);
       if ([...caption].length > CAPTION_MAX) {
-        issues.push({ severity: 'error', code: 'caption', message: `TikTok 캡션은 ${CAPTION_MAX}자 이하 (현재 ${[...caption].length})` });
+        issues.push({ severity: 'error', code: 'caption', message: msg('TikTok 캡션은 {CAPTION_MAX}자 이하 (현재 {length})', { CAPTION_MAX, length: [...caption].length }) });
       }
     } else {
-      issues.push({ severity: 'warning', code: 'inbox', message: 'TikTok inbox 모드: 업로드 후 TikTok 앱에서 직접 게시를 마무리해야 합니다' });
+      issues.push({ severity: 'warning', code: 'inbox', message: msg('TikTok inbox 모드: 업로드 후 TikTok 앱에서 직접 게시를 마무리해야 합니다') });
     }
     if (post.scheduledAt) {
-      issues.push({ severity: 'warning', code: 'schedule', message: 'TikTok은 API 예약 게시가 없어 fanout이 예약 시각에 업로드합니다 (fanout worker 필요)' });
+      issues.push({ severity: 'warning', code: 'schedule', message: msg('TikTok은 API 예약 게시가 없어 fanout이 예약 시각에 업로드합니다 (fanout worker 필요)') });
     }
     return issues;
   },
@@ -453,16 +454,16 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
         throw new ProviderError(
           'rejected',
           'tiktok.privacy_level_option_mismatch',
-          `이 계정이 허용하는 공개 범위: ${info.privacy_level_options.join(', ')} (요청: ${opts.privacyLevel})`,
+          msg('이 계정이 허용하는 공개 범위: {allowed} (요청: {privacyLevel})', { allowed: info.privacy_level_options.join(', '), privacyLevel: opts.privacyLevel }),
         );
       }
       const max = info.max_video_post_duration_sec;
       if (max !== undefined) {
         if (media.durationSec > max) {
-          throw new ProviderError('rejected', 'tiktok.duration_exceeded', `이 크리에이터의 최대 길이는 ${max}초입니다 (영상 ${media.durationSec.toFixed(0)}초)`);
+          throw new ProviderError('rejected', 'tiktok.duration_exceeded', msg('이 크리에이터의 최대 길이는 {max}초입니다 (영상 {length}초)', { max, length: media.durationSec.toFixed(0) }));
         }
       }
-      if (info.comment_disabled && opts.allowComment) ctx.log.warn('tiktok: 크리에이터 설정상 댓글이 꺼져 있어 allowComment가 무시됩니다');
+      if (info.comment_disabled && opts.allowComment) ctx.log.warn(msg('tiktok: 크리에이터 설정상 댓글이 꺼져 있어 allowComment가 무시됩니다'));
     }
 
     const size = statSync(mediaPath).size;
@@ -483,17 +484,17 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     const checks: DoctorCheck[] = [];
     try {
       app(ctx);
-      checks.push({ name: 'BYO 앱', status: 'ok', detail: 'client key 등록됨' });
+      checks.push({ name: msg('BYO 앱'), status: 'ok', detail: msg('client key 등록됨') });
     } catch (err) {
-      checks.push({ name: 'BYO 앱', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('BYO 앱'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
     let acct = account;
     try {
       acct = await tiktok.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
-      checks.push({ name: '토큰 갱신', status: 'ok', detail: `scope: ${creds(acct).scope}` });
+      checks.push({ name: msg('토큰 갱신'), status: 'ok', detail: `scope: ${creds(acct).scope}` });
     } catch (err) {
-      checks.push({ name: '토큰 갱신', status: 'fail', detail: (err as Error).message });
+      checks.push({ name: msg('토큰 갱신'), status: 'fail', detail: (err as Error).message });
       return checks;
     }
 
@@ -502,17 +503,17 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
       checks.push({
         name: 'creator_info',
         status: 'ok',
-        detail: `@${info.creator_username ?? '?'} (${info.creator_nickname ?? '?'}), 허용 공개 범위: ${(info.privacy_level_options ?? []).join(', ')}, 최대 ${info.max_video_post_duration_sec ?? '?'}초`,
+        detail: msg('@{username} ({nickname}), 허용 공개 범위: {privacy}, 최대 {max}초', { username: info.creator_username ?? '?', nickname: info.creator_nickname ?? '?', privacy: (info.privacy_level_options ?? []).join(', '), max: info.max_video_post_duration_sec ?? '?' }),
       });
       if (info.privacy_level_options && !info.privacy_level_options.includes('PUBLIC_TO_EVERYONE')) {
-        checks.push({ name: 'Direct Post 공개 게시', status: 'warn', detail: 'PUBLIC_TO_EVERYONE을 쓸 수 없습니다 — 미심사 앱이거나 비공개 계정입니다' });
+        checks.push({ name: msg('Direct Post 공개 게시'), status: 'warn', detail: msg('PUBLIC_TO_EVERYONE을 쓸 수 없습니다 — 미심사 앱이거나 비공개 계정입니다') });
       }
     } catch (err) {
-      checks.push({ name: 'creator_info', status: 'warn', detail: `조회 실패 (video.publish scope 없음?): ${(err as Error).message}` });
+      checks.push({ name: 'creator_info', status: 'warn', detail: msg('조회 실패 (video.publish scope 없음?): {err}', { err: (err as Error).message }) });
     }
 
     if (!live) {
-      checks.push({ name: '미심사 앱 수신함 업로드', status: 'info', detail: '확인하려면 --live 로 다시 실행 (테스트 영상을 TikTok 수신함으로 보냅니다)' });
+      checks.push({ name: msg('미심사 앱 수신함 업로드'), status: 'info', detail: msg('확인하려면 --live 로 다시 실행 (테스트 영상을 TikTok 수신함으로 보냅니다)') });
       return checks;
     }
 
@@ -532,12 +533,12 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
       }
       checks.push(
         data.status === 'SEND_TO_USER_INBOX' || data.status === 'PUBLISH_COMPLETE'
-          ? { name: '미심사 앱 수신함 업로드', status: 'ok', detail: `status=${data.status}. 미심사 상태에서도 수신함 업로드가 동작합니다. TikTok 앱 알림의 테스트 영상은 게시하지 말고 지우세요.` }
-          : { name: '미심사 앱 수신함 업로드', status: 'fail', detail: `status=${data.status ?? 'unknown'} fail_reason=${data.fail_reason ?? '-'}` },
+          ? { name: msg('미심사 앱 수신함 업로드'), status: 'ok', detail: msg('status={status}. 미심사 상태에서도 수신함 업로드가 동작합니다. TikTok 앱 알림의 테스트 영상은 게시하지 말고 지우세요.', { status: data.status }) }
+          : { name: msg('미심사 앱 수신함 업로드'), status: 'fail', detail: `status=${data.status ?? 'unknown'} fail_reason=${data.fail_reason ?? '-'}` },
       );
     } catch (err) {
       const e = err as ProviderError;
-      checks.push({ name: '미심사 앱 수신함 업로드', status: 'fail', detail: `${e.platformCode ?? e.code}: ${e.message}` });
+      checks.push({ name: msg('미심사 앱 수신함 업로드'), status: 'fail', detail: `${e.platformCode ?? e.code}: ${e.message}` });
     }
     return checks;
   },

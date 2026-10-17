@@ -4,6 +4,7 @@ import { ProviderError, kindForStatus, type ErrorKind } from '../core/errors.ts'
 import type { ProviderContext } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Post } from '../core/types.ts';
+import { msg } from '../core/i18n.ts';
 
 // Shared plumbing for Instagram (via Facebook Login) and Facebook Pages.
 // Docs: https://developers.facebook.com/docs/instagram-platform/content-publishing
@@ -27,10 +28,10 @@ export interface MetaPageCredentials {
 export const META_APP_FIELDS = [
   { key: 'appId', label: 'App ID', secret: false },
   { key: 'appSecret', label: 'App secret', secret: true },
-  { key: 'graphVersion', label: `Graph API 버전 (기본 ${DEFAULT_GRAPH_VERSION})`, secret: false, optional: true },
+  { key: 'graphVersion', label: msg('Graph API 버전 (기본 {DEFAULT_GRAPH_VERSION})', { DEFAULT_GRAPH_VERSION }), secret: false, optional: true },
 ] as const;
 
-export const META_SETUP_GUIDE = `Instagram · Facebook — 내 Meta 앱 만들기 (BYO, 두 플랫폼 공용)
+export const META_SETUP_GUIDE = msg(`Instagram · Facebook — 내 Meta 앱 만들기 (BYO, 두 플랫폼 공용)
 
 앱에 역할(관리자·개발자·테스터)이 있는 사용자는 App Review 없이 Standard Access로 게시할 수 있습니다.
 
@@ -50,12 +51,12 @@ export const META_SETUP_GUIDE = `Instagram · Facebook — 내 Meta 앱 만들�
 7. fanout doctor instagram 으로 오늘 남은 게시 한도를 확인
 
 ⚠ 공식 문서에 Instagram 하루 한도가 100건과 50건으로 엇갈려 있어, fanout은 매번
-   content_publishing_limit를 직접 조회합니다.`;
+   content_publishing_limit를 직접 조회합니다.`);
 
 export function metaApp(ctx: ProviderContext): MetaApp {
   const a = ctx.store.getApp<MetaApp>('meta');
   if (!a?.appId || !a.appSecret) {
-    throw new ProviderError('auth', 'meta.app_missing', 'Meta 앱이 설정되지 않았습니다 — fanout setup instagram 참고');
+    throw new ProviderError('auth', 'meta.app_missing', msg('Meta 앱이 설정되지 않았습니다 — fanout setup instagram 참고'));
   }
   return a;
 }
@@ -134,7 +135,7 @@ export async function connectPage(
   if (!userToken) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     try {
-      userToken = (await rl.question('Graph API 탐색기에서 만든 사용자 액세스 토큰: ')).trim();
+      userToken = (await rl.question(msg('Graph API 탐색기에서 만든 사용자 액세스 토큰: '))).trim();
     } finally {
       rl.close();
     }
@@ -156,17 +157,17 @@ export async function connectPage(
       'rejected',
       `${platform}.no_page`,
       platform === 'instagram'
-        ? 'Instagram 프로페셔널 계정이 연결된 Facebook 페이지가 없습니다 (토큰 권한도 확인하세요)'
-        : '관리 중인 Facebook 페이지가 없습니다 (pages_show_list 권한 확인)',
+        ? msg('Instagram 프로페셔널 계정이 연결된 Facebook 페이지가 없습니다 (토큰 권한도 확인하세요)')
+        : msg('관리 중인 Facebook 페이지가 없습니다 (pages_show_list 권한 확인)'),
     );
   }
   const wanted = typeof flags.page === 'string' ? flags.page : undefined;
   const page = wanted ? candidates.find((p) => p.id === wanted || p.name === wanted) : candidates[0];
   if (!page) {
-    throw new ProviderError('rejected', `${platform}.page_not_found`, `페이지 ${wanted} 없음. 후보: ${candidates.map((p) => `${p.name}(${p.id})`).join(', ')}`);
+    throw new ProviderError('rejected', `${platform}.page_not_found`, msg('페이지 {wanted} 없음. 후보: {candidates}', { wanted, candidates: candidates.map((p) => `${p.name}(${p.id})`).join(', ') }));
   }
   if (!wanted && candidates.length > 1) {
-    ctx.log.warn(`페이지가 여러 개라 첫 번째(${page.name})를 골랐습니다. 다른 페이지는 --page <ID>: ${candidates.map((p) => `${p.name}(${p.id})`).join(', ')}`);
+    ctx.log.warn(msg('페이지가 여러 개라 첫 번째({page})를 골랐습니다. 다른 페이지는 --page <ID>: {candidates}', { page: page.name, candidates: candidates.map((p) => `${p.name}(${p.id})`).join(', ') }));
   }
   const credentials: MetaPageCredentials = { pageId: page.id, pageToken: page.access_token, igUserId: page.instagram_business_account?.id };
   return {
@@ -189,14 +190,14 @@ export function missingScope(err: unknown, scope: string): unknown {
   if (!(err instanceof ProviderError) || !err.platformCode) return err;
   const code = Number.parseInt(err.platformCode, 10);
   if ([4, 17, 32, 613].includes(code)) {
-    return new ProviderError('rejected', err.code, `요청 한도에 걸려 보내지 못했습니다. 잠시 뒤 다시 시도하세요 (${err.message})`, err.platformCode);
+    return new ProviderError('rejected', err.code, msg('요청 한도에 걸려 보내지 못했습니다. 잠시 뒤 다시 시도하세요 ({message})', { message: err.message }), err.platformCode);
   }
   if (err.kind !== 'auth') return err;
   if (code !== 10 && !(code >= 200 && code < 300)) return err;
   return new ProviderError(
     'auth',
     err.code,
-    `권한이 없습니다: ${scope} 권한을 더해 Graph API 탐색기에서 토큰을 다시 만들고 다시 연결하세요 (${err.message})`,
+    msg('권한이 없습니다: {scope} 권한을 더해 Graph API 탐색기에서 토큰을 다시 만들고 다시 연결하세요 ({message})', { scope, message: err.message }),
     err.platformCode,
   );
 }
@@ -227,12 +228,12 @@ export async function readInsights(
     }
     return { values };
   } catch (err) {
-    if (err instanceof ProviderError && err.kind === 'auth') return { values: {}, note: `조회수는 ${scope} 권한이 있어야 가져올 수 있습니다` };
+    if (err instanceof ProviderError && err.kind === 'auth') return { values: {}, note: msg('조회수는 {scope} 권한이 있어야 가져올 수 있습니다', { scope }) };
     // A rate limit or server hiccup: the caller keeps the last numbers it had. Anything else (e.g. a
     // metric this media doesn't have) is permanent, and old numbers would go stale forever.
     // Timeouts and network failures aren't ProviderErrors, and are just as passing.
     const transient = !(err instanceof ProviderError) || err.kind === 'retryable';
-    return { values: {}, note: `조회수를 가져오지 못했습니다: ${err instanceof Error ? err.message : String(err)}`, ...(transient ? { transient } : {}) };
+    return { values: {}, note: msg('조회수를 가져오지 못했습니다: {err}', { err: err instanceof Error ? err.message : String(err) }), ...(transient ? { transient } : {}) };
   }
 }
 
