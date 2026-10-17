@@ -43,3 +43,27 @@ fanout notify off
 - 기본으로 알리는 상태: 게시됨, 앱에서 마무리 필요(TikTok 수신함), 실패, 재연결 필요.
 - webhook 주소는 암호화해서 저장합니다. 환경 변수 `FANOUT_WEBHOOK_URL`이 있으면 그쪽을 씁니다.
 - 알림은 5초 안에 보내지 못하면 포기하고 경고만 남깁니다. 업로드를 막거나 늦추지 않습니다.
+
+## 백업과 복원
+
+```bash
+fanout backup ~/fanout-backups            # fanout-<시각>/ 폴더에 DB 스냅샷과 secret.key
+fanout backup ~/fanout-backups --without-key
+```
+
+- 대시보드나 worker가 돌고 있어도 안전합니다(SQLite `VACUUM INTO`로 일관된 스냅샷을 만듭니다).
+- `secret.key`가 함께 들어가므로 백업 폴더가 있으면 모든 계정 토큰을 풀 수 있습니다. 안전한 곳에 두세요. 키를 `FANOUT_SECRET_KEY`로 주고 있다면 백업에 넣지 않으니 따로 보관하세요.
+- **복원**: 모든 fanout 프로세스를 멈추고, 백업의 `fanout.db`와 `secret.key`를 `FANOUT_HOME`(기본 `~/.fanout`)에 복사한 뒤 다시 켭니다. 원래 있던 `fanout.db-wal`, `fanout.db-shm`은 지우세요.
+
+## 게시 기록 내보내기
+
+```bash
+fanout export --out posts.csv              # 엑셀·구글 시트에서 바로 열리는 CSV
+fanout export --format json > posts.json
+```
+
+게시물 × 플랫폼마다 한 줄씩, 상태, 링크, 오류, 마지막으로 가져온 반응 수치가 들어갑니다. 수식으로 해석될 수 있는 셀(`=`, `+`, `-`, `@`로 시작)은 앞에 `'`를 붙여 막습니다.
+
+## 상태 확인
+
+대시보드는 `GET /healthz`에 토큰 없이 `{"ok":true}`로 답합니다. Docker 이미지는 이 경로로 HEALTHCHECK를 합니다.

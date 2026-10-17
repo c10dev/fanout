@@ -215,6 +215,8 @@ export class Dashboard {
     const method = req.method ?? 'GET';
 
     if (method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) return this.#page(res);
+    // Liveness for Docker/monitors: no token, no data.
+    if (method === 'GET' && url.pathname === '/healthz') return send(res, 200, { ok: true });
     if (method === 'GET' && STATIC[url.pathname]) {
       res.writeHead(200, { 'content-type': STATIC[url.pathname]!, 'cache-control': 'no-cache' });
       res.end(readFileSync(join(PUBLIC_DIR, url.pathname.slice(1))));

@@ -25,5 +25,7 @@ RUN mkdir -p /data && chown node:node /data
 VOLUME /data
 USER node
 EXPOSE 8780
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
+  CMD node -e "fetch('http://127.0.0.1:8780/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 ENTRYPOINT ["node", "/app/dist/cli.js"]
 CMD ["serve", "--host", "0.0.0.0", "--port", "8780"]
