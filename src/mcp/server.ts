@@ -3,7 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, assessMedia, createScheduledPost, previewPost, type TargetPreview } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
 import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
@@ -42,12 +42,12 @@ const TARGETS_SCHEMA = {
   description:
     'Where to post. options per platform — youtube: {privacy: "public"|"unlisted"|"private" (required), madeForKids: boolean (required), categoryId?, playlistId?, notifySubscribers?}; ' +
     'tiktok: {mode: "inbox"|"direct", and for direct: privacyLevel (required, from list_accounts), musicConsent: true (required), allowComment?, allowDuet?, allowStitch?, brandOrganic?, brandedContent?, caption?}; ' +
-    'instagram: {caption?, shareToFeed?, thumbOffsetMs?}; facebook: {caption?}.',
+    'instagram: {caption?, shareToFeed?, thumbOffsetMs?}; facebook: {caption?}; bluesky: {text? (≤300 chars), alt?, langs?}.',
   items: {
     type: 'object',
     required: ['platform'],
     properties: {
-      platform: { type: 'string', enum: ['youtube', 'tiktok', 'instagram', 'facebook'] },
+      platform: { type: 'string', enum: ['youtube', 'tiktok', 'instagram', 'facebook', 'bluesky'] },
       account: { type: 'string', description: 'Connected account name; defaults to "main" or the only connected account.' },
       options: { type: 'object' },
     },
@@ -161,7 +161,7 @@ export class McpServer {
           capabilities: { tools: {} },
           serverInfo: { name: 'fanout', title: 'fanout video uploader', version: this.#version },
           instructions:
-            'fanout uploads one local video to YouTube, TikTok, Instagram Reels and Facebook Reels through the user\'s own platform apps. ' +
+            'fanout uploads one local video to YouTube, TikTok, Instagram Reels, Facebook Reels and Bluesky through the user\'s own platform apps. ' +
             'Use preview_post and get the user\'s approval before create_post: posts go to real, often public, accounts.',
         };
       }
@@ -198,7 +198,7 @@ export class McpServer {
           platforms: [...providers.values()].map((p) => ({
             platform: p.id,
             name: p.displayName,
-            appConfigured: Boolean(store.getApp(p.appKey ?? p.id)),
+            appConfigured: appReady(store, p),
             capabilities: p.capabilities,
             accounts: accounts.filter((a) => a.platform === p.id).map((a) => ({ name: a.name, label: accountLabel(a.profile, a.name) })),
           })),

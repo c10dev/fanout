@@ -86,6 +86,9 @@ export interface Provider {
    */
   readonly connectMethod: 'oauth' | 'token';
 
+  /** For connectMethod 'token': what the connect form asks for. Default: an access token and an optional page. */
+  readonly connectFields?: ReadonlyArray<{ key: string; label: string; secret: boolean; optional?: boolean }>;
+
   /** Interactive account connection (CLI); returns the account to store. */
   connect(ctx: ProviderContext, name: string, flags: Record<string, string | boolean | undefined>): Promise<Account>;
 

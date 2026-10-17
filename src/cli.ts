@@ -116,6 +116,8 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
       });
     case 'facebook':
       return drop({ caption: str(args, 'fb-caption') });
+    case 'bluesky':
+      return drop({ text: str(args, 'bsky-text'), alt: str(args, 'bsky-alt'), langs: str(args, 'bsky-lang')?.split(',').map((l) => l.trim()) });
     default:
       return {};
   }
@@ -201,7 +203,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout platforms                       지원 플랫폼과 기능
   fanout setup <platform>                내 개발자 앱(BYO) 만드는 방법
   fanout app set <platform> [--key 값]   BYO 앱 자격증명 저장 (instagram·facebook은 meta)
-  fanout connect <platform> [--name main] [--token T] [--page ID]
+  fanout connect <platform> [--name main] [--token T] [--page ID] [--handle H]
   fanout accounts                        연결된 계정
   fanout disconnect <platform> <name>
   fanout doctor <platform> [--account main] [--live]
@@ -234,6 +236,7 @@ post 공통 옵션
              --tt-brand-organic yes  --tt-branded yes  --tt-caption 텍스트  --tt-cover-ms 1000
   Instagram  --ig-caption 텍스트  --ig-no-feed  --ig-thumb-ms 1000
   Facebook   --fb-caption 텍스트
+  Bluesky    --bsky-text 텍스트(300자 이하)  --bsky-alt 대체텍스트  --bsky-lang ko,en
 
 데이터 위치: FANOUT_HOME (기본 ~/.fanout). 토큰은 AES-256-GCM으로 암호화해 저장합니다.`;
 
