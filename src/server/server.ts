@@ -130,8 +130,9 @@ export class Dashboard {
 
   async stop(): Promise<void> {
     clearInterval(this.#timer);
-    await new Promise<void>((r) => (this.#server ? this.#server.close(() => r()) : r()));
+    // Drop in-flight requests first so a long upload can't hold Ctrl+C; interrupted work resumes next start.
     this.#server?.closeAllConnections();
+    await new Promise<void>((r) => (this.#server ? this.#server.close(() => r()) : r()));
   }
 
   /** Wait for in-flight runner work (tests). */
@@ -186,8 +187,10 @@ export class Dashboard {
   }
 
   #page(res: ServerResponse): void {
-    // Only a loopback dashboard embeds its token; a LAN-exposed one asks the user to paste it.
-    const embed = isLoopback(this.#opts.host ?? '127.0.0.1') ? this.#token : '';
+    // Embed the token only for a purely local dashboard with a generated token. Anything reachable
+    // another way (extra allowed hosts, e.g. behind a proxy) asks the user to paste it.
+    const local = isLoopback(this.#opts.host ?? '127.0.0.1') && !this.#opts.allowedHosts?.length && !this.#opts.token;
+    const embed = local ? this.#token : '';
     const html = readFileSync(join(PUBLIC_DIR, 'index.html'), 'utf8').replace('__FANOUT_TOKEN__', embed);
     res.writeHead(200, {
       'content-type': 'text/html; charset=utf-8',

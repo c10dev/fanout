@@ -71,12 +71,26 @@ describe('dashboard server', () => {
     return fetch(`${base}/api/media`, { method: 'POST', headers: { ...auth, 'x-filename': encodeURIComponent(name) }, body: Buffer.alloc(2048, 1) });
   }
 
-  it('serves the page with its token and a strict CSP', async () => {
+  it('serves the page with a strict CSP and keeps an explicit token out of it', async () => {
     const res = await fetch(`${base}/`);
     const html = await res.text();
-    assert.match(html, /content="test-token"/);
+    assert.match(html, /name="fanout-token" content=""/);
     assert.match(res.headers.get('content-security-policy') ?? '', /script-src 'self'/);
     assert.equal((await fetch(`${base}/app.js`)).status, 200);
+  });
+
+  it('embeds a generated token only when nothing but loopback can reach it', async () => {
+    const page = async (opts: Partial<ConstructorParameters<typeof Dashboard>[0]>) => {
+      const d = new Dashboard({ ctx: env.ctx, providers: new Map(), port: 0, workerIntervalMs: 60_000, ...opts });
+      const url = await d.start();
+      const html = await (await fetch(url)).text();
+      await d.stop();
+      return { html, token: d.token };
+    };
+    const local = await page({});
+    assert.ok(local.html.includes(`content="${local.token}"`));
+    const proxied = await page({ allowedHosts: ['fanout.example:443'] });
+    assert.match(proxied.html, /name="fanout-token" content=""/);
   });
 
   it('requires the token on API calls', async () => {
