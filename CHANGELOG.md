@@ -47,7 +47,7 @@
 
 ### 운영
 - 디스크 정리 `fanout prune`과 대시보드 자동 정리(#7)
-- `fanout doctor`(플랫폼 없이): 연결된 모든 계정을 한 번에 점검
+- `fanout doctor`(플랫폼 없이)와 대시보드 "모든 계정 점검": 연결된 모든 계정을 한 번에 점검
 - `fanout restore`: 백업을 검사한 뒤 되돌리고, 지금 데이터는 따로 보관
 - `fanout doctor peertube --live`, `fanout doctor mastodon --live`: 나만 보이는 테스트 게시물을 올렸다가 지우며 전체 경로 확인
 - `dist/` 빌드, GitHub에서 바로 설치, Docker 이미지와 compose(#9, #10)
