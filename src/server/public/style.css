@@ -246,3 +246,8 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .row-actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
 @media (max-width: 560px) { .row-actions { flex-direction: row; justify-content: flex-start; } }
 .presets .note { flex-basis: 100%; margin: 0; }
+.comment .small.link { margin-top: 4px; padding: 1px 8px; font-size: 12px; }
+.reply-box { display: grid; gap: 6px; margin-top: 6px; }
+.reply-box textarea { width: 100%; font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; resize: vertical; }
+.reply-box .note { margin: 0; }
+.reply-box textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }

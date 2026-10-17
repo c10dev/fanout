@@ -726,4 +726,14 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       };
     });
   },
+
+  // comments.insert with parentId; the thread id from comments() is the top-level comment's id.
+  async reply({ ctx, account, target, comment, text }) {
+    const res = await api<{ id: string }>(ctx, account, '/comments?part=snippet', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ snippet: { parentId: comment.id, textOriginal: text } }),
+    });
+    return { id: res.id, url: `https://www.youtube.com/watch?v=${target.remoteId}&lc=${res.id}` };
+  },
 };

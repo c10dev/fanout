@@ -29,7 +29,7 @@
 - 게시물 삭제(#25)
 - 올리기 전 대상 취소: CLI `fanout cancel`, 대시보드 버튼, MCP `cancel_target`
 - 게시 후 제목·설명·태그 수정(#29)
-- 댓글 모아보기(#30)
+- 댓글 모아보기(#30)와 답글: 대시보드, `fanout reply`, MCP `reply_to_comment`
 - Slack·Discord·JSON webhook 알림(#26)
 
 ### 안정성

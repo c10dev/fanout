@@ -451,4 +451,25 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
       .sort((a, b) => b.at.localeCompare(a.at))
       .slice(0, limit);
   },
+
+  async reply({ ctx, account, target, comment, text }) {
+    if (graphemes(text) > TEXT_MAX) throw new ProviderError('rejected', 'bluesky.text', `Bluesky 답글은 ${TEXT_MAX}자 이하 (현재 ${graphemes(text)})`);
+    const c = creds(account);
+    type Ref = { uri: string; cid: string };
+    const { posts } = await xrpc<{ posts?: Array<Ref & { record?: { reply?: { root?: Ref } } }> }>(ctx, PUBLIC_APPVIEW, 'app.bsky.feed.getPosts', { query: { uris: comment.id } });
+    const parent = posts?.[0];
+    if (!parent) throw new ProviderError('rejected', 'bluesky.reply_gone', '답글을 달 댓글을 찾을 수 없습니다 (지워졌을 수 있습니다)');
+    // A reply names the thread's root as well as its parent; ours is the root of its own thread.
+    const root = parent.record?.reply?.root;
+    if (!root || root.uri !== target.remoteId) throw new ProviderError('rejected', 'bluesky.reply_thread', '이 게시물의 댓글이 아닙니다');
+    const res = await xrpc<{ uri: string }>(ctx, c.pds, 'com.atproto.repo.createRecord', {
+      token: c.accessJwt,
+      json: {
+        repo: c.did,
+        collection: 'app.bsky.feed.post',
+        record: { $type: 'app.bsky.feed.post', text, createdAt: ctx.now().toISOString(), reply: { root, parent: { uri: parent.uri, cid: parent.cid } } },
+      },
+    });
+    return { id: res.uri, url: `https://bsky.app/profile/${c.handle}/post/${res.uri.split('/').pop()}` };
+  },
 };

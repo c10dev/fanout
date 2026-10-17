@@ -127,6 +127,13 @@ export interface Provider {
   /** Newest top-level comments on a published post. Omit when the API can't read them. */
   comments?(args: StatsArgs & { limit: number }): Promise<Comment[]>;
 
+  /**
+   * Reply, as the connected account, to one of the post's top-level comments (already checked to
+   * be among `comments()`). Called once and never retried by fanout: platforms without an
+   * idempotency key could otherwise end up with the reply twice.
+   */
+  reply?(args: StatsArgs & { comment: Comment; text: string }): Promise<{ id: string; url?: string }>;
+
   /** Apply an edited title/description/tags (already saved on `post`) to the published post. */
   update?(args: StatsArgs & { post: Post }): Promise<void>;
 }

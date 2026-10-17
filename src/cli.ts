@@ -8,7 +8,7 @@ import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
 import { fileHash, probe } from './core/media.ts';
-import { accountLabel, assessMedia, cancelTarget, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, retryTarget, visibilityLabel } from './core/posting.ts';
+import { accountLabel, assessMedia, cancelTarget, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
@@ -228,6 +228,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout cancel <postId> [platform]      아직 안 올라간(대기·예약·실패) 대상 취소
   fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
   fanout comments <postId> [--limit 20]  게시된 대상의 최근 댓글 (YouTube·Facebook·Instagram·Bluesky·Mastodon)
+  fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]   댓글에 답글 (comments 의 [id])
   fanout stats [postId] [--include-paid]  게시된 영상의 조회·좋아요·댓글 (X는 --include-paid일 때만)
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off] [--format slack|discord|json]
   fanout notify test | off               상태 알림 (Slack·Discord·JSON webhook)
@@ -515,7 +516,7 @@ async function cmdComments(ctx: ProviderContext, deps: RunnerDeps, args: Args): 
   for (const r of await fetchComments(ctx, deps.providers, post.id, num(args, 'limit') ?? 20)) {
     console.log(`\n${r.platform}/${r.account}${r.skipped ? ` — ${r.skipped}` : r.error ? ` — ✗ ${r.error}` : ` — ${r.comments!.length}개`}`);
     for (const c of r.comments ?? []) {
-      console.log(`  ${c.at.slice(0, 16).replace('T', ' ')}  ${printable(c.author)}${c.likes ? `  ♥${c.likes}` : ''}${c.replies ? `  ↳${c.replies}` : ''}`);
+      console.log(`  ${c.at.slice(0, 16).replace('T', ' ')}  ${printable(c.author)}${c.likes ? `  ♥${c.likes}` : ''}${c.replies ? `  ↳${c.replies}` : ''}${r.canReply ? `  [${c.id}]` : ''}`);
       console.log(`    ${printable(c.text).slice(0, 200)}`);
     }
   }
@@ -559,6 +560,25 @@ function cmdCancel(ctx: ProviderContext, args: Args): number {
     }
   }
   return failed ? 1 : 0;
+}
+
+async function cmdReply(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const [, id, platform, commentId, ...words] = args.positionals;
+  const usage = 'fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]';
+  const post = id ? ctx.store.findPost(id) : undefined;
+  const text = words.join(' ').trim();
+  if (!post || !platform || !commentId || !text) throw new UsageError(usage);
+  const account = str(args, 'account');
+  const candidates = ctx.store.targetsForPost(post.id).filter((t) => t.platform === platform && (!account || t.account === account));
+  if (candidates.length !== 1) throw new UsageError(candidates.length ? `계정이 여러 개입니다. --account 로 고르세요: ${candidates.map((t) => t.account).join(', ')}` : `${platform} 대상이 없습니다`);
+  const t = candidates[0]!;
+  console.log(`${t.platform}/${t.account} 댓글 ${commentId}에 답글:\n  ${text}`);
+  if (!args.flags.yes && !(await confirm('이 계정 이름으로 공개 답글을 달까요?'))) return 1;
+  const out = await replyToComment(ctx, deps.providers, t.id, commentId, text).catch((err: Error) => {
+    throw err instanceof ProviderError ? err : new UsageError(err.message);
+  });
+  console.log(`답글을 달았습니다${out.url ? `: ${out.url}` : ''}`);
+  return 0;
 }
 
 async function cmdRemove(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
@@ -789,6 +809,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdEdit(ctx, deps, args);
       case 'comments':
         return await cmdComments(ctx, deps, args);
+      case 'reply':
+        return await cmdReply(ctx, deps, args);
       case 'notify':
         return await cmdNotify(ctx, args);
       case 'retry':
