@@ -108,6 +108,23 @@ describe('dashboard settings', () => {
     assert.deepEqual(((await res.json()) as { account: unknown }).account, { name: 'main', label: '@me.bsky.social' });
   });
 
+  it('manages the webhook without ever returning its URL', async () => {
+    const get = async () => (await (await fetch(`${base}/api/notify`, { headers: auth })).json()) as { configured: boolean; host?: string; format?: string; events: string[] };
+    assert.equal((await get()).configured, false);
+    const put = (body: unknown) => fetch(`${base}/api/notify`, { method: 'PUT', headers: auth, body: JSON.stringify(body) });
+    assert.equal((await put({ url: 'http://insecure.example/x', events: ['failed'] })).status, 400);
+    assert.equal((await put({ url: 'https://hooks.slack.com/services/T/B/SECRET', events: [] })).status, 400);
+    assert.equal((await put({ url: 'https://hooks.slack.com/services/T/B/SECRET', events: ['failed', 'bogus'] })).status, 200);
+    const text = await (await fetch(`${base}/api/notify`, { headers: auth })).text();
+    assert.ok(!text.includes('SECRET'));
+    assert.deepEqual(JSON.parse(text), { configured: true, host: 'hooks.slack.com', format: 'slack', events: ['failed'], fromEnv: false });
+    // Keeping the saved URL while changing events.
+    assert.equal((await put({ events: ['published', 'failed'] })).status, 200);
+    assert.deepEqual((await get()).events, ['published', 'failed']);
+    assert.equal((await fetch(`${base}/api/notify`, { method: 'DELETE', headers: auth })).status, 200);
+    assert.equal((await get()).configured, false);
+  });
+
   it('validates account names and pasted tokens', async () => {
     const post = (platform: string, body: unknown) => fetch(`${base}/api/connect/${platform}`, { method: 'POST', headers: auth, body: JSON.stringify(body) });
     assert.equal((await post('instagram', { name: '../x', token: 't' })).status, 400);

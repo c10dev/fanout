@@ -37,6 +37,8 @@ fanout notify test
 fanout notify off
 ```
 
+대시보드 설정 탭의 "알림" 카드에서도 같은 설정을 할 수 있습니다(127.0.0.1 전용).
+
 - Slack·Discord webhook 주소는 알아보고 그 형식으로 보냅니다. 그 밖의 주소에는 `{ event, state, platform, account, postId, targetId, title, url, error, text }` JSON을 보냅니다.
 - 기본으로 알리는 상태: 게시됨, 앱에서 마무리 필요(TikTok 수신함), 실패, 재연결 필요.
 - webhook 주소는 암호화해서 저장합니다. 환경 변수 `FANOUT_WEBHOOK_URL`이 있으면 그쪽을 씁니다.

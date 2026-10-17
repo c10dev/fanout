@@ -826,6 +826,57 @@ function connectForm(p, appReady) {
   );
 }
 
+const NOTIFY_EVENTS = [
+  ['published', '게시됨'],
+  ['handed_off', '앱에서 마무리 필요'],
+  ['failed', '실패'],
+  ['needs_reauth', '재연결 필요'],
+  ['removed', '삭제됨'],
+];
+
+function notifyCard(n) {
+  const status = h('span', { class: 'msg' });
+  const url = h('input', { name: 'url', type: 'password', autocomplete: 'off', placeholder: n.configured ? `저장됨 (${n.host}) · 바꿀 때만 입력` : 'https://hooks.slack.com/… 또는 Discord webhook' });
+  const format = select('format', [['', '주소로 자동 판단'], ['slack', 'Slack'], ['discord', 'Discord'], ['json', 'JSON']]);
+  format.value = n.configured && n.format && n.format !== 'json' ? n.format : '';
+  const boxes = NOTIFY_EVENTS.map(([key, label]) => h('label', { class: 'check' }, h('input', { type: 'checkbox', name: key, checked: n.events.includes(key) }), label));
+  const act = async (fn, ok) => {
+    try {
+      await fn();
+      message(status, ok, true);
+      await loadSettings();
+    } catch (err) {
+      message(status, err.message, false);
+    }
+  };
+  return h(
+    'section',
+    { class: 'panel' },
+    h('h2', {}, '알림', badge(n.configured ? [`켜짐 · ${n.host}`, 'ok'] : ['꺼짐', 'info'])),
+    h('p', { class: 'muted' }, '감시 폴더나 백그라운드 작업이 끝나거나 실패하면 Slack·Discord 등 webhook으로 알립니다.', n.fromEnv ? ' 지금은 FANOUT_WEBHOOK_URL 환경 변수가 우선합니다.' : ''),
+    h(
+      'form',
+      {
+        onsubmit: (e) => {
+          e.preventDefault();
+          const events = NOTIFY_EVENTS.map(([key]) => key).filter((key) => e.target.querySelector(`[name="${key}"]`).checked);
+          act(() => api('/notify', { method: 'PUT', body: JSON.stringify({ url: url.value, events, format: format.value || undefined }) }), '저장했습니다');
+        },
+      },
+      h('div', { class: 'app-form' }, h('label', { class: 'field' }, 'Webhook 주소', url), h('label', { class: 'field' }, '형식', format)),
+      h('div', { class: 'opt', role: 'group' }, h('span', { class: 'muted' }, '알릴 상태'), h('div', { class: 'choices' }, boxes)),
+      h(
+        'div',
+        { class: 'actions' },
+        h('button', { class: 'primary', type: 'submit' }, '저장'),
+        n.configured ? h('button', { class: 'small', type: 'button', onclick: () => act(() => api('/notify/test', { method: 'POST' }), '테스트 알림을 보냈습니다') }, '테스트 보내기') : null,
+        n.configured ? h('button', { class: 'small', type: 'button', onclick: () => act(() => api('/notify', { method: 'DELETE' }), '껐습니다') }, '끄기') : null,
+        status,
+      ),
+    ),
+  );
+}
+
 async function loadSettings() {
   const box = $('#settings');
   if (!overview.settingsEnabled) {
@@ -833,8 +884,8 @@ async function loadSettings() {
     return;
   }
   try {
-    const settings = await api('/settings');
-    box.replaceChildren(...settings.apps.map((app) => appCard(app, settings.platforms.filter((p) => app.platforms.includes(p.id)))));
+    const [settings, notify] = await Promise.all([api('/settings'), api('/notify')]);
+    box.replaceChildren(...settings.apps.map((app) => appCard(app, settings.platforms.filter((p) => app.platforms.includes(p.id)))), notifyCard(notify));
   } catch (err) {
     box.replaceChildren(h('p', { class: 'form-error' }, err.message));
   }

@@ -39,4 +39,5 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 | `POST /api/targets/:id/retry` | 실패·재연결 필요 대상 다시 시도 |
 | `GET /api/settings`, `PUT /api/apps/:key` | 앱 등록 상태, 앱 정보 저장 (비밀값은 응답에 넣지 않음). 127.0.0.1 전용 |
 | `POST /api/connect/:platform`, `DELETE /api/accounts/:platform/:name` | 계정 연결(OAuth는 인증 URL을 돌려줌)·해제. 127.0.0.1 전용 |
+| `GET/PUT/DELETE /api/notify`, `POST /api/notify/test` | 알림 webhook 설정. 주소 자체는 돌려주지 않고 호스트만 보여줌. 127.0.0.1 전용 |
 | `POST /api/doctor/:platform` | `{ account, live }` 점검. 127.0.0.1 전용 |
