@@ -38,6 +38,11 @@ export function createScheduledPost(
   return { post, targets: updated };
 }
 
+/** True when the platform needs no developer app, or its app credentials are saved. */
+export function appReady(store: Store, p: Provider): boolean {
+  return p.appFields.every((f) => f.optional) || Boolean(store.getApp(p.appKey ?? p.id));
+}
+
 /** Human name for a connected account: channel title, @username, page name or display name. */
 export function accountLabel(profile: Record<string, unknown>, name: string): string {
   const pr = profile as Record<string, string | undefined>;

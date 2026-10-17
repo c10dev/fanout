@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, assessMedia, createScheduledPost } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, createScheduledPost } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
@@ -54,6 +54,11 @@ type AssetKind = keyof typeof ASSET_KINDS;
 const JSON_LIMIT = 1024 * 1024;
 const PRUNE_INTERVAL_MS = 6 * 3600_000;
 const ACCOUNT_NAME = /^[A-Za-z0-9_-]{1,32}$/;
+/** Token-connect form for providers that don't declare their own fields (Meta). */
+const DEFAULT_CONNECT_FIELDS = [
+  { key: 'token', label: '액세스 토큰', secret: true },
+  { key: 'page', label: '페이지 ID (선택)', secret: false, optional: true },
+];
 const OAUTH_TTL_MS = 10 * 60_000;
 
 interface PendingOAuth {
@@ -301,8 +306,9 @@ export class Dashboard {
         id: p.id,
         displayName: p.displayName,
         appKey: p.appKey ?? p.id,
-        appConfigured: Boolean(store.getApp(p.appKey ?? p.id)),
+        appConfigured: appReady(store, p),
         connectMethod: p.connectMethod,
+        connectFields: p.connectMethod === 'token' ? (p.connectFields ?? DEFAULT_CONNECT_FIELDS) : undefined,
         redirectUri: p.connectMethod === 'oauth' ? this.#redirectUri(req, p.id) : undefined,
         accounts: accounts.filter((a) => a.platform === p.id).map((a) => ({ name: a.name, label: accountLabel(a.profile, a.name) })),
       })),
@@ -342,9 +348,9 @@ export class Dashboard {
     return { ok: true };
   }
 
-  async #connect(req: IncomingMessage, platform: string, body: { name?: string; token?: string; page?: string }) {
+  async #connect(req: IncomingMessage, platform: string, body: Record<string, unknown>) {
     const provider = this.#provider(platform);
-    const name = (body.name ?? 'main').trim();
+    const name = String(body.name ?? 'main').trim();
     if (!ACCOUNT_NAME.test(name)) throw new HttpError(400, '계정 이름은 영문·숫자·-·_ 32자 이내');
 
     if (provider.connectMethod === 'oauth') {
@@ -356,8 +362,14 @@ export class Dashboard {
       return { authorizeUrl: start.url };
     }
 
-    if (!body.token?.trim()) throw new HttpError(400, '액세스 토큰을 붙여넣으세요');
-    const account = await provider.connect(this.#opts.ctx, name, { token: body.token.trim(), page: body.page?.trim() || undefined });
+    const fields = provider.connectFields ?? DEFAULT_CONNECT_FIELDS;
+    const flags: Record<string, string | undefined> = {};
+    for (const f of fields) {
+      const v = typeof body[f.key] === 'string' ? (body[f.key] as string).trim() : '';
+      if (!v && !f.optional) throw new HttpError(400, `${f.label}을(를) 입력하세요`);
+      flags[f.key] = v || undefined;
+    }
+    const account = await provider.connect(this.#opts.ctx, name, flags);
     this.#opts.ctx.store.saveAccount(account);
     return { account: { name, label: accountLabel(account.profile, name) } };
   }
@@ -412,7 +424,7 @@ export class Dashboard {
         id: p.id,
         displayName: p.displayName,
         capabilities: p.capabilities,
-        appConfigured: Boolean(store.getApp(p.appKey ?? p.id)),
+        appConfigured: appReady(store, p),
         accounts: accounts
           .filter((a) => a.platform === p.id)
           .map((a) => ({ name: a.name, label: accountLabel(a.profile, a.name) })),

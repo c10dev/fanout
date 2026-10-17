@@ -13,6 +13,7 @@ describe('dashboard settings', () => {
     ['POST', 'oauth2.googleapis.com/token', () => json({ access_token: 'AT', refresh_token: 'RT', expires_in: 3600 })],
     ['GET', 'youtube/v3/channels', () => json({ items: [{ id: 'UC1', snippet: { title: '내 채널' }, status: {} }] })],
     ['GET', '/oauth/access_token', () => json({ access_token: 'LONG' })],
+    ['POST', 'com.atproto.server.createSession', () => json({ did: 'did:plc:x', handle: 'me.bsky.social', accessJwt: 'A', refreshJwt: 'R' })],
     ['GET', '/me/accounts', () => json({ data: [{ id: 'PAGE1', name: '내 페이지', access_token: 'PAGE-TOKEN', instagram_business_account: { id: 'IG1', username: 'me.reels' } }] })],
   ]);
   const env = makeCtx(platform.fetch, () => new Date());
@@ -91,6 +92,20 @@ describe('dashboard settings', () => {
 
     assert.equal((await fetch(`${base}/api/accounts/instagram/main`, { method: 'DELETE', headers: auth })).status, 200);
     assert.equal(env.store.getAccount('instagram', 'main'), undefined);
+  });
+
+  it('connects Bluesky with its own fields and no developer app', async () => {
+    const settings = (await (await fetch(`${base}/api/settings`, { headers: auth })).json()) as {
+      platforms: Array<{ id: string; appConfigured: boolean; connectFields?: Array<{ key: string }> }>;
+    };
+    const bsky = settings.platforms.find((p) => p.id === 'bluesky')!;
+    assert.equal(bsky.appConfigured, true);
+    assert.deepEqual(bsky.connectFields?.map((f) => f.key), ['handle', 'token', 'service']);
+    const missing = await fetch(`${base}/api/connect/bluesky`, { method: 'POST', headers: auth, body: JSON.stringify({ name: 'main', token: 'pw' }) });
+    assert.equal(missing.status, 400);
+    const res = await fetch(`${base}/api/connect/bluesky`, { method: 'POST', headers: auth, body: JSON.stringify({ name: 'main', handle: 'me.bsky.social', token: 'pw' }) });
+    assert.equal(res.status, 200);
+    assert.deepEqual(((await res.json()) as { account: unknown }).account, { name: 'main', label: '@me.bsky.social' });
   });
 
   it('validates account names and pasted tokens', async () => {

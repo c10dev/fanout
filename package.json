@@ -1,7 +1,7 @@
 {
   "name": "fanout",
   "version": "0.1.0",
-  "description": "Video-first, self-hosted uploader: post one video to YouTube, TikTok, Instagram Reels and Facebook Reels using your own platform apps.",
+  "description": "Video-first, self-hosted uploader: post one video to YouTube, TikTok, Instagram Reels, Facebook Reels and Bluesky using your own platform apps.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
@@ -16,7 +16,8 @@
     "shorts",
     "uploader",
     "cross-posting",
-    "self-hosted"
+    "self-hosted",
+    "bluesky"
   ],
   "type": "module",
   "engines": {

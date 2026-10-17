@@ -114,6 +114,12 @@ const OPTION_FORMS = {
     opt('설명 (비우면 제목·설명·태그로 만듦)', h('textarea', { name: 'caption', rows: 2 }), true),
     h('p', { class: 'note' }, 'Facebook Reels는 9:16, 3~90초 영상만 받습니다.'),
   ],
+  bluesky: () => [
+    opt('글 (비우면 제목·설명·태그로 만듦, 300자 이하)', h('textarea', { name: 'text', rows: 2 }), true),
+    opt('영상 대체 텍스트 (선택)', h('input', { type: 'text', name: 'alt', autocomplete: 'off' })),
+    opt('글 언어 (선택, 예: ko)', h('input', { type: 'text', name: 'langs', autocomplete: 'off' })),
+    h('p', { class: 'note' }, 'Bluesky는 mp4 최대 300MB, 자막은 VTT 파일만 붙습니다.'),
+  ],
 };
 
 /** Read one platform block back into the provider's option object. */
@@ -152,6 +158,8 @@ function readOptions(platform, body) {
       return { shareToFeed: on('shareToFeed') ? undefined : false, caption: text('caption') };
     case 'facebook':
       return { caption: text('caption') };
+    case 'bluesky':
+      return { text: text('text'), alt: text('alt'), langs: text('langs')?.split(',').map((l) => l.trim()).filter(Boolean) };
     default:
       return {};
   }
@@ -511,7 +519,7 @@ function banner(text, kind) {
 
 // ── Settings ─────────────────────────────────────────────────────
 
-const APP_TITLE = { youtube: 'YouTube', tiktok: 'TikTok', meta: 'Meta (Instagram · Facebook)' };
+const APP_TITLE = { youtube: 'YouTube', tiktok: 'TikTok', meta: 'Meta (Instagram · Facebook)', bluesky: 'Bluesky' };
 const CHECK_ICON = { ok: '✓', warn: '⚠', fail: '✗', info: 'ℹ' };
 const LIVE_NOTICE = {
   youtube: '4초짜리 테스트 영상을 일부 공개로 올려, 공개 업로드가 실제로 되는지 확인하고 바로 삭제합니다. 오늘 업로드 한도 1회를 씁니다. 처리를 기다리느라 몇 분 걸릴 수 있습니다.',
@@ -560,13 +568,16 @@ function appCard(app, platforms) {
     h('div', { class: 'app-form' }, fields, jsonInput ? h('label', { class: 'field' }, '또는 Google에서 받은 OAuth JSON 파일', jsonInput) : null),
     h('div', { class: 'actions' }, h('button', { class: 'primary', type: 'submit' }, '앱 정보 저장'), status),
   );
+  // Platforms like Bluesky sign in with an app password and need no developer app at all.
+  const noApp = app.fields.length === 0;
   const configured = app.fields.filter((f) => !f.optional).every((f) => f.set);
+  const connected = platforms.some((p) => p.accounts.length);
   return h(
     'section',
     { class: 'panel' },
-    h('h2', {}, APP_TITLE[app.key] ?? app.key, badge(configured ? ['앱 등록됨', 'ok'] : ['앱 미등록', 'warn'])),
-    h('details', { open: !configured }, h('summary', {}, '내 개발자 앱 만드는 방법'), h('pre', { class: 'guide' }, app.guide)),
-    form,
+    h('h2', {}, APP_TITLE[app.key] ?? app.key, badge(noApp ? ['개발자 앱 필요 없음', 'info'] : configured ? ['앱 등록됨', 'ok'] : ['앱 미등록', 'warn'])),
+    h('details', { open: noApp ? !connected : !configured }, h('summary', {}, noApp ? '연결 방법' : '내 개발자 앱 만드는 방법'), h('pre', { class: 'guide' }, app.guide)),
+    noApp ? null : form,
     platforms.map((p) => platformBlock(p, configured)),
   );
 }
@@ -629,8 +640,12 @@ function accountRow(p, a) {
 function connectForm(p, appReady) {
   const status = h('span', { class: 'msg' });
   const name = h('input', { name: 'name', value: p.accounts.some((a) => a.name === 'main') ? '' : 'main', placeholder: '예: main, sub', autocomplete: 'off' });
-  const token = p.connectMethod === 'token' ? h('textarea', { name: 'token', rows: 2, placeholder: 'Graph API 탐색기에서 만든 사용자 액세스 토큰' }) : null;
-  const page = p.connectMethod === 'token' ? h('input', { name: 'page', placeholder: '비우면 첫 번째 페이지', autocomplete: 'off' }) : null;
+  // Token-connect providers say which fields they need (Meta: token + page, Bluesky: handle + app password).
+  const inputs = (p.connectFields ?? []).map((f) => ({
+    key: f.key,
+    label: f.label,
+    el: f.key === 'token' && !f.secret ? h('textarea', { name: f.key, rows: 2 }) : h('input', { name: f.key, type: f.secret ? 'password' : 'text', autocomplete: 'off' }),
+  }));
   const redirect =
     p.connectMethod === 'oauth'
       ? h(
@@ -650,7 +665,7 @@ function connectForm(p, appReady) {
         try {
           const res = await api(`/connect/${p.id}`, {
             method: 'POST',
-            body: JSON.stringify({ name: name.value.trim() || 'main', token: token?.value, page: page?.value }),
+            body: JSON.stringify({ name: name.value.trim() || 'main', ...Object.fromEntries(inputs.map((i) => [i.key, i.el.value])) }),
           });
           if (res.authorizeUrl) {
             window.location.href = res.authorizeUrl;
@@ -664,8 +679,7 @@ function connectForm(p, appReady) {
         }
       },
     },
-    h('div', { class: 'connect' }, h('label', { class: 'field' }, '계정 이름', name), page ? h('label', { class: 'field' }, '페이지 ID (선택)', page) : null),
-    token ? h('label', { class: 'field' }, '액세스 토큰', token) : null,
+    h('div', { class: 'connect' }, h('label', { class: 'field' }, '계정 이름', name), inputs.map((i) => h('label', { class: 'field' }, i.label, i.el))),
     redirect,
     h('div', { class: 'actions' }, button, appReady ? null : h('span', { class: 'muted' }, '먼저 위에서 앱 정보를 저장하세요'), status),
   );
