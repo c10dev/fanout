@@ -1,0 +1,225 @@
+import { openAsBlob, statSync } from 'node:fs';
+import { basename } from 'node:path';
+import { createInterface } from 'node:readline/promises';
+import { ProviderError, kindForStatus } from '../core/errors.ts';
+import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
+import type { Account } from '../core/store.ts';
+import type { Issue, Post } from '../core/types.ts';
+
+// Docs: https://docs.joinmastodon.org/methods/media/ (POST /api/v2/media, async processing),
+//       https://docs.joinmastodon.org/methods/statuses/ (Idempotency-Key, scheduled_at),
+//       https://docs.joinmastodon.org/methods/instance/#v2 (configuration limits).
+
+const DEFAULT_MAX_CHARS = 500;
+/** Mastodon's default video_size_limit; instances may differ and are checked at upload time. */
+const DEFAULT_VIDEO_BYTES = 99 * 1024 * 1024;
+/** scheduled_at must be at least 5 minutes in the future. */
+const SCHEDULE_MIN_MS = 5 * 60_000;
+
+export interface MastodonCredentials {
+  instance: string;
+  token: string;
+}
+
+export interface MastodonOptions {
+  visibility: 'public' | 'unlisted' | 'private';
+  text?: string;
+  alt?: string;
+  language?: string;
+  /** Content warning; marks the media sensitive. */
+  spoilerText?: string;
+}
+
+interface InstanceConfig {
+  configuration?: {
+    statuses?: { max_characters?: number };
+    media_attachments?: { video_size_limit?: number; video_frame_rate_limit?: number; video_matrix_limit?: number };
+  };
+}
+
+function creds(account: Account): MastodonCredentials {
+  return account.credentials as unknown as MastodonCredentials;
+}
+
+export function normalizeInstance(raw: string): string {
+  const withScheme = /^https?:\/\//.test(raw) ? raw : `https://${raw}`;
+  const url = new URL(withScheme);
+  if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+    throw new ProviderError('rejected', 'mastodon.insecure', '인스턴스 주소는 https여야 합니다');
+  }
+  return url.origin;
+}
+
+async function api<T>(
+  ctx: ProviderContext,
+  c: MastodonCredentials,
+  path: string,
+  init: RequestInit & { allow?: number[] } = {},
+): Promise<{ status: number; body: T }> {
+  const res = await ctx.fetch(`${c.instance}${path}`, {
+    ...init,
+    headers: { authorization: `Bearer ${c.token}`, ...(init.headers as Record<string, string>) },
+  });
+  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
+  if (!res.ok && !(init.allow ?? []).includes(res.status)) {
+    const msg = body.error ?? `HTTP ${res.status}`;
+    throw new ProviderError(kindForStatus(res.status), `mastodon.http_${res.status}`, `Mastodon: ${msg}`, String(res.status));
+  }
+  return { status: res.status, body };
+}
+
+/** Status text: title, description, hashtags; the description goes first if it doesn't fit. */
+export function statusText(post: Post, opts: Partial<MastodonOptions>, maxChars = DEFAULT_MAX_CHARS): string {
+  if (opts.text !== undefined) return opts.text;
+  const tags = post.tags.map((t) => `#${t.replace(/^#/, '').replace(/\s+/g, '')}`).join(' ');
+  const full = [post.title, post.description, tags].filter((s) => s.trim()).join('\n\n');
+  return [...full].length <= maxChars ? full : [post.title, tags].filter((s) => s.trim()).join('\n\n');
+}
+
+async function instanceConfig(ctx: ProviderContext, c: MastodonCredentials): Promise<InstanceConfig> {
+  return (await api<InstanceConfig>(ctx, c, '/api/v2/instance')).body;
+}
+
+export const mastodon: Provider = {
+  id: 'mastodon',
+  displayName: 'Mastodon',
+  capabilities: { nativeSchedule: true, thumbnail: true, captions: false, syntheticMediaFlag: false },
+  spec: {
+    maxBytes: DEFAULT_VIDEO_BYTES,
+    containers: ['mp4', 'mov'],
+    videoCodecs: ['h264'],
+    audioCodecs: ['aac'],
+    maxFps: 120,
+  },
+  appFields: [],
+  connectMethod: 'token',
+  connectFields: [
+    { key: 'instance', label: '인스턴스 주소 (예: mastodon.social)', secret: false },
+    { key: 'token', label: '액세스 토큰', secret: true },
+  ],
+
+  setupGuide() {
+    return `Mastodon — 인스턴스에서 액세스 토큰 만들기 (개발자 앱 등록·심사 없음)
+
+1. 내 인스턴스 → 환경설정 → 개발 → 새 애플리케이션
+2. 이름: fanout, 권한: read:accounts, write:media, write:statuses 만 체크
+3. 저장 후 "액세스 토큰"을 복사
+4. fanout connect mastodon --name main --instance mastodon.social --token <토큰>
+   또는 대시보드 설정 탭의 Mastodon 칸
+5. fanout doctor mastodon 으로 인스턴스의 영상 크기·글자 수 한도를 확인
+
+공개 범위(visibility)는 매번 직접 고릅니다: public, unlisted(조용히 공개), private(팔로워만).`;
+  },
+
+  async connect(ctx, name, flags) {
+    let instance = typeof flags.instance === 'string' ? flags.instance.trim() : '';
+    let token = typeof flags.token === 'string' ? flags.token.trim() : '';
+    if (!instance || !token) {
+      const rl = createInterface({ input: process.stdin, output: process.stdout });
+      try {
+        if (!instance) instance = (await rl.question('인스턴스 주소: ')).trim();
+        if (!token) token = (await rl.question('액세스 토큰: ')).trim();
+      } finally {
+        rl.close();
+      }
+    }
+    const c: MastodonCredentials = { instance: normalizeInstance(instance), token };
+    const { body: me } = await api<{ id: string; acct: string; username: string; url: string }>(ctx, c, '/api/v1/accounts/verify_credentials');
+    const host = new URL(c.instance).host;
+    return { platform: 'mastodon', name, credentials: { ...c }, profile: { username: `${me.username}@${host}`, accountId: me.id, url: me.url } };
+  },
+
+  // Mastodon app tokens don't expire; a revoked one surfaces as 401.
+  refresh: async (_ctx, account) => account,
+
+  validate(post, target) {
+    const issues: Issue[] = [];
+    const o = target.options as Partial<MastodonOptions>;
+    if (!o.visibility || !['public', 'unlisted', 'private'].includes(o.visibility)) {
+      issues.push({ severity: 'error', code: 'visibility', message: 'Mastodon 공개 범위(public/unlisted/private)를 직접 지정해야 합니다' });
+    }
+    const text = statusText(post, o);
+    if ([...text].length > DEFAULT_MAX_CHARS) {
+      issues.push({ severity: 'warning', code: 'text', message: `Mastodon 글이 ${[...text].length}자입니다. 기본 한도 ${DEFAULT_MAX_CHARS}자를 넘으면 인스턴스에 따라 거부됩니다` });
+    }
+    if (post.scheduledAt && new Date(post.scheduledAt).getTime() - Date.now() < SCHEDULE_MIN_MS) {
+      issues.push({ severity: 'error', code: 'schedule', message: 'Mastodon 예약은 5분 뒤부터 가능합니다' });
+    }
+    if (post.captions.length) issues.push({ severity: 'warning', code: 'captions', message: 'Mastodon은 자막 파일을 받지 않아 무시됩니다' });
+    return issues;
+  },
+
+  async publish({ ctx, post, target, account, mediaPath, saveResume }): Promise<PublishOutcome> {
+    const c = creds(account);
+    const resume = (target.resume ?? {}) as { mediaId?: string; statusId?: string; statusUrl?: string };
+    if (resume.statusId) return { state: 'published', remoteId: resume.statusId, remoteUrl: resume.statusUrl };
+    if (resume.mediaId) return { state: 'processing', remoteId: resume.mediaId };
+
+    const limit = (await instanceConfig(ctx, c).catch(() => ({}) as InstanceConfig)).configuration?.media_attachments?.video_size_limit;
+    const size = statSync(mediaPath).size;
+    if (limit && size > limit) {
+      throw new ProviderError('rejected', 'mastodon.too_large', `이 인스턴스의 영상 한도는 ${(limit / 1024 / 1024).toFixed(0)}MB입니다 (파일 ${(size / 1024 / 1024).toFixed(0)}MB)`);
+    }
+    const o = target.options as unknown as MastodonOptions;
+    const form = new FormData();
+    form.set('file', await openAsBlob(mediaPath, { type: 'video/mp4' }), basename(mediaPath));
+    if (o.alt) form.set('description', o.alt);
+    if (post.thumbnailPath) form.set('thumbnail', await openAsBlob(post.thumbnailPath), basename(post.thumbnailPath));
+    const { body } = await api<{ id: string }>(ctx, c, '/api/v2/media', { method: 'POST', body: form });
+    saveResume({ mediaId: body.id });
+    return { state: 'processing', remoteId: body.id };
+  },
+
+  async poll({ ctx, post, target, account }): Promise<PollOutcome> {
+    const c = creds(account);
+    const resume = (target.resume ?? {}) as { mediaId?: string; statusId?: string; statusUrl?: string };
+    if (resume.statusId) return { state: 'published', remoteId: resume.statusId, remoteUrl: resume.statusUrl };
+    const mediaId = resume.mediaId ?? target.remoteId;
+    // 206 Partial Content while the server is still transcoding.
+    const media = await api<{ id: string; url: string | null }>(ctx, c, `/api/v1/media/${mediaId}`, { allow: [206] });
+    if (media.status === 206 || !media.body.url) return { state: 'processing', remoteId: mediaId };
+
+    const o = target.options as unknown as MastodonOptions;
+    const payload: Record<string, unknown> = {
+      status: statusText(post, o),
+      media_ids: [mediaId],
+      visibility: o.visibility,
+      ...(o.language ? { language: o.language } : {}),
+      ...(o.spoilerText ? { spoiler_text: o.spoilerText, sensitive: true } : {}),
+      ...(post.scheduledAt ? { scheduled_at: new Date(post.scheduledAt).toISOString() } : {}),
+    };
+    // The server dedupes on Idempotency-Key, so a retry after a lost response can't post twice.
+    const { body } = await api<{ id: string; url?: string; scheduled_at?: string }>(ctx, c, '/api/v1/statuses', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'idempotency-key': `fanout-${target.id}` },
+      body: JSON.stringify(payload),
+    });
+    ctx.store.updateTarget(target.id, { resume: { ...resume, statusId: body.id, statusUrl: body.url } });
+    const warnings = body.scheduled_at ? [`예약 게시: ${body.scheduled_at}`] : [];
+    return { state: 'published', remoteId: body.id, remoteUrl: body.url, warnings };
+  },
+
+  async doctor({ ctx, account }): Promise<DoctorCheck[]> {
+    const c = creds(account);
+    const checks: DoctorCheck[] = [];
+    try {
+      const { body: me } = await api<{ acct: string }>(ctx, c, '/api/v1/accounts/verify_credentials');
+      checks.push({ name: '계정', status: 'ok', detail: `@${me.acct} (${c.instance})` });
+    } catch (err) {
+      checks.push({ name: '계정', status: 'fail', detail: (err as Error).message });
+      return checks;
+    }
+    try {
+      const cfg = (await instanceConfig(ctx, c)).configuration;
+      const m = cfg?.media_attachments;
+      checks.push({
+        name: '인스턴스 한도',
+        status: 'info',
+        detail: `영상 ${m?.video_size_limit ? `${(m.video_size_limit / 1024 / 1024).toFixed(0)}MB` : '?'}, ${m?.video_frame_rate_limit ?? '?'}fps, 글 ${cfg?.statuses?.max_characters ?? '?'}자`,
+      });
+    } catch (err) {
+      checks.push({ name: '인스턴스 한도', status: 'warn', detail: (err as Error).message });
+    }
+    return checks;
+  },
+};

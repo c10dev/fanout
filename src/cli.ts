@@ -116,6 +116,8 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
       });
     case 'facebook':
       return drop({ caption: str(args, 'fb-caption') });
+    case 'mastodon':
+      return drop({ visibility: str(args, 'md-visibility'), text: str(args, 'md-text'), alt: str(args, 'md-alt'), language: str(args, 'md-lang'), spoilerText: str(args, 'md-cw') });
     case 'bluesky':
       return drop({ text: str(args, 'bsky-text'), alt: str(args, 'bsky-alt'), langs: str(args, 'bsky-lang')?.split(',').map((l) => l.trim()) });
     default:
@@ -203,7 +205,7 @@ const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프�
   fanout platforms                       지원 플랫폼과 기능
   fanout setup <platform>                내 개발자 앱(BYO) 만드는 방법
   fanout app set <platform> [--key 값]   BYO 앱 자격증명 저장 (instagram·facebook은 meta)
-  fanout connect <platform> [--name main] [--token T] [--page ID] [--handle H]
+  fanout connect <platform> [--name main] [--token T] [--page ID] [--handle H] [--instance URL]
   fanout accounts                        연결된 계정
   fanout disconnect <platform> <name>
   fanout doctor <platform> [--account main] [--live]
@@ -237,6 +239,8 @@ post 공통 옵션
   Instagram  --ig-caption 텍스트  --ig-no-feed  --ig-thumb-ms 1000
   Facebook   --fb-caption 텍스트
   Bluesky    --bsky-text 텍스트(300자 이하)  --bsky-alt 대체텍스트  --bsky-lang ko,en
+  Mastodon   --md-visibility public|unlisted|private (필수)  --md-text 텍스트  --md-alt 대체텍스트
+             --md-lang ko  --md-cw 내용경고
 
 데이터 위치: FANOUT_HOME (기본 ~/.fanout). 토큰은 AES-256-GCM으로 암호화해 저장합니다.`;
 

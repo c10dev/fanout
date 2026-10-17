@@ -114,6 +114,13 @@ const OPTION_FORMS = {
     opt('설명 (비우면 제목·설명·태그로 만듦)', h('textarea', { name: 'caption', rows: 2 }), true),
     h('p', { class: 'note' }, 'Facebook Reels는 9:16, 3~90초 영상만 받습니다.'),
   ],
+  mastodon: () => [
+    opt('공개 범위', select('visibility', [['public', '공개'], ['unlisted', '조용히 공개'], ['private', '팔로워만']], { placeholder: '선택하세요' })),
+    opt('글 (비우면 제목·설명·태그로 만듦)', h('textarea', { name: 'text', rows: 2 }), true),
+    opt('영상 대체 텍스트 (선택)', h('input', { type: 'text', name: 'alt', autocomplete: 'off' })),
+    opt('언어 (선택, 예: ko)', h('input', { type: 'text', name: 'language', autocomplete: 'off' })),
+    opt('내용 경고 (선택)', h('input', { type: 'text', name: 'spoilerText', autocomplete: 'off' })),
+  ],
   bluesky: () => [
     opt('글 (비우면 제목·설명·태그로 만듦, 300자 이하)', h('textarea', { name: 'text', rows: 2 }), true),
     opt('영상 대체 텍스트 (선택)', h('input', { type: 'text', name: 'alt', autocomplete: 'off' })),
@@ -158,6 +165,8 @@ function readOptions(platform, body) {
       return { shareToFeed: on('shareToFeed') ? undefined : false, caption: text('caption') };
     case 'facebook':
       return { caption: text('caption') };
+    case 'mastodon':
+      return { visibility: val('visibility').value || undefined, text: text('text'), alt: text('alt'), language: text('language'), spoilerText: text('spoilerText') };
     case 'bluesky':
       return { text: text('text'), alt: text('alt'), langs: text('langs')?.split(',').map((l) => l.trim()).filter(Boolean) };
     default:
@@ -172,6 +181,7 @@ function missingChoices(platform, o) {
     if (!o.privacy) out.push('YouTube 공개 범위를 고르세요');
     if (o.madeForKids === undefined) out.push('YouTube 아동용 여부를 고르세요');
   }
+  if (platform === 'mastodon' && !o.visibility) out.push('Mastodon 공개 범위를 고르세요');
   if (platform === 'tiktok' && o.mode === 'direct') {
     if (!o.privacyLevel) out.push('TikTok 공개 범위를 고르세요');
     if (!o.musicConsent) out.push('TikTok 음악 사용 확인에 동의해야 바로 게시할 수 있습니다');
@@ -359,9 +369,10 @@ function collectForm() {
     .map((r) => ({ language: r.querySelector('[name="language"]').value.trim(), file: r.querySelector('[name="file"]').files[0] }))
     .filter((c) => c.file || c.language);
   for (const c of captionRows) if (!c.file || !c.language) errors.push('자막은 언어 코드와 파일을 모두 넣어 주세요');
-  if ((thumbnail || captionRows.length) && !targets.some((t) => t.platform === 'youtube' || t.platform === 'bluesky')) {
-    errors.push('썸네일·자막은 지금 YouTube(자막은 Bluesky도)에만 적용됩니다. 해당 플랫폼을 고르거나 비워 주세요');
-  }
+  // Which platforms actually use these files (capabilities in the providers).
+  const uses = (list) => targets.some((t) => list.includes(t.platform));
+  if (thumbnail && !uses(['youtube', 'mastodon'])) errors.push('썸네일은 YouTube·Mastodon에만 적용됩니다. 해당 플랫폼을 고르거나 썸네일을 비워 주세요');
+  if (captionRows.length && !uses(['youtube', 'bluesky'])) errors.push('자막은 YouTube·Bluesky에만 적용됩니다. 해당 플랫폼을 고르거나 자막을 비워 주세요');
   const payload = {
     mediaId: media?.id,
     title,
@@ -575,7 +586,7 @@ function banner(text, kind) {
 
 // ── Settings ─────────────────────────────────────────────────────
 
-const APP_TITLE = { youtube: 'YouTube', tiktok: 'TikTok', meta: 'Meta (Instagram · Facebook)', bluesky: 'Bluesky' };
+const APP_TITLE = { youtube: 'YouTube', tiktok: 'TikTok', meta: 'Meta (Instagram · Facebook)', bluesky: 'Bluesky', mastodon: 'Mastodon' };
 const CHECK_ICON = { ok: '✓', warn: '⚠', fail: '✗', info: 'ℹ' };
 const LIVE_NOTICE = {
   youtube: '4초짜리 테스트 영상을 일부 공개로 올려, 공개 업로드가 실제로 되는지 확인하고 바로 삭제합니다. 오늘 업로드 한도 1회를 씁니다. 처리를 기다리느라 몇 분 걸릴 수 있습니다.',
