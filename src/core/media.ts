@@ -1,0 +1,271 @@
+import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { promisify } from 'node:util';
+
+const run = promisify(execFile);
+
+export interface MediaInfo {
+  path: string;
+  sizeBytes: number;
+  durationSec: number;
+  /** ffprobe format_name, e.g. "mov,mp4,m4a,3gp,3g2,mj2". */
+  container: string;
+  /** Overall bitrate in bits/s. */
+  bitrate: number;
+  video: {
+    codec: string;
+    /** Display dimensions, after applying rotation metadata. */
+    width: number;
+    height: number;
+    fps: number;
+    pixFmt: string;
+  };
+  audio?: {
+    codec: string;
+    sampleRate: number;
+    channels: number;
+  };
+}
+
+/** Platform constraints a file must satisfy. Every field is optional; unset means "no limit known". */
+export interface MediaSpec {
+  maxBytes?: number;
+  minDurationSec?: number;
+  maxDurationSec?: number;
+  containers?: string[];
+  videoCodecs?: string[];
+  audioCodecs?: string[];
+  minFps?: number;
+  maxFps?: number;
+  /** bits/s */
+  maxBitrate?: number;
+  maxAudioSampleRate?: number;
+  maxLongEdge?: number;
+  minShortEdge?: number;
+  /** width / height */
+  aspect?: { min: number; max: number };
+}
+
+export interface Violation {
+  code: string;
+  message: string;
+  /** True when re-encoding to H.264/AAC MP4 resolves it without changing the content. */
+  fixable: boolean;
+}
+
+// ── Probe ──────────────────────────────────────────────────────────
+
+interface ProbeStream {
+  codec_type?: string;
+  codec_name?: string;
+  width?: number;
+  height?: number;
+  avg_frame_rate?: string;
+  r_frame_rate?: string;
+  pix_fmt?: string;
+  sample_rate?: string;
+  channels?: number;
+  tags?: Record<string, string>;
+  side_data_list?: Array<{ rotation?: number }>;
+}
+
+interface ProbeOutput {
+  format?: { format_name?: string; duration?: string; size?: string; bit_rate?: string };
+  streams?: ProbeStream[];
+}
+
+function parseRate(rate: string | undefined): number {
+  if (!rate) return 0;
+  const [n, d] = rate.split('/').map(Number);
+  if (!n || !d) return 0;
+  return n / d;
+}
+
+/** Pure: turn ffprobe JSON into MediaInfo. Exported for tests. */
+export function parseProbe(path: string, probe: ProbeOutput): MediaInfo {
+  const v = probe.streams?.find((s) => s.codec_type === 'video');
+  if (!v) throw new Error(`${path}: no video stream`);
+  const a = probe.streams?.find((s) => s.codec_type === 'audio');
+  const rotation = Math.abs(v.side_data_list?.find((d) => d.rotation !== undefined)?.rotation ?? Number(v.tags?.rotate ?? 0));
+  const sideways = rotation % 180 === 90;
+  const width = v.width ?? 0;
+  const height = v.height ?? 0;
+  return {
+    path,
+    sizeBytes: Number(probe.format?.size ?? 0),
+    durationSec: Number(probe.format?.duration ?? 0),
+    container: probe.format?.format_name ?? '',
+    bitrate: Number(probe.format?.bit_rate ?? 0),
+    video: {
+      codec: v.codec_name ?? '',
+      width: sideways ? height : width,
+      height: sideways ? width : height,
+      fps: parseRate(v.avg_frame_rate) || parseRate(v.r_frame_rate),
+      pixFmt: v.pix_fmt ?? '',
+    },
+    audio: a
+      ? { codec: a.codec_name ?? '', sampleRate: Number(a.sample_rate ?? 0), channels: a.channels ?? 0 }
+      : undefined,
+  };
+}
+
+export async function probe(path: string): Promise<MediaInfo> {
+  const { stdout } = await run('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', path], {
+    maxBuffer: 16 * 1024 * 1024,
+  });
+  return parseProbe(path, JSON.parse(stdout) as ProbeOutput);
+}
+
+// ── Spec check ─────────────────────────────────────────────────────
+
+const MB = 1024 * 1024;
+
+export function checkMedia(info: MediaInfo, spec: MediaSpec): Violation[] {
+  const out: Violation[] = [];
+  const { video, audio } = info;
+  const longEdge = Math.max(video.width, video.height);
+  const shortEdge = Math.min(video.width, video.height);
+  const ratio = video.height ? video.width / video.height : 0;
+
+  if (spec.minDurationSec !== undefined && info.durationSec < spec.minDurationSec) {
+    out.push({ code: 'duration_short', fixable: false, message: `길이 ${info.durationSec.toFixed(1)}s < 최소 ${spec.minDurationSec}s` });
+  }
+  if (spec.maxDurationSec !== undefined && info.durationSec > spec.maxDurationSec) {
+    out.push({ code: 'duration_long', fixable: false, message: `길이 ${info.durationSec.toFixed(1)}s > 최대 ${spec.maxDurationSec}s` });
+  }
+  if (spec.aspect && (ratio < spec.aspect.min - 0.01 || ratio > spec.aspect.max + 0.01)) {
+    out.push({
+      code: 'aspect',
+      fixable: false,
+      message: `화면비 ${video.width}x${video.height} (${ratio.toFixed(3)})가 허용 범위 ${spec.aspect.min.toFixed(3)}–${spec.aspect.max.toFixed(3)} 밖`,
+    });
+  }
+  if (spec.minShortEdge !== undefined && shortEdge < spec.minShortEdge) {
+    out.push({ code: 'resolution_low', fixable: false, message: `짧은 변 ${shortEdge}px < 최소 ${spec.minShortEdge}px` });
+  }
+  if (spec.containers && !spec.containers.some((c) => info.container.split(',').includes(c))) {
+    out.push({ code: 'container', fixable: true, message: `컨테이너 ${info.container} 미지원` });
+  }
+  if (spec.videoCodecs && !spec.videoCodecs.includes(video.codec)) {
+    out.push({ code: 'video_codec', fixable: true, message: `영상 코덱 ${video.codec} 미지원 (${spec.videoCodecs.join('/')})` });
+  }
+  if (audio && spec.audioCodecs && !spec.audioCodecs.includes(audio.codec)) {
+    out.push({ code: 'audio_codec', fixable: true, message: `오디오 코덱 ${audio.codec} 미지원 (${spec.audioCodecs.join('/')})` });
+  }
+  if (audio && spec.maxAudioSampleRate !== undefined && audio.sampleRate > spec.maxAudioSampleRate) {
+    out.push({ code: 'audio_rate', fixable: true, message: `샘플레이트 ${audio.sampleRate}Hz > ${spec.maxAudioSampleRate}Hz` });
+  }
+  if (spec.maxFps !== undefined && video.fps > spec.maxFps + 0.01) {
+    out.push({ code: 'fps_high', fixable: true, message: `${video.fps.toFixed(2)}fps > 최대 ${spec.maxFps}fps` });
+  }
+  if (spec.minFps !== undefined && video.fps < spec.minFps - 0.01) {
+    out.push({ code: 'fps_low', fixable: true, message: `${video.fps.toFixed(2)}fps < 최소 ${spec.minFps}fps` });
+  }
+  if (spec.maxLongEdge !== undefined && longEdge > spec.maxLongEdge) {
+    out.push({ code: 'resolution_high', fixable: true, message: `긴 변 ${longEdge}px > 최대 ${spec.maxLongEdge}px` });
+  }
+  if (spec.maxBitrate !== undefined && info.bitrate > spec.maxBitrate) {
+    out.push({
+      code: 'bitrate',
+      fixable: true,
+      message: `비트레이트 ${(info.bitrate / 1e6).toFixed(1)}Mbps > ${(spec.maxBitrate / 1e6).toFixed(1)}Mbps`,
+    });
+  }
+  if (spec.maxBytes !== undefined && info.sizeBytes > spec.maxBytes) {
+    // Re-encoding can shrink the file only if a sane bitrate fits the budget.
+    const budgetBps = (spec.maxBytes * 8 * 0.95) / Math.max(info.durationSec, 1);
+    out.push({
+      code: 'size',
+      fixable: budgetBps >= 1_000_000,
+      message: `파일 ${(info.sizeBytes / MB).toFixed(0)}MB > 최대 ${(spec.maxBytes / MB).toFixed(0)}MB`,
+    });
+  }
+  return out;
+}
+
+// ── Conditional transcode ──────────────────────────────────────────
+
+/**
+ * Build ffmpeg args that fix every fixable violation while staying as close to the original as possible.
+ * Pure; exported for tests.
+ */
+export function transcodeArgs(info: MediaInfo, spec: MediaSpec, output: string): string[] {
+  const args = ['-y', '-hide_banner', '-loglevel', 'error', '-i', info.path];
+  const filters: string[] = [];
+
+  const longEdge = Math.max(info.video.width, info.video.height);
+  if (spec.maxLongEdge !== undefined && longEdge > spec.maxLongEdge) {
+    const scale = spec.maxLongEdge / longEdge;
+    const w = Math.round((info.video.width * scale) / 2) * 2;
+    const h = Math.round((info.video.height * scale) / 2) * 2;
+    filters.push(`scale=${w}:${h}`);
+  }
+  let fps = info.video.fps;
+  if (spec.maxFps !== undefined && fps > spec.maxFps) fps = spec.maxFps;
+  if (spec.minFps !== undefined && fps < spec.minFps) fps = spec.minFps;
+  if (fps !== info.video.fps) filters.push(`fps=${fps}`);
+  if (filters.length) args.push('-vf', filters.join(','));
+
+  args.push('-c:v', 'libx264', '-preset', 'medium', '-crf', '18', '-pix_fmt', 'yuv420p', '-profile:v', 'high');
+
+  let capBps = spec.maxBitrate;
+  if (spec.maxBytes !== undefined) {
+    const budget = Math.floor((spec.maxBytes * 8 * 0.95) / Math.max(info.durationSec, 1)) - 192_000;
+    capBps = capBps === undefined ? budget : Math.min(capBps, budget);
+  }
+  // A size budget only matters when it is tighter than anything CRF 18 would produce in practice.
+  if (capBps !== undefined && capBps < 100_000_000) {
+    const v = Math.max(capBps - 192_000, 500_000);
+    args.push('-maxrate', String(v), '-bufsize', String(v * 2));
+  }
+
+  if (info.audio) {
+    const rate = Math.min(info.audio.sampleRate || 48_000, spec.maxAudioSampleRate ?? 48_000);
+    args.push('-c:a', 'aac', '-b:a', '192k', '-ar', String(rate));
+  } else {
+    args.push('-an');
+  }
+  args.push('-movflags', '+faststart', output);
+  return args;
+}
+
+/**
+ * Return a file satisfying `spec`: the original when nothing fixable is wrong, otherwise a cached
+ * H.264/AAC MP4 variant under `<variantsDir>`.
+ */
+export async function ensureVariant(
+  info: MediaInfo,
+  spec: MediaSpec,
+  variantsDir: string,
+): Promise<{ path: string; transcoded: boolean; reasons: string[] }> {
+  const fixable = checkMedia(info, spec).filter((v) => v.fixable);
+  if (!fixable.length) return { path: info.path, transcoded: false, reasons: [] };
+
+  const st = statSync(info.path);
+  const key = createHash('sha256')
+    .update(JSON.stringify([info.path, st.size, st.mtimeMs, spec]))
+    .digest('hex')
+    .slice(0, 16);
+  mkdirSync(variantsDir, { recursive: true });
+  const output = join(variantsDir, `${key}.mp4`);
+  const reasons = fixable.map((v) => v.message);
+  if (existsSync(output)) return { path: output, transcoded: true, reasons };
+
+  const partial = `${output}.part.mp4`;
+  await run('ffmpeg', transcodeArgs(info, spec, partial), { maxBuffer: 16 * 1024 * 1024 });
+  renameSync(partial, output);
+  return { path: output, transcoded: true, reasons };
+}
+
+/** A tiny vertical test clip for `fanout doctor`. */
+export async function makeTestClip(output: string, seconds = 4): Promise<void> {
+  await run('ffmpeg', [
+    '-y', '-hide_banner', '-loglevel', 'error',
+    '-f', 'lavfi', '-i', `testsrc2=size=1080x1920:rate=30:duration=${seconds}`,
+    '-f', 'lavfi', '-i', `sine=frequency=440:sample_rate=48000:duration=${seconds}`,
+    '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', '-movflags', '+faststart',
+    output,
+  ]);
+}

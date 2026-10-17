@@ -1,0 +1,91 @@
+// Shared domain types. Platform-specific option shapes live next to each provider.
+
+export type PlatformId = string;
+
+/**
+ * Lifecycle of one post on one platform.
+ *
+ *   queued → transcoding → uploading → processing → published
+ *                                   ↘ handed_off   (finished by the user in the platform app, e.g. TikTok inbox)
+ *   any non-terminal state → failed | needs_reauth
+ */
+export type TargetState =
+  | 'queued'
+  | 'transcoding'
+  | 'uploading'
+  | 'processing'
+  | 'published'
+  | 'handed_off'
+  | 'failed'
+  | 'needs_reauth';
+
+export interface CaptionFile {
+  language: string;
+  path: string;
+  name?: string;
+}
+
+/** What the creator wants to post. Platform-neutral. */
+export interface PostInput {
+  mediaPath: string;
+  title: string;
+  description: string;
+  tags: string[];
+  thumbnailPath?: string;
+  captions: CaptionFile[];
+  /** Disclose realistic AI-generated or altered content where the platform supports it. */
+  containsSyntheticMedia: boolean;
+  /** ISO-8601. When set, providers with native scheduling hand it to the platform. */
+  scheduledAt?: string;
+}
+
+export interface TargetInput {
+  platform: PlatformId;
+  account: string;
+  options: Record<string, unknown>;
+}
+
+export interface Post extends PostInput {
+  id: string;
+  createdAt: string;
+}
+
+export interface Target {
+  id: string;
+  postId: string;
+  platform: PlatformId;
+  account: string;
+  options: Record<string, unknown>;
+  state: TargetState;
+  remoteId?: string;
+  remoteUrl?: string;
+  /** Provider-owned resume data, e.g. a YouTube resumable session URI. */
+  resume?: Record<string, unknown>;
+  warnings: string[];
+  errorCode?: string;
+  errorMessage?: string;
+  attempts: number;
+  notBefore?: string;
+  updatedAt: string;
+}
+
+export interface TargetEvent {
+  targetId: string;
+  at: string;
+  from: TargetState | null;
+  to: TargetState;
+  detail?: string;
+}
+
+export interface Capabilities {
+  nativeSchedule: boolean;
+  thumbnail: boolean;
+  captions: boolean;
+  syntheticMediaFlag: boolean;
+}
+
+export interface Issue {
+  severity: 'error' | 'warning';
+  code: string;
+  message: string;
+}

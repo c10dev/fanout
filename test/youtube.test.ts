@@ -1,0 +1,181 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import { ProviderError } from '../src/core/errors.ts';
+import type { Account } from '../src/core/store.ts';
+import type { Post, Target } from '../src/core/types.ts';
+import { CHUNK_SIZE, buildMetadata, nextOffset, pacificDay, youtube } from '../src/providers/youtube.ts';
+import { fakeMedia, json, makeCtx, mockFetch, tempFile } from './helpers.ts';
+
+const NOW = new Date('2026-10-17T03:00:00Z');
+
+function post(overrides: Partial<Post> = {}): Post {
+  return {
+    id: 'p1',
+    createdAt: NOW.toISOString(),
+    mediaPath: '/v.mp4',
+    title: '테스트 영상',
+    description: '설명',
+    tags: ['a', 'b'],
+    captions: [],
+    containsSyntheticMedia: true,
+    ...overrides,
+  };
+}
+
+function target(options: Record<string, unknown>, resume?: Record<string, unknown>): Target {
+  return { id: 't1', postId: 'p1', platform: 'youtube', account: 'main', options, state: 'uploading', warnings: [], attempts: 1, updatedAt: NOW.toISOString(), resume };
+}
+
+const account: Account = {
+  platform: 'youtube',
+  name: 'main',
+  credentials: { accessToken: 'AT', refreshToken: 'RT', expiresAt: NOW.getTime() + 3600_000 },
+  profile: { channelTitle: 'Ch' },
+};
+
+describe('youtube metadata', () => {
+  it('maps the post and discloses synthetic media', () => {
+    const m = buildMetadata(post(), { privacy: 'unlisted', madeForKids: false });
+    assert.deepEqual(m, {
+      snippet: { title: '테스트 영상', description: '설명', tags: ['a', 'b'], categoryId: '22' },
+      status: { privacyStatus: 'unlisted', selfDeclaredMadeForKids: false, containsSyntheticMedia: true },
+    });
+  });
+
+  it('uploads scheduled posts as private with publishAt', () => {
+    const m = buildMetadata(post({ scheduledAt: '2026-10-20T00:00:00.000Z' }), { privacy: 'public', madeForKids: false }) as {
+      status: Record<string, unknown>;
+    };
+    assert.equal(m.status.privacyStatus, 'private');
+    assert.equal(m.status.publishAt, '2026-10-20T00:00:00.000Z');
+  });
+
+  it('parses resumable Range headers', () => {
+    assert.equal(nextOffset('bytes=0-524287'), 524288);
+    assert.equal(nextOffset(null), 0);
+  });
+
+  it('resets the quota day at Pacific midnight', () => {
+    assert.equal(pacificDay(new Date('2026-10-17T06:59:00Z')), '2026-10-16');
+    assert.equal(pacificDay(new Date('2026-10-17T07:01:00Z')), '2026-10-17');
+  });
+});
+
+describe('youtube validate', () => {
+  it('insists on explicit privacy and made-for-kids', () => {
+    const codes = youtube.validate(post(), target({}), fakeMedia()).map((i) => i.code);
+    assert.ok(codes.includes('privacy'));
+    assert.ok(codes.includes('made_for_kids'));
+  });
+
+  it('flags Shorts classification and title limits', () => {
+    const issues = youtube.validate(post({ title: 'x'.repeat(101) }), target({ privacy: 'public', madeForKids: false }), fakeMedia({ durationSec: 60 }));
+    assert.ok(issues.some((i) => i.code === 'shorts' && i.severity === 'warning'));
+    assert.ok(issues.some((i) => i.code === 'title' && i.severity === 'error'));
+  });
+});
+
+describe('youtube resumable upload', () => {
+  it('starts a session, uploads in chunks and records usage', async () => {
+    const size = CHUNK_SIZE + 1000;
+    const file = tempFile(size);
+    const { fetch, calls } = mockFetch([
+      ['POST', '/upload/youtube/v3/videos?', () => new Response(null, { status: 200, headers: { location: 'https://upload.example/session1' } })],
+      [
+        'PUT',
+        'session1',
+        (c) =>
+          c.headers['content-range']!.startsWith('bytes 0-')
+            ? new Response(null, { status: 308, headers: { range: `bytes=0-${CHUNK_SIZE - 1}` } })
+            : json({ id: 'VID1', status: { uploadStatus: 'uploaded', privacyStatus: 'public' } }, 201),
+      ],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('youtube', { clientId: 'cid', clientSecret: 'cs' });
+    const saved: Array<Record<string, unknown>> = [];
+    const out = await youtube.publish({
+      ctx,
+      post: post({ mediaPath: file }),
+      target: target({ privacy: 'public', madeForKids: false }),
+      account,
+      mediaPath: file,
+      media: fakeMedia({ durationSec: 600 }, { width: 1920, height: 1080 }),
+      saveResume: (r) => saved.push(r),
+    });
+
+    assert.equal(out.state, 'processing');
+    assert.equal(out.remoteId, 'VID1');
+    assert.equal(out.remoteUrl, 'https://youtu.be/VID1');
+    const init = calls[0]!;
+    assert.equal(init.headers['x-upload-content-length'], String(size));
+    assert.equal((JSON.parse(String(init.body)) as { status: { privacyStatus: string } }).status.privacyStatus, 'public');
+    const puts = calls.filter((c) => c.method === 'PUT');
+    assert.deepEqual(
+      puts.map((c) => c.headers['content-range']),
+      [`bytes 0-${CHUNK_SIZE - 1}/${size}`, `bytes ${CHUNK_SIZE}-${size - 1}/${size}`],
+    );
+    assert.equal(saved[0]!.sessionUri, 'https://upload.example/session1');
+    assert.equal(store.getUsage('youtube', 'project', '2026-10-16'), 1);
+  });
+
+  it('resumes an interrupted session from the stored offset', async () => {
+    const size = 5000;
+    const file = tempFile(size);
+    const { fetch, calls } = mockFetch([
+      [
+        'PUT',
+        'session9',
+        (c) =>
+          c.headers['content-range'] === `bytes */${size}`
+            ? new Response(null, { status: 308, headers: { range: 'bytes=0-1999' } })
+            : json({ id: 'VID9', status: { uploadStatus: 'uploaded', privacyStatus: 'unlisted' } }, 200),
+      ],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('youtube', { clientId: 'cid', clientSecret: 'cs' });
+    const out = await youtube.publish({
+      ctx,
+      post: post({ mediaPath: file }),
+      target: target({ privacy: 'unlisted', madeForKids: false }, { sessionUri: 'https://upload.example/session9', size }),
+      account,
+      mediaPath: file,
+      media: fakeMedia(),
+      saveResume: () => {},
+    });
+    assert.equal(out.remoteId, 'VID9');
+    assert.equal(calls[1]!.headers['content-range'], `bytes 2000-4999/${size}`);
+    assert.equal(calls.some((c) => c.method === 'POST'), false, 'must not start a new session');
+    assert.equal(store.getUsage('youtube', 'project', '2026-10-16'), 0);
+  });
+
+  it('turns quotaExceeded into a non-retryable quota error', async () => {
+    const file = tempFile(100);
+    const { fetch } = mockFetch([
+      ['POST', '/upload/youtube/v3/videos?', () => json({ error: { code: 403, message: 'quota', errors: [{ reason: 'quotaExceeded' }] } }, 403)],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('youtube', { clientId: 'cid', clientSecret: 'cs' });
+    await assert.rejects(
+      youtube.publish({ ctx, post: post(), target: target({ privacy: 'public', madeForKids: false }), account, mediaPath: file, media: fakeMedia(), saveResume: () => {} }),
+      (err: ProviderError) => err.kind === 'rejected' && err.code === 'youtube.quota' && err.platformCode === 'quotaExceeded',
+    );
+  });
+
+  it('warns when a requested public upload comes back locked private', async () => {
+    const { fetch } = mockFetch([
+      ['GET', '/youtube/v3/videos?part=status', () => json({ items: [{ id: 'V', status: { uploadStatus: 'processed', privacyStatus: 'private' } }] })],
+    ]);
+    const { ctx } = makeCtx(fetch, () => NOW);
+    const out = await youtube.poll({ ctx, post: post(), target: { ...target({ privacy: 'public', madeForKids: false }), remoteId: 'V' }, account });
+    assert.equal(out.state, 'published');
+    assert.ok(out.warnings?.some((w) => w.startsWith('forced_private')));
+  });
+
+  it('explains the 7-day Testing-mode trap on invalid_grant', async () => {
+    const { fetch } = mockFetch([['POST', 'oauth2.googleapis.com/token', () => json({ error: 'invalid_grant', error_description: 'Token has been expired or revoked.' }, 400)]]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('youtube', { clientId: 'cid', clientSecret: 'cs' });
+    const expired = { ...account, credentials: { ...account.credentials, expiresAt: 0 } };
+    await assert.rejects(youtube.refresh(ctx, expired), (err: ProviderError) => err.kind === 'auth' && /Testing/.test(err.message));
+  });
+});
