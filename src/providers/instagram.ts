@@ -187,7 +187,7 @@ export const instagram: Provider = {
       `/${target.remoteId}/comments`,
       { fields: 'id,text,username,timestamp,like_count', limit: Math.min(limit, 50), access_token: c.pageToken },
     );
-    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : msg('(알 수 없음)'), text: m.text ?? '', at: m.timestamp, likes: m.like_count }));
+    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '', text: m.text ?? '', at: m.timestamp, likes: m.like_count }));
   },
 
   async reply({ ctx, account, comment, text, sending }) {

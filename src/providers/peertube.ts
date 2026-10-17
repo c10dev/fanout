@@ -350,7 +350,9 @@ export const peertube: Provider = {
     if (chars(post.description) > DESCRIPTION_MAX) issues.push({ severity: 'warning', code: 'description', message: msg('PeerTube 설명은 {DESCRIPTION_MAX}자까지만 올라갑니다', { DESCRIPTION_MAX }) });
     const kept = peertubeTags(post.tags);
     if (kept.length < post.tags.length) {
-      issues.push({ severity: 'warning', code: 'tags', message: msg('PeerTube 태그는 {TAGS_MAX}개까지, 각 {TAG_MIN}~{TAG_MAX}자만 올라갑니다: {kept}', { TAGS_MAX, TAG_MIN, TAG_MAX, kept: kept.join(', ') || msg('(없음)') }) });
+      issues.push({ severity: 'warning', code: 'tags', message: kept.length
+          ? msg('PeerTube 태그는 {TAGS_MAX}개까지, 각 {TAG_MIN}~{TAG_MAX}자만 올라갑니다: {kept}', { TAGS_MAX, TAG_MIN, TAG_MAX, kept: kept.join(', ') })
+          : msg('PeerTube 태그는 {TAGS_MAX}개까지, 각 {TAG_MIN}~{TAG_MAX}자만 올라가서 올라가는 태그가 없습니다', { TAGS_MAX, TAG_MIN, TAG_MAX }) });
     }
     if (o.commentsPolicy && !(o.commentsPolicy in COMMENTS_POLICY)) issues.push({ severity: 'error', code: 'comments', message: msg('commentsPolicy는 enabled, disabled, approval 중 하나') });
     if (post.scheduledAt && o.privacy && o.privacy !== 'public' && o.privacy !== 'unlisted' && o.privacy !== 'internal') {
@@ -413,7 +415,14 @@ export const peertube: Provider = {
     const o = target.options as unknown as PeerTubeOptions;
     const { body: me } = await api<Me>(ctx, c, '/api/v1/users/me');
     const channel = channelFor(account, o, me.videoChannels ?? []);
-    if (!channel) throw new ProviderError('rejected', 'peertube.channel', msg('채널 {channel}을(를) 찾을 수 없습니다. 가능: {channels}', { channel: o.channel ?? '', channels: (me.videoChannels ?? []).map((ch) => ch.name).join(', ') || msg('(없음)') }));
+    if (!channel) {
+      const names = (me.videoChannels ?? []).map((ch) => ch.name);
+      throw new ProviderError(
+        'rejected',
+        'peertube.channel',
+        names.length ? msg('채널 {channel}을(를) 찾을 수 없습니다. 가능: {channels}', { channel: o.channel ?? '', channels: names.join(', ') }) : msg('영상을 올릴 채널이 없습니다'),
+      );
+    }
     const { body: used } = await api<{ videoQuotaUsed?: number; videoQuotaUsedDaily?: number }>(ctx, c, '/api/v1/users/me/video-quota-used');
     for (const [limit, spent, label] of [
       [me.videoQuota, used.videoQuotaUsed, msg('전체')],

@@ -33,6 +33,7 @@ import { isTerminal } from '../core/state.ts';
 import { statsTrend } from '../core/stats.ts';
 import type { PostInput, Target, TargetInput, TargetState } from '../core/types.ts';
 import { isShort } from '../providers/youtube.ts';
+import { ACCOUNT_NAME } from '../core/store.ts';
 
 export interface DashboardOptions {
   ctx: ProviderContext;
@@ -75,7 +76,6 @@ const ASSET_KINDS = {
 type AssetKind = keyof typeof ASSET_KINDS;
 const JSON_LIMIT = 1024 * 1024;
 const PRUNE_INTERVAL_MS = 6 * 3600_000;
-const ACCOUNT_NAME = /^[A-Za-z0-9_-]{1,32}$/;
 /** Token-connect form for providers that don't declare their own fields (Meta). */
 const DEFAULT_CONNECT_FIELDS = [
   { key: 'token', label: msg('액세스 토큰'), secret: true },
@@ -118,8 +118,14 @@ function browserLang(req: IncomingMessage): Lang {
 }
 
 function send(res: ServerResponse, status: number, body: unknown): void {
+  let out = body;
+  try {
+    out = translateDeep(body, responseLang.get(res) ?? 'ko');
+  } catch {
+    // An untranslatable response still goes out, in Korean.
+  }
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-  res.end(JSON.stringify(translateDeep(body, responseLang.get(res) ?? 'ko')));
+  res.end(JSON.stringify(out));
 }
 
 async function readJson<T>(req: IncomingMessage): Promise<T> {

@@ -4,6 +4,9 @@ import type { SecretBox } from './crypto.ts';
 import { assertTransition } from './state.ts';
 import type { Post, PostInput, PostStats, StatsPoint, Target, TargetEvent, TargetInput, TargetState } from './types.ts';
 
+/** Account names: short ASCII, so they are never mistaken for text (or translated) anywhere. */
+export const ACCOUNT_NAME = /^[A-Za-z0-9_-]{1,32}$/;
+
 export interface Account<C = Record<string, unknown>> {
   platform: string;
   name: string;

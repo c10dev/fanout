@@ -43,8 +43,10 @@ describe('terminal language', () => {
     const inner = msg('제목을 입력하세요');
     assert.equal(translate(`youtube/main: ${inner}`, 'en'), 'youtube/main: Enter a title');
     assert.equal(translate(`- tiktok — ${inner}`, 'en'), '- tiktok — Enter a title');
-    const skipped = [`youtube (${inner})`, `x (${msg('파일이 너무 큽니다')})`].join(' / ');
-    assert.equal(translate(msg('올릴 수 있는 플랫폼이 없습니다: {skipped}', { skipped }), 'en'), 'No platform can take it: youtube (Enter a title) / x (The file is too large)');
+    assert.equal(translate(`x (${inner})`, 'en'), 'x (Enter a title)');
+    // One platform per line, its reasons joined with " / ".
+    const skipped = [`  youtube: ${inner} / ${msg('파일이 너무 큽니다')}`, `  x: ${msg('파일이 너무 큽니다')}`].join('\n');
+    assert.equal(translate(msg('올릴 수 있는 플랫폼이 없습니다:\n{skipped}', { skipped }), 'en'), 'No platform can take it:\n  youtube: Enter a title / The file is too large\n  x: The file is too large');
     assert.equal(translate('youtube: 처음 보는 오류', 'en'), 'youtube: 처음 보는 오류', 'unknown text after a label stays');
   });
 });
@@ -66,6 +68,12 @@ describe('CLI in English', () => {
 
     const usage = cli(['post', 'missing.mp4', '--title', 'T', '--to', 'youtube'], { FANOUT_LANG: 'en' });
     assert.match(usage.err, /No such file: .*missing\.mp4/);
+
+    assert.equal(cli(['status'], { FANOUT_LANG: 'en' }).out.trim(), 'No posts');
+    assert.equal(cli(['disconnect', 'mastodon', 'main'], { FANOUT_LANG: 'en' }).out.trim(), 'No such account');
+    const name = cli(['connect', 'mastodon', '--name', '실패'], { FANOUT_LANG: 'en' });
+    assert.equal(name.code, 2);
+    assert.match(name.err, /^Account names/);
   });
 
   it('shows stored Korean messages in English, but not the post title', () => {
