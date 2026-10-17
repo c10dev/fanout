@@ -59,6 +59,7 @@ export interface Post extends PostInput {
 /** A top-level comment on a published post, normalized across platforms. */
 export interface Comment {
   id: string;
+  /** Empty when the platform doesn't say; displays fill in their own placeholder. */
   author: string;
   text: string;
   at: string;

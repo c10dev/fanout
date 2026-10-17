@@ -152,6 +152,24 @@ describe('translating messages', () => {
     assert.deepEqual(out, { checks: [{ name: 'Channel', status: 'ok', detail: 'failed' }], appFields: [{ key: 'token', label: 'Access token', secret: true }] });
   });
 
+  it('reads a message whose last value is empty', () => {
+    assert.equal(translate(msg('알림 켜짐: {host} ({format}, {events}){source}', { host: 'h', format: 'json', events: 'failed', source: '' }), 'en'), 'Notifications on: h (json, failed)');
+    assert.equal(translate('상태는 다시 시도할 수 없습니다', 'en'), '상태는 다시 시도할 수 없습니다', 'a leading value is never empty');
+  });
+
+  it('keeps account, channel and tag names as written', () => {
+    assert.equal(translate(msg('{platform}/{account} (연결 안 됨)', { platform: 'mastodon', account: '실패' }), 'en'), 'mastodon/실패 (not connected)');
+    const tags = msg('PeerTube 태그는 {TAGS_MAX}개까지, 각 {TAG_MIN}~{TAG_MAX}자만 올라갑니다: {kept}', { TAGS_MAX: 8, TAG_MIN: 2, TAG_MAX: 30, kept: '실패, 전체' });
+    assert.match(translate(tags, 'en'), /: 실패, 전체$/);
+    const preview = { platform: 'youtube', account: '실패', accountLabel: '예약 상담소', visibility: msg('(미지정)') };
+    assert.deepEqual(translateDeep(preview, 'en'), { ...preview, visibility: '(not set)' });
+  });
+
+  it('gives up on labels nested too deep instead of overflowing the stack', () => {
+    const deep = 'a: '.repeat(2000) + '전체';
+    assert.equal(translate(deep, 'en'), deep);
+  });
+
   it('keeps user content inside a message as written', () => {
     assert.equal(translate(msg('{platform}/{account} 댓글 {commentId}에 답글:\n  {text}', { platform: 'x', account: 'main', commentId: '1', text: '실패' }), 'en'), 'x/main reply to comment 1:\n  실패');
   });

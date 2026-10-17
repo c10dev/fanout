@@ -258,7 +258,7 @@ export function planPost(args: {
     const options = { ...config.options?.[w.platform], ...sidecar.options?.[w.platform] };
     targets.push({ platform: w.platform, account: w.account, options: renderDeep(options, vars, `options.${w.platform}`) as Record<string, unknown> });
   }
-  if (!targets.length) throw new WatchConfigError(msg('올릴 수 있는 플랫폼이 없습니다: {skipped}', { skipped: skipped.map((s) => `${s.platform} (${s.reason})`).join(' / ') }));
+  if (!targets.length) throw new WatchConfigError(msg('올릴 수 있는 플랫폼이 없습니다:\n{skipped}', { skipped: skipped.map((s) => `  ${s.platform}: ${s.reason}`).join('\n') }));
   return { input, targets, skipped };
 }
 
@@ -383,7 +383,7 @@ export async function ingest(args: {
       if (before) plan.skipped.push({ platform: t.platform, reason: describePrior(before) });
     }
     if (!fresh.length) {
-      const error = msg('이미 올린 영상이라 건너뜁니다 (다시 올리려면 onDuplicate: "post"): {skipped}', { skipped: plan.skipped.map((s) => `${s.platform} — ${s.reason}`).join(' / ') });
+      const error = msg('이미 올린 영상이라 건너뜁니다 (다시 올리려면 onDuplicate: "post"):\n{skipped}', { skipped: plan.skipped.map((s) => `  ${s.platform}: ${s.reason}`).join('\n') });
       const failedTo = moveVideo(videoPath, dir, 'failed');
       writeError(failedTo, error);
       return { ok: false, error, movedTo: failedTo };
@@ -415,7 +415,7 @@ export async function ingest(args: {
         else if ((config.onBlocked ?? 'skip') === 'fail') throw new WatchConfigError(`${t.platform}: ${errors.join(' / ')}`);
         else plan.skipped.push({ platform: t.platform, reason: errors.join(' / ') });
       }
-      if (!kept.length) throw new WatchConfigError(msg('올릴 수 있는 플랫폼이 없습니다: {skipped}', { skipped: plan.skipped.map((s) => `${s.platform} (${s.reason})`).join(' / ') }));
+      if (!kept.length) throw new WatchConfigError(msg('올릴 수 있는 플랫폼이 없습니다:\n{skipped}', { skipped: plan.skipped.map((s) => `  ${s.platform}: ${s.reason}`).join('\n') }));
       plan.targets = kept;
       // The post points at where the video is about to go; files move only once the post is
       // committed, so a refused write leaves the video and its sidecar where they were.

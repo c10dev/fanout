@@ -67,8 +67,10 @@ function match(m: Matcher, value: string): string[] | undefined {
   let pos = first.length;
   for (let i = 1; i < pieces.length - 1; i++) {
     const lit = pieces[i]!;
+    // Room the values after this piece need: one character each, except an empty trailing value.
+    const room = i === pieces.length - 2 && !last ? 0 : 1;
     let at = lit ? value.indexOf(lit, pos + 1) : pos + 1;
-    if (at < 0 || at + lit.length >= end) return undefined;
+    if (at < 0 || at + lit.length > end - room) return undefined;
     if (lit && i === pieces.length - 2) {
       // The last value is usually short (a time, a link, a hint) and the one before it a message that
       // may hold the same punctuation, so the last piece is the rightmost place that still fits.
@@ -81,7 +83,9 @@ function match(m: Matcher, value: string): string[] | undefined {
     values.push(v);
     pos = at + lit.length;
   }
-  if (pos >= end) return undefined;
+  // The last value may be empty when nothing follows it ("…{source}" with no source); any other
+  // value must hold something, or a template starting with "{state} …" would match anything.
+  if (pos > end || (pos === end && last)) return undefined;
   values.push(value.slice(pos, end));
   return values;
 }
@@ -90,17 +94,30 @@ const HANGUL = /[가-힣]/;
 /** Longer strings are not messages (the longest, the CLI help, is about 4 KB). */
 const MAX_LENGTH = 16_384;
 /** Placeholders that carry user content, which is never translated even when it reads like a message. */
-const VERBATIM = new Set(['title', 'text', 'path', 'url', 'file', 'dir', 'profile', 'username', 'nickname', 'handle', 'backup', 'home', 'savedTo', 'backupDir']);
+const VERBATIM = new Set([
+  'title', 'text', 'path', 'url', 'file', 'dir', 'profile', 'username', 'nickname', 'handle', 'backup', 'home', 'savedTo', 'backupDir',
+  'account', 'accounts', 'name', 'candidates', 'channel', 'channels', 'kept',
+]);
+/** Messages inside messages go a few levels deep at most; past that the text is not a message. */
+const MAX_DEPTH = 8;
 
 const cache = new Map<string, string>();
+let depth = 0;
 
 /** English for a rendered Korean message, or the message itself if no template matches. */
 export function translate(value: string, lang: Lang): string {
-  if (lang === 'ko' || value.length > MAX_LENGTH || !HANGUL.test(value)) return value;
+  if (lang === 'ko' || value.length > MAX_LENGTH || depth >= MAX_DEPTH || !HANGUL.test(value)) return value;
   let english = cache.get(value);
-  if (english === undefined) {
+  if (english !== undefined) return english;
+  depth++;
+  try {
     english = translateMessages(value);
-    // The dashboard re-sends the same board every few seconds; a bounded memo keeps that cheap.
+  } finally {
+    depth--;
+  }
+  // The dashboard re-sends the same board every few seconds; a bounded memo keeps that cheap. Only
+  // whole strings are kept: an inner one may have been cut short by the depth limit.
+  if (depth === 0) {
     if (cache.size >= 5000) cache.clear();
     cache.set(value, english);
   }
@@ -194,12 +211,15 @@ function translateLabelled(value: string): string | undefined {
 }
 
 /**
- * Keys whose values are user content (titles, captions and other target options, account profiles
- * and labels, preset names), never translated even if they read like a message. Two shapes reuse
+ * Keys whose values are user content (titles, captions and other target options, account names,
+ * profiles and labels, preset names), never translated even if they read like a message. Two shapes reuse
  * those keys for messages and are translated: a check's name ({ name, status, detail }) and an app
  * field's label ({ key, label, secret }).
  */
-const USER_FIELDS = new Set(['title', 'description', 'tags', 'text', 'author', 'remoteUrl', 'url', 'mediaName', 'username', 'displayName', 'pageName', 'channelTitle', 'name', 'label', 'options', 'profile']);
+const USER_FIELDS = new Set([
+  'title', 'description', 'tags', 'text', 'author', 'remoteUrl', 'url', 'mediaName', 'username', 'displayName', 'pageName', 'channelTitle',
+  'name', 'label', 'options', 'profile', 'account', 'accountLabel',
+]);
 
 function isMessageField(obj: object, key: string): boolean {
   if (key === 'name') return 'status' in obj && 'detail' in obj;

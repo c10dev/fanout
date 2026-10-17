@@ -48,6 +48,7 @@ function translateStatic(root = document) {
 
 // English for every tr() key in app.js and data-i18n key in index.html (test/i18n.test.ts checks).
 const MESSAGES_EN = {
+  '(이름 없음)': '(no name)',
   "대시보드 토큰 (fanout serve 출력 참고)": "Dashboard token (see the fanout serve output)",
   "대기": "Queued",
   "변환 중": "Transcoding",

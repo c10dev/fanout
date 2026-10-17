@@ -736,7 +736,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       const id = t.snippet.topLevelComment.id ?? t.id;
       return {
         id,
-        author: c.authorDisplayName ?? msg('(이름 없음)'),
+        author: c.authorDisplayName ?? '',
         text: c.textOriginal ?? c.textDisplay ?? '',
         at: c.publishedAt,
         likes: c.likeCount,

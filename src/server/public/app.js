@@ -893,7 +893,7 @@ function commentsPanel(postId) {
                 h(
                   'div',
                   { class: 'comment-meta' },
-                  h('strong', {}, c.author),
+                  h('strong', {}, c.author || tr('(이름 없음)')),
                   h('span', { class: 'muted' }, ` · ${c.at ? fmtTime(c.at) : ''}${c.likes ? ` · ♥ ${fmtNum(c.likes)}` : ''}${c.replies ? ` · ${tr('답글 {n}', { n: fmtNum(c.replies) })}` : ''}`),
                   c.url ? h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer', class: 'comment-link' }, tr('열기')) : null,
                 ),

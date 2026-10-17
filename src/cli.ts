@@ -22,6 +22,7 @@ import { refreshDueStats } from './core/stats.ts';
 import { DEFAULT_STATS_EVERY_MS, Worker } from './core/worker.ts';
 import { isShort } from './providers/youtube.ts';
 import { currentLang, local, msg } from './core/i18n.ts';
+import { ACCOUNT_NAME } from './core/store.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
 
@@ -329,7 +330,8 @@ async function cmdAppSet(ctx: ProviderContext, provider: Provider, args: Args): 
     rl.close();
   }
   ctx.store.setApp(key, config);
-  say(msg('{key} 앱 저장됨 ({fields})', { key, fields: provider.appFields.filter((f) => config[f.key] !== undefined).map((f) => f.key).join(', ') }));
+  const saved = provider.appFields.filter((f) => config[f.key] !== undefined).map((f) => f.key);
+  say(saved.length ? msg('{key} 앱 저장됨 ({fields})', { key, fields: saved.join(', ') }) : msg('{key} 앱 저장됨', { key }));
 }
 
 async function cmdDoctor(ctx: ProviderContext, provider: Provider, args: Args): Promise<number> {
@@ -643,7 +645,8 @@ async function cmdComments(ctx: ProviderContext, deps: RunnerDeps, args: Args): 
   for (const r of await fetchComments(ctx, deps.providers, post.id, num(args, 'limit') ?? 20)) {
     console.log(`\n${r.platform}/${r.account}${r.skipped ? ` — ${local(r.skipped)}` : r.error ? ` — ✗ ${local(r.error)}` : ` — ${local(msg('댓글 {count}개', { count: r.comments!.length }))}`}`);
     for (const c of r.comments ?? []) {
-      console.log(`  ${c.at.slice(0, 16).replace('T', ' ')}  ${printable(c.author)}${c.likes ? `  ♥${c.likes}` : ''}${c.replies ? `  ↳${c.replies}` : ''}${r.canReply ? `  [${c.id}]` : ''}`);
+      const author = printable(c.author) || local(msg('(이름 없음)'));
+      console.log(`  ${c.at.slice(0, 16).replace('T', ' ')}  ${author}${c.likes ? `  ♥${c.likes}` : ''}${c.replies ? `  ↳${c.replies}` : ''}${r.canReply ? `  [${c.id}]` : ''}`);
       console.log(`    ${printable(c.text).slice(0, 200)}`);
     }
   }
@@ -822,7 +825,7 @@ async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   const id = args.positionals[1];
   const posts = id ? [ctx.store.findPost(id)].filter((p): p is Post => Boolean(p)) : ctx.store.listPosts(5);
   if (!posts.length) {
-    console.log(id ? msg('post {id} 없음', { id }) : msg('게시물 없음'));
+    say(id ? msg('post {id} 없음', { id }) : msg('게시물 없음'));
     return 1;
   }
   const fmt = (n?: number) => (n === undefined ? '-' : n.toLocaleString(LOCALE()));
@@ -937,6 +940,7 @@ export async function main(argv: string[]): Promise<number> {
       case 'connect': {
         const p = needProvider();
         const name = str(args, 'name') ?? 'main';
+        if (!ACCOUNT_NAME.test(name)) throw new UsageError(msg('계정 이름은 영문·숫자·-·_ 32자 이내'));
         const account = await p.connect(ctx, name, args.flags);
         ctx.store.saveAccount(account);
         say(msg('연결됨: {id}/{name} {profile}', { id: p.id, name, profile: JSON.stringify(account.profile) }));
@@ -948,7 +952,7 @@ export async function main(argv: string[]): Promise<number> {
       case 'disconnect': {
         const [, platform, name] = args.positionals;
         if (!platform || !name) throw new UsageError('fanout disconnect <platform> <name>');
-        console.log(ctx.store.removeAccount(platform, name) ? msg('삭제됨') : msg('해당 계정 없음'));
+        say(ctx.store.removeAccount(platform, name) ? msg('삭제됨') : msg('해당 계정 없음'));
         return 0;
       }
       case 'doctor':
@@ -958,7 +962,7 @@ export async function main(argv: string[]): Promise<number> {
       case 'status': {
         const id = args.positionals[1];
         const posts = id ? [ctx.store.findPost(id)].filter((p): p is Post => Boolean(p)) : ctx.store.listPosts(10);
-        if (!posts.length) console.log(id ? msg('post {id} 없음', { id }) : msg('게시물 없음'));
+        if (!posts.length) say(id ? msg('post {id} 없음', { id }) : msg('게시물 없음'));
         for (const p of posts) printPost(ctx, p, Boolean(args.flags.events));
         const pending = posts.flatMap((p) => ctx.store.targetsForPost(p.id)).filter((t) => !isTerminal(t.state));
         if (pending.length) say(msg('\n진행 중 {count}건 — fanout run 으로 이어서 처리', { count: pending.length }));

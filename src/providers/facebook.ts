@@ -217,7 +217,7 @@ export const facebook: Provider = {
       `/${target.remoteId}/comments`,
       { fields: 'from{name},message,created_time,like_count,comment_count', order: 'reverse_chronological', limit: Math.min(limit, 100), access_token: c.pageToken },
     );
-    return (res.data ?? []).map((m) => ({ id: m.id, author: m.from?.name ?? msg('(이름 없음)'), text: m.message ?? '', at: m.created_time, likes: m.like_count, replies: m.comment_count }));
+    return (res.data ?? []).map((m) => ({ id: m.id, author: m.from?.name ?? '', text: m.message ?? '', at: m.created_time, likes: m.like_count, replies: m.comment_count }));
   },
 
   // Replying as the Page needs pages_manage_engagement, which posting alone doesn't.
