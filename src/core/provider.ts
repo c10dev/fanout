@@ -79,6 +79,12 @@ export interface Provider {
   readonly capabilities: Capabilities;
   readonly spec: MediaSpec;
 
+  /**
+   * With native scheduling: how far ahead the platform accepts a schedule (Facebook: 29 days). A
+   * post scheduled further out waits in fanout until it is within reach, then uploads.
+   */
+  readonly scheduleMaxAheadMs?: number;
+
   /** Store key for the BYO app when several providers share one developer app (Instagram + Facebook → "meta"). */
   readonly appKey?: string;
   /** Human setup guide for registering the user's own developer app. */

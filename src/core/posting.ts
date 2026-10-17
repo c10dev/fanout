@@ -36,12 +36,32 @@ export function createScheduledPost(
   input: PostInput,
   targets: TargetInput[],
 ): { post: Post; targets: Target[] } {
-  const { post, targets: created } = store.createPost(input, targets);
-  if (!input.scheduledAt) return { post, targets: created };
-  const updated = created.map((t) =>
-    providers.get(t.platform)?.capabilities.nativeSchedule ? t : store.updateTarget(t.id, { notBefore: input.scheduledAt }),
-  );
-  return { post, targets: updated };
+  return store.transaction(() => {
+    const { post, targets: created } = store.createPost(input, targets);
+    if (!input.scheduledAt) return { post, targets: created };
+    const updated = created.map((t) => {
+      const hold = holdUntil(providers.get(t.platform), input.scheduledAt, Date.now());
+      return hold ? store.updateTarget(t.id, { notBefore: hold }) : t;
+    });
+    return { post, targets: updated };
+  });
+}
+
+const DAY_MS = 86_400_000;
+
+/**
+ * When a scheduled target should start: platforms without native scheduling wait for the time
+ * itself; native ones upload now, unless the time is beyond what the platform accepts, in which
+ * case they wait until it is a day inside that limit. Undefined: start now.
+ */
+export function holdUntil(provider: Provider | undefined, scheduledAt: string | undefined, now: number): string | undefined {
+  if (!scheduledAt) return undefined;
+  const at = Date.parse(scheduledAt);
+  if (!(at > now)) return undefined;
+  if (!provider?.capabilities.nativeSchedule) return scheduledAt;
+  const max = provider.scheduleMaxAheadMs;
+  if (!max || at - now <= max - DAY_MS) return undefined;
+  return new Date(at - (max - DAY_MS)).toISOString();
 }
 
 /** True when the platform needs no developer app, or its app credentials are saved. */
@@ -173,9 +193,8 @@ export function addTargets(store: Store, providers: Map<string, Provider>, postI
   const blocked = plan.preview.filter((p) => p.errors.length);
   if (blocked.length) throw new Error(blocked.map((p) => `${p.platform}/${p.account}: ${p.errors.join(', ')}`).join('\n'));
   if (plan.dropped.length) store.updatePost(postId, { thumbnailPath: plan.post.thumbnailPath, captions: plan.post.captions });
-  // Like a new post: platforms without native scheduling wait for the time, if it is still ahead.
-  const at = plan.post.scheduledAt && Date.parse(plan.post.scheduledAt) > Date.now() ? plan.post.scheduledAt : undefined;
-  return store.addTargets(postId, targets, (t) => (providers.get(t.platform)?.capabilities.nativeSchedule ? undefined : at));
+  // Like a new post: wait for the time where the platform can't hold the schedule itself.
+  return store.addTargets(postId, targets, (t) => holdUntil(providers.get(t.platform), plan.post.scheduledAt, Date.now()));
 }
 
 /**

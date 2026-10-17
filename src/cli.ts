@@ -487,7 +487,8 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     const [platform = '', account = 'main'] = spec.split(':');
     if (!deps.providers.has(platform)) throw new UsageError(`${CONFIG_FILE}: 알 수 없는 플랫폼 ${platform}`);
     const t: TargetInput = { platform, account, options: config.options?.[platform] ?? {} };
-    console.log(`  ${accountLine(ctx, t).padEnd(40)} ${visibilityLabel(t, config.at)}`);
+    const when = config.at ?? (config.slots?.length ? `다음 빈 슬롯(${config.slots.join(', ')})` : undefined);
+    console.log(`  ${accountLine(ctx, t).padEnd(40)} ${visibilityLabel(t, when)}`);
   }
   console.log('  (영상별 <이름>.json 이 있으면 그 값이 우선합니다)');
   const missing = (config.to ?? []).map((s) => s.split(':')).filter(([p = '', a = 'main']) => !ctx.store.getAccount(p, a));
@@ -505,7 +506,15 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   const scan = async (): Promise<void> => {
     for (const videoPath of scanner.ready(!once)) {
       scanner.forget(videoPath);
-      const r = await ingest({ dir, config, videoPath, providers: deps.providers, store: ctx.store, probe: probeFn, now: ctx.now() });
+      let r: Awaited<ReturnType<typeof ingest>>;
+      try {
+        r = await ingest({ dir, config, videoPath, providers: deps.providers, store: ctx.store, probe: probeFn, now: ctx.now() });
+      } catch (err) {
+        // One bad video (or a busy database) must not stop the watcher; it is picked up again next scan.
+        failures++;
+        console.log(`✗ ${basename(videoPath)}: ${err instanceof Error ? err.message : String(err)}`);
+        continue;
+      }
       if (!r.ok) {
         failures++;
         console.log(`✗ ${basename(videoPath)}: ${r.error}\n    → ${r.movedTo}`);

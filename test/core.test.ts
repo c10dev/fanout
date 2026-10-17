@@ -123,10 +123,16 @@ describe('upcoming scheduled posts', () => {
     const { makeCtx } = await import('./helpers.ts');
     const { store } = makeCtx();
     const base = { mediaPath: '/v.mp4', description: '', tags: [], captions: [], containsSyntheticMedia: false };
-    store.createPost({ ...base, title: 'later', scheduledAt: '2026-10-20T10:00:00.000Z' }, []);
-    store.createPost({ ...base, title: 'past', scheduledAt: '2026-10-01T10:00:00.000Z' }, []);
-    store.createPost({ ...base, title: 'now' }, []);
-    store.createPost({ ...base, title: 'sooner', scheduledAt: '2026-10-18T10:00:00.000Z' }, []);
-    assert.deepEqual(store.listScheduled('2026-10-17T00:00:00.000Z').map((p) => p.title), ['sooner', 'later']);
+    const yt = [{ platform: 'youtube', account: 'main', options: {} }];
+    store.createPost({ ...base, title: 'later', scheduledAt: '2026-10-20T10:00:00.000Z' }, yt);
+    store.createPost({ ...base, title: 'past', scheduledAt: '2026-10-01T10:00:00.000Z' }, yt);
+    store.createPost({ ...base, title: 'now' }, yt);
+    store.createPost({ ...base, title: 'sooner', scheduledAt: '2026-10-18T10:00:00.000Z' }, yt);
+    const gone = store.createPost({ ...base, title: 'canceled', scheduledAt: '2026-10-19T10:00:00.000Z' }, yt);
+    store.transition(gone.targets[0]!.id, 'canceled');
+    // Past its time but still waiting for a worker: still to go out.
+    const late = store.createPost({ ...base, title: 'late', scheduledAt: '2026-10-16T10:00:00.000Z' }, [{ platform: 'x', account: 'main', options: {} }], '2026-10-16T10:00:00.000Z');
+    assert.ok(late.targets[0]!.notBefore);
+    assert.deepEqual(store.listScheduled('2026-10-17T00:00:00.000Z').map((p) => p.title), ['late', 'sooner', 'later']);
   });
 });
