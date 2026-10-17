@@ -44,6 +44,12 @@ const STATIC: Record<string, string> = {
 };
 const MEDIA_ID = /^[0-9a-f-]{36}\.[a-z0-9]{1,5}$/;
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi']);
+/** Thumbnail and caption uploads: YouTube accepts JPEG/PNG up to 2MB and these caption formats. */
+const ASSET_KINDS = {
+  thumbnail: { ext: new Set(['.jpg', '.jpeg', '.png']), maxBytes: 2 * 1024 * 1024 },
+  caption: { ext: new Set(['.srt', '.vtt', '.sbv', '.scc', '.ttml', '.dfxp']), maxBytes: 5 * 1024 * 1024 },
+} as const;
+type AssetKind = keyof typeof ASSET_KINDS;
 const JSON_LIMIT = 1024 * 1024;
 const PRUNE_INTERVAL_MS = 6 * 3600_000;
 const ACCOUNT_NAME = /^[A-Za-z0-9_-]{1,32}$/;
@@ -97,6 +103,10 @@ interface CreatePostBody {
   scheduledAt?: string;
   containsSyntheticMedia?: boolean;
   targets?: TargetInput[];
+  /** From POST /api/assets/thumbnail. */
+  thumbnailId?: string;
+  /** From POST /api/assets/caption. */
+  captions?: Array<{ language?: string; assetId?: string }>;
 }
 
 /**
@@ -219,6 +229,7 @@ export class Dashboard {
     const parts = url.pathname.split('/').filter(Boolean).slice(1);
     if (method === 'GET' && parts[0] === 'overview') return send(res, 200, this.#overview());
     if (method === 'POST' && parts[0] === 'media' && parts.length === 1) return send(res, 201, await this.#upload(req));
+    if (method === 'POST' && parts[0] === 'assets' && (parts[1] === 'thumbnail' || parts[1] === 'caption')) return send(res, 201, await this.#uploadAsset(req, parts[1]));
     if (method === 'GET' && parts[0] === 'posts' && parts.length === 1) return send(res, 200, this.#listPosts(Number(url.searchParams.get('limit') ?? 20)));
     if (method === 'POST' && parts[0] === 'posts' && parts.length === 1) return send(res, 201, await this.#createPost(req));
     if (method === 'GET' && parts[0] === 'posts' && parts[1]) return send(res, 200, this.#postDetail(parts[1]));
@@ -445,6 +456,47 @@ export class Dashboard {
     return { id, name, media: { ...media, path: undefined }, isShort: isShort(media), assessments: assessMedia(media, this.#opts.providers.values()) };
   }
 
+  async #uploadAsset(req: IncomingMessage, kind: AssetKind) {
+    const rule = ASSET_KINDS[kind];
+    const name = decodeURIComponent(String(req.headers['x-filename'] ?? ''));
+    const ext = extname(name).toLowerCase();
+    if (!(rule.ext as ReadonlySet<string>).has(ext)) {
+      throw new HttpError(415, `${kind === 'thumbnail' ? '썸네일' : '자막'} 형식이 아닙니다: ${ext || '(없음)'} (가능: ${[...rule.ext].join(', ')})`);
+    }
+    const length = Number(req.headers['content-length'] ?? 0);
+    if (length > rule.maxBytes) throw new HttpError(413, `${kind === 'thumbnail' ? '썸네일' : '자막'}은 ${rule.maxBytes / 1024 / 1024}MB 이하여야 합니다`);
+    const id = `${randomUUID()}${ext}`;
+    const path = join(this.#mediaDir, id);
+    let size = 0;
+    const out = createWriteStream(path, { mode: 0o600 });
+    try {
+      await pipeline(
+        req,
+        async function* (source: AsyncIterable<Buffer>) {
+          for await (const chunk of source) {
+            size += chunk.length;
+            if (size > rule.maxBytes) throw new HttpError(413, '파일이 너무 큽니다');
+            yield chunk;
+          }
+        },
+        out,
+      );
+    } catch (err) {
+      rmSync(path, { force: true });
+      throw err;
+    }
+    return { id, name, kind, bytes: size };
+  }
+
+  #assetPath(id: unknown, kind: AssetKind): string {
+    const ext = extname(String(id)).toLowerCase();
+    const path = join(this.#mediaDir, String(id));
+    if (typeof id !== 'string' || !MEDIA_ID.test(id) || !(ASSET_KINDS[kind].ext as ReadonlySet<string>).has(ext) || !existsSync(path)) {
+      throw new HttpError(400, `${kind === 'thumbnail' ? '썸네일' : '자막'} 파일을 다시 올려 주세요 (${String(id)})`);
+    }
+    return path;
+  }
+
   async #createPost(req: IncomingMessage) {
     const body = await readJson<CreatePostBody>(req);
     if (!body.mediaId || !MEDIA_ID.test(body.mediaId) || !existsSync(join(this.#mediaDir, body.mediaId))) {
@@ -463,7 +515,12 @@ export class Dashboard {
       title: body.title.trim(),
       description: body.description ?? '',
       tags: (body.tags ?? []).map((t) => String(t).trim()).filter(Boolean),
-      captions: [],
+      thumbnailPath: body.thumbnailId ? this.#assetPath(body.thumbnailId, 'thumbnail') : undefined,
+      captions: (body.captions ?? []).map((c) => {
+        const language = String(c.language ?? '').trim();
+        if (!/^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(language)) throw new HttpError(400, `자막 언어 코드가 올바르지 않습니다: ${language || '(비어 있음)'} (예: ko, en, ja)`);
+        return { language, path: this.#assetPath(c.assetId, 'caption') };
+      }),
       containsSyntheticMedia: Boolean(body.containsSyntheticMedia),
       scheduledAt: body.scheduledAt ? new Date(body.scheduledAt).toISOString() : undefined,
     };
@@ -503,8 +560,13 @@ export class Dashboard {
 
   /** Never expose local filesystem paths to the browser. */
   #publicPost<P extends { mediaPath: string; thumbnailPath?: string; captions: unknown[] }>(p: P) {
-    const { mediaPath, thumbnailPath: _t, captions: _c, ...rest } = p;
-    return { ...rest, mediaName: mediaPath.split('/').pop() };
+    const { mediaPath, thumbnailPath, captions, ...rest } = p;
+    return {
+      ...rest,
+      mediaName: mediaPath.split('/').pop(),
+      hasThumbnail: Boolean(thumbnailPath),
+      captionLanguages: (captions as Array<{ language: string }>).map((c) => c.language),
+    };
   }
 
   #publicTarget(t: Target) {

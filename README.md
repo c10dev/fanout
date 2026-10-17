@@ -76,6 +76,7 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 
 - 영상을 끌어다 놓으면 플랫폼마다 "원본 그대로 / 변환 후 업로드 / 올릴 수 없음"을 바로 보여줍니다.
 - 플랫폼별 옵션은 정책에 맞춰 기본값 없이 고르게 합니다. YouTube 공개 범위·아동용 여부, TikTok Direct Post 공개 범위·음악 사용 동의가 그렇고, TikTok 댓글·듀엣·이어찍기는 꺼진 상태로 시작합니다.
+- "썸네일·자막"을 펼치면 썸네일 이미지(JPG·PNG, 2MB 이하)와 언어별 자막 파일을 붙일 수 있습니다. 지금은 YouTube에만 적용됩니다.
 - 게시 현황 보드는 플랫폼별 상태, 플랫폼 오류 코드, 경고, 상태 전이 기록을 보여주고, 실패하거나 재연결이 필요한 대상은 "다시 시도"할 수 있습니다.
 - 서버 안에서 작업 처리기가 돌아가므로 `fanout worker`를 따로 켤 필요가 없습니다.
 - **설정** 탭에서 개발자 앱 등록, 계정 연결·해제, 점검(`doctor`)을 할 수 있습니다. 127.0.0.1 전용으로 연 대시보드에서만 열립니다.
@@ -91,7 +92,8 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 |---|---|
 | `GET /api/overview` | 플랫폼, 기능, 연결된 계정 |
 | `POST /api/media` | 영상 원본 바이트 업로드 (`x-filename` 헤더) → 분석·플랫폼별 판정 |
-| `POST /api/posts` | `{ mediaId, title, description, tags, scheduledAt, containsSyntheticMedia, targets: [{ platform, account, options }] }` |
+| `POST /api/assets/thumbnail`, `POST /api/assets/caption` | 썸네일(JPG·PNG, 2MB)·자막(SRT·VTT 등) 원본 바이트 업로드 (`x-filename` 헤더) → `id` |
+| `POST /api/posts` | `{ mediaId, title, description, tags, scheduledAt, containsSyntheticMedia, targets: [{ platform, account, options }], thumbnailId?, captions?: [{ language, assetId }] }` |
 | `GET /api/posts`, `GET /api/posts/:id` | 게시 현황, 상태 전이 기록 |
 | `POST /api/targets/:id/retry` | 실패·재연결 필요 대상 다시 시도 |
 | `GET /api/settings`, `PUT /api/apps/:key` | 앱 등록 상태, 앱 정보 저장 (비밀값은 응답에 넣지 않음). 127.0.0.1 전용 |
@@ -219,7 +221,7 @@ npm run typecheck
 
 ## 로드맵
 
-- 대시보드에서 썸네일·자막 지원, MCP 서버
+- MCP 서버
 - X, Threads(공개 URL 필요), LinkedIn, Bluesky·Mastodon·PeerTube
 - TikTok: 심사를 통과한 앱 연결 모드, Upload-Post·Ayrshare 어댑터
 - 네이버 클립 실험 플러그인 (별도 저장소, 사용자가 직접 로그인한 브라우저 프로필만 사용)

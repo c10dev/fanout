@@ -32,7 +32,7 @@ function files(dir: string): Array<{ path: string; bytes: number; mtimeMs: numbe
  * What can go from `<home>/media` (dashboard uploads) and `<home>/variants` (transcode cache).
  * Only ever looks inside fanout's own home: watch-folder `posted/` files belong to the user.
  *
- * - media not referenced by any post, older than a day → abandoned upload
+ * - media (videos, thumbnails, captions) not referenced by any post, older than a day → abandoned upload
  * - media of a post whose every target finished successfully, older than `days` → no retry can need it
  * - variants older than `days`, but only while nothing is mid-upload (a resumed upload must see
  *   the exact same bytes, and a regenerated variant is not guaranteed to match)
@@ -43,7 +43,12 @@ export function planPrune(home: string, store: Store, opts: PruneOptions): Prune
   const posts = store.listPosts(100_000);
   const targetsByPost = new Map(posts.map((p) => [p.id, store.targetsForPost(p.id)]));
   const byMedia = new Map<string, string[]>();
-  for (const p of posts) byMedia.set(p.mediaPath, [...(byMedia.get(p.mediaPath) ?? []), p.id]);
+  // A post owns its video, thumbnail and caption files; all follow the same keep rules.
+  for (const p of posts) {
+    for (const path of [p.mediaPath, p.thumbnailPath, ...p.captions.map((c) => c.path)]) {
+      if (path) byMedia.set(path, [...(byMedia.get(path) ?? []), p.id]);
+    }
+  }
 
   const out: PruneItem[] = [];
   for (const f of files(join(home, 'media'))) {

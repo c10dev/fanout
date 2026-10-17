@@ -47,6 +47,15 @@
           <label class="check"><input type="checkbox" id="ai"> AI로 생성·합성한 사실적인 콘텐츠</label>
         </div>
 
+        <details class="extras">
+          <summary>썸네일·자막 <span class="muted">(지금은 YouTube에만 적용)</span></summary>
+          <label class="field">썸네일 이미지 <span class="muted">JPG·PNG, 2MB 이하</span>
+            <input type="file" id="thumbnail" accept="image/jpeg,image/png">
+          </label>
+          <div id="captions" class="caption-rows"></div>
+          <button type="button" class="small" id="add-caption">자막 파일 추가</button>
+        </details>
+
         <h3 class="sub">올릴 곳</h3>
         <div id="targets" class="targets"></div>
 

@@ -159,6 +159,36 @@ describe('dashboard server', () => {
     assert.equal(mine.targets[0]!.resume, undefined);
   });
 
+  it('accepts thumbnail and caption assets and attaches them to a post', async () => {
+    const asset = (kind: string, name: string, bytes: number) =>
+      fetch(`${base}/api/assets/${kind}`, { method: 'POST', headers: { ...auth, 'x-filename': encodeURIComponent(name) }, body: Buffer.alloc(bytes, 1) });
+    assert.equal((await asset('thumbnail', 'cover.gif', 10)).status, 415);
+    assert.equal((await asset('thumbnail', 'huge.png', 3 * 1024 * 1024)).status, 413);
+    const thumb = (await (await asset('thumbnail', 'cover.png', 100)).json()) as { id: string };
+    const sub = (await (await asset('caption', 'ko.srt', 50)).json()) as { id: string };
+    const { id: mediaId } = (await (await upload()).json()) as { id: string };
+
+    const post = (extra: Record<string, unknown>) =>
+      fetch(`${base}/api/posts`, {
+        method: 'POST',
+        headers: { ...auth, 'content-type': 'application/json' },
+        body: JSON.stringify({ mediaId, title: 'with assets', targets: [{ platform: 'alpha', account: 'main', options: {} }], ...extra }),
+      });
+    assert.equal((await post({ thumbnailId: sub.id })).status, 400, 'a caption file is not a thumbnail');
+    assert.equal((await post({ captions: [{ language: 'korean!', assetId: sub.id }] })).status, 400);
+
+    const res = await post({ thumbnailId: thumb.id, captions: [{ language: 'ko', assetId: sub.id }] });
+    assert.equal(res.status, 201);
+    const created = (await res.json()) as { post: { id: string; hasThumbnail: boolean; captionLanguages: string[]; thumbnailPath?: string } };
+    assert.equal(created.post.hasThumbnail, true);
+    assert.deepEqual(created.post.captionLanguages, ['ko']);
+    assert.equal(created.post.thumbnailPath, undefined, 'no local paths in responses');
+    const stored = env.store.getPost(created.post.id)!;
+    assert.match(stored.thumbnailPath ?? '', /\.png$/);
+    assert.equal(stored.captions[0]!.language, 'ko');
+    await dashboard.idle();
+  });
+
   it('validates post requests', async () => {
     const post = (body: unknown) => fetch(`${base}/api/posts`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await post({ mediaId: '../../etc/passwd', title: 't', targets: [{ platform: 'alpha', account: 'main' }] })).status, 400);
