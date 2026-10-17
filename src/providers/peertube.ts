@@ -70,6 +70,9 @@ interface PeerTubeResume {
   extrasDone?: boolean;
   instance?: string;
   userId?: number;
+  /** Channel and start time of the session, to find the video if the last chunk's answer was lost. */
+  channelId?: number;
+  startedAt?: string;
 }
 
 function creds(account: Account): PeerTubeCredentials {
@@ -87,15 +90,21 @@ export function normalizePeerTubeInstance(raw: string): string {
 interface ApiError {
   detail?: string;
   title?: string;
-  error?: string;
+  /** A string from the REST API and OAuth, an object from the resumable upload endpoint (uploadx). */
+  error?: string | { code?: string; message?: string };
   code?: string;
 }
 
 function apiError(status: number, body: ApiError | undefined, what: string): ProviderError {
-  const code = body?.code ?? body?.error;
-  const msg = body?.detail ?? body?.error ?? body?.title ?? `HTTP ${status}`;
-  return new ProviderError(kindForStatus(status), `peertube.${code ?? `http_${status}`}`, `PeerTube ${what}: ${msg}`, code ?? String(status));
+  const inner = typeof body?.error === 'object' ? body.error : undefined;
+  const text = typeof body?.error === 'string' ? body.error : undefined;
+  const code = body?.code ?? inner?.code ?? text;
+  const msg = body?.detail ?? inner?.message ?? text ?? body?.title ?? `HTTP ${status}`;
+  // platformCode always starts with the HTTP status, so a 404 is recognisable whatever the body says.
+  return new ProviderError(kindForStatus(status), `peertube.${code ?? `http_${status}`}`, `PeerTube ${what}: ${msg}`, code ? `${status}/${code}` : String(status));
 }
+
+const notFound = (err: unknown): boolean => err instanceof ProviderError && /^404(\/|$)/.test(err.platformCode ?? '');
 
 async function api<T>(ctx: ProviderContext, c: PeerTubeCredentials, path: string, init: RequestInit & { allow?: number[] } = {}): Promise<{ status: number; body: T; headers: Headers }> {
   const res = await ctx.fetch(`${c.instance}${path}`, {
@@ -121,10 +130,10 @@ async function tokenRequest(ctx: ProviderContext, instance: string, form: Record
   });
   const body = (await res.json().catch(() => ({}))) as ApiError & { access_token?: string; refresh_token?: string; expires_in?: number };
   if (res.ok && body.access_token && body.refresh_token) return body as { access_token: string; refresh_token: string; expires_in?: number };
-  const code = body.code ?? body.error;
+  const code = body.code ?? (typeof body.error === 'string' ? body.error : body.error?.code);
   if (code === 'missing_two_factor') throw new ProviderError('rejected', 'peertube.otp', '2단계 인증이 켜진 계정입니다. 인증 앱의 코드(otp)를 함께 넣어 주세요');
   if (code === 'invalid_grant' || code === 'invalid_token' || res.status === 400 || res.status === 401) {
-    throw new ProviderError('auth', `peertube.${code ?? 'invalid_grant'}`, `PeerTube 로그인이 만료됐거나 거부됐습니다. 다시 연결하세요 (${body.detail ?? body.error ?? res.status})`, code);
+    throw new ProviderError('auth', `peertube.${code ?? 'invalid_grant'}`, `PeerTube 로그인이 만료됐거나 거부됐습니다. 다시 연결하세요 (${body.detail ?? code ?? res.status})`, code);
   }
   throw apiError(res.status, body, 'token');
 }
@@ -153,17 +162,21 @@ export function peertubeTags(tags: string[]): string[] {
   const out: string[] = [];
   for (const raw of tags) {
     const t = raw.replace(/^#/, '').trim();
-    if (t.length < TAG_MIN || t.length > TAG_MAX || out.includes(t)) continue;
+    // The server counts characters, not UTF-16 units (an emoji is one).
+    const n = chars(t);
+    if (n < TAG_MIN || n > TAG_MAX || out.includes(t)) continue;
     out.push(t);
     if (out.length === TAGS_MAX) break;
   }
   return out;
 }
 
+const chars = (s: string): number => [...s].length;
+
 function description(post: Post): string | undefined {
   const d = post.description.trim();
   // PeerTube refuses descriptions under 3 characters; leave it out instead.
-  return d.length >= 3 ? d.slice(0, DESCRIPTION_MAX) : undefined;
+  return chars(d) >= 3 ? [...d].slice(0, DESCRIPTION_MAX).join('') : undefined;
 }
 
 function watchUrl(instance: string, shortUUID: string | undefined, id: number | string): string {
@@ -211,8 +224,10 @@ async function applyExtras(ctx: ProviderContext, c: PeerTubeCredentials, post: P
 }
 
 /** The byte offset the server has, or the finished video if the last chunk already landed. */
-async function uploadOffset(ctx: ProviderContext, c: PeerTubeCredentials, location: string, total: number): Promise<number | { id: number; shortUUID?: string }> {
-  const res = await ctx.fetch(location, { method: 'PUT', headers: { authorization: `Bearer ${c.accessToken}`, 'content-length': '0', 'content-range': `bytes */${total}` } });
+type Put = (headers: Record<string, string>, body?: Buffer) => Promise<Response>;
+
+async function uploadOffset(put: Put, total: number): Promise<number | { id: number; shortUUID?: string }> {
+  const res = await put({ 'content-length': '0', 'content-range': `bytes */${total}` });
   if (res.status === 308) return nextOffset(res.headers);
   const body = (await res.json().catch(() => ({}))) as ApiError & { video?: { id: number; shortUUID?: string } };
   if (res.ok && body.video) return body.video;
@@ -308,10 +323,10 @@ export const peertube: Provider = {
       issues.push({ severity: 'error', code: 'privacy', message: 'PeerTube 공개 범위(public/unlisted/private/internal)를 직접 지정해야 합니다' });
     }
     const name = post.title.trim();
-    if (name.length < NAME_MIN || name.length > NAME_MAX) {
-      issues.push({ severity: 'error', code: 'title', message: `PeerTube 제목은 ${NAME_MIN}~${NAME_MAX}자여야 합니다 (현재 ${name.length})` });
+    if (chars(name) < NAME_MIN || chars(name) > NAME_MAX) {
+      issues.push({ severity: 'error', code: 'title', message: `PeerTube 제목은 ${NAME_MIN}~${NAME_MAX}자여야 합니다 (현재 ${chars(name)})` });
     }
-    if (post.description.length > DESCRIPTION_MAX) issues.push({ severity: 'warning', code: 'description', message: `PeerTube 설명은 ${DESCRIPTION_MAX}자까지만 올라갑니다` });
+    if (chars(post.description) > DESCRIPTION_MAX) issues.push({ severity: 'warning', code: 'description', message: `PeerTube 설명은 ${DESCRIPTION_MAX}자까지만 올라갑니다` });
     const kept = peertubeTags(post.tags);
     if (kept.length < post.tags.length) {
       issues.push({ severity: 'warning', code: 'tags', message: `PeerTube 태그는 ${TAGS_MAX}개까지, 각 ${TAG_MIN}~${TAG_MAX}자만 올라갑니다: ${kept.join(', ') || '(없음)'}` });
@@ -325,7 +340,7 @@ export const peertube: Provider = {
   },
 
   async publish({ ctx, post, target, account, mediaPath, saveResume }): Promise<PublishOutcome> {
-    const c = creds(account);
+    let c = creds(account);
     let r = (target.resume ?? {}) as PeerTubeResume;
     if (r.videoId) return { state: 'processing', remoteId: String(r.videoId), remoteUrl: watchUrl(c.instance, r.shortUUID, r.videoId) };
     const total = statSync(mediaPath).size;
@@ -333,22 +348,47 @@ export const peertube: Provider = {
       r = next;
       saveResume({ ...next });
     };
+    // Access tokens live a day and a refresh anywhere revokes the old one: on a 401 mid-upload, take
+    // the token another process may have stored, or refresh, and send the request once more.
+    const renew = async () => {
+      const stored = ctx.store.getAccount('peertube', account.name);
+      const sc = stored ? creds(stored) : c;
+      if (sc.accessToken !== c.accessToken && sc.expiresAt > ctx.now().getTime()) {
+        c = sc;
+        return;
+      }
+      const tok = await tokenRequest(ctx, sc.instance, { client_id: sc.clientId, client_secret: sc.clientSecret, grant_type: 'refresh_token', refresh_token: sc.refreshToken });
+      const next: Account = { ...(stored ?? account), credentials: { ...fromToken(sc, tok, ctx.now().getTime()) } };
+      ctx.store.saveAccount(next);
+      c = creds(next);
+    };
+    const put: Put = async (headers, body) => {
+      const send = () => ctx.fetch(r.location!, { method: 'PUT', headers: { authorization: `Bearer ${c.accessToken}`, ...headers }, body });
+      const res = await send();
+      if (res.status !== 401) return res;
+      await renew();
+      return send();
+    };
 
     if (r.location && r.total === total) {
       // Pick up an interrupted session where the server left it.
-      const at = await uploadOffset(ctx, c, r.location, total).catch((err: unknown) => {
-        if (err instanceof ProviderError && err.platformCode === '404') {
-          // Sessions die after an hour without chunks. If the last chunk was already sent, the video
-          // may exist; otherwise start a fresh session.
-          if (r.finalSent) {
-            throw new ProviderError('rejected', 'peertube.maybe_posted', `업로드 세션이 끝났는데 마지막 조각은 이미 보냈습니다. ${c.instance} 에서 영상이 있는지 확인한 뒤, 없으면 다시 시도하세요`, '404', { keepResume: true });
-          }
-          return 'restart' as const;
-        }
+      const at = await uploadOffset(put, total).catch((err: unknown) => {
+        // Sessions die after an hour without chunks, and once the server has finished with the last
+        // chunk (only that request gets the video back). A 503 means it is still working on it.
+        if (notFound(err)) return 'gone' as const;
         throw err;
       });
       if (typeof at === 'object') return finishUpload(at);
-      if (at !== 'restart') return sendFrom(at);
+      if (at !== 'gone') return sendFrom(at);
+      if (r.finalSent) {
+        // The last chunk went out: find the video it made, if it made one.
+        const found = await findUploaded();
+        if (found) return finishUpload(found);
+        if (found === undefined) {
+          throw new ProviderError('rejected', 'peertube.maybe_posted', `업로드 세션이 끝났는데 마지막 조각은 이미 보냈습니다. ${c.instance} 에서 영상이 있는지 확인한 뒤, 없으면 다시 시도하세요`, '404', { keepResume: true });
+        }
+      }
+      save({ ...r, location: undefined, finalSent: undefined });
     }
 
     // New session.
@@ -392,10 +432,10 @@ export const peertube: Provider = {
     });
     const loc = init.headers.get('location');
     if (!loc) throw new ProviderError('retryable', 'peertube.no_session', 'PeerTube가 업로드 세션 주소를 주지 않았습니다');
-    save({ location: new URL(loc, c.instance).toString(), total, instance: c.instance, userId: me.id });
+    save({ location: new URL(loc, c.instance).toString(), total, instance: c.instance, userId: me.id, channelId: channel.id, startedAt: ctx.now().toISOString() });
     // 200 means the server already holds this file for us: ask where it is.
     if (init.status === 200) {
-      const at = await uploadOffset(ctx, c, r.location!, total);
+      const at = await uploadOffset(put, total);
       return typeof at === 'object' ? finishUpload(at) : sendFrom(at);
     }
     return sendFrom(0);
@@ -410,28 +450,40 @@ export const peertube: Provider = {
         const chunk = await readChunk(mediaPath, offset, Math.min(size, total - offset));
         const last = offset + chunk.length >= total;
         if (last) save({ ...r, finalSent: true });
-        const res = await ctx.fetch(r.location!, {
-          method: 'PUT',
-          headers: {
-            authorization: `Bearer ${c.accessToken}`,
-            'content-type': 'application/octet-stream',
-            'content-range': `bytes ${offset}-${offset + chunk.length - 1}/${total}`,
-          },
-          body: chunk,
-        });
+        const res = await put({ 'content-type': 'application/octet-stream', 'content-range': `bytes ${offset}-${offset + chunk.length - 1}/${total}` }, chunk);
         if (res.status === 308) {
           offset = nextOffset(res.headers);
           continue;
         }
         const out = (await res.json().catch(() => ({}))) as ApiError & { video?: { id: number; shortUUID?: string } };
         if (res.ok && out.video) return finishUpload(out.video);
-        // 503 after the last chunk: the server is still assembling it. Ask again later; it answers with the video.
+        // The server refused the last chunk (unreadable file, upload filter): it deleted the upload
+        // and made no video, so the next try starts clean instead of looking for one.
+        if (last && res.status >= 400 && res.status < 500) save({ ...r, location: undefined, finalSent: undefined });
+        // A 503 after the last chunk means the server is still assembling it; the next try looks it up.
         throw apiError(res.status, out, 'upload');
       }
       // Everything was there already; the status query returns the video.
-      const at = await uploadOffset(ctx, c, r.location!, total);
+      const at = await uploadOffset(put, total);
       if (typeof at === 'object') return finishUpload(at);
       throw new ProviderError('retryable', 'peertube.incomplete', `PeerTube가 ${at}/${total}바이트만 받았다고 합니다`);
+    }
+
+    /**
+     * The video the last chunk created, matched by name and channel among this account's videos
+     * created since the session started. null: certainly none; undefined: can't tell (an older
+     * session that didn't record when it started).
+     */
+    async function findUploaded(): Promise<{ id: number; shortUUID?: string } | null | undefined> {
+      if (!r.startedAt || !r.channelId) return undefined;
+      const since = Date.parse(r.startedAt) - 60_000;
+      const { body } = await api<{ data?: Array<{ id: number; shortUUID?: string; name?: string; createdAt?: string; channel?: { id?: number } }> }>(
+        ctx,
+        c,
+        '/api/v1/users/me/videos?sort=-createdAt&start=0&count=25',
+      );
+      const match = (body.data ?? []).find((v) => v.name === post.title.trim() && v.channel?.id === r.channelId && Date.parse(v.createdAt ?? '') >= since);
+      return match ? { id: match.id, shortUUID: match.shortUUID } : null;
     }
 
     async function finishUpload(video: { id: number; shortUUID?: string }): Promise<PublishOutcome> {
@@ -487,6 +539,8 @@ export const peertube: Provider = {
   },
 
   async stats({ ctx, account, target }) {
+    // Video ids are per instance: never read another instance's video with the same number.
+    assertOwner(account, target);
     const { body: v } = await api<{ views?: number; likes?: number; dislikes?: number; comments?: number }>(ctx, creds(account), `/api/v1/videos/${target.remoteId}`);
     return { views: v.views, likes: v.likes, comments: v.comments, ...(v.dislikes ? { note: `싫어요 ${v.dislikes}` } : {}) };
   },
@@ -497,12 +551,12 @@ export const peertube: Provider = {
     try {
       await api(ctx, c, `/api/v1/videos/${target.remoteId}`, { method: 'DELETE' });
     } catch (err) {
-      if (!(err instanceof ProviderError) || err.platformCode !== '404') throw err;
+      if (!notFound(err)) throw err;
       // Only call it gone when the instance itself says the video doesn't exist.
       const still = await api(ctx, c, `/api/v1/videos/${target.remoteId}`).then(
         () => true,
         (e: unknown) => {
-          if (e instanceof ProviderError && e.platformCode === '404') return false;
+          if (notFound(e)) return false;
           throw e;
         },
       );
@@ -515,11 +569,13 @@ export const peertube: Provider = {
     await api(ctx, creds(account), `/api/v1/videos/${target.remoteId}`, {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name: post.title.trim(), description: description(post) ?? '', tags: peertubeTags(post.tags) }),
+      // null clears the description; '' fails the server's 3-character minimum and the whole edit with it.
+      body: JSON.stringify({ name: post.title.trim(), description: description(post) ?? null, tags: peertubeTags(post.tags) }),
     });
   },
 
   async comments({ ctx, account, target, limit }) {
+    assertOwner(account, target);
     const c = creds(account);
     type Thread = { id: number; text?: string; createdAt: string; isDeleted?: boolean; totalReplies?: number; account?: { name?: string; host?: string; displayName?: string } };
     const { body } = await api<{ data?: Thread[] }>(ctx, c, `/api/v1/videos/${target.remoteId}/comment-threads?start=0&count=${Math.min(limit, 100)}&sort=-createdAt`);
