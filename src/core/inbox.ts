@@ -44,6 +44,12 @@ export interface WatchConfig extends WatchFields {
    * (default — a copied file shouldn't post twice), "post" posts again anyway.
    */
   onDuplicate?: 'skip' | 'post';
+  /**
+   * Daily posting times ("HH:MM", this machine's local time). A video without its own `at` is
+   * scheduled for the next slot no other post already takes, so a batch dropped at once goes out one
+   * per slot instead of all together.
+   */
+  slots?: string[];
 }
 
 export class WatchConfigError extends Error {}
@@ -110,7 +116,34 @@ export function loadWatchConfig(dir: string): WatchConfig {
     throw new WatchConfigError(`${CONFIG_FILE}: "onDuplicate"는 "skip" 또는 "post"`);
   }
   if (!config.to?.length) throw new WatchConfigError(`${CONFIG_FILE}: "to"에 올릴 곳을 하나 이상 적으세요 (예: ["youtube", "tiktok"])`);
+  if (raw.slots !== undefined) {
+    if (!Array.isArray(raw.slots) || !raw.slots.length || raw.slots.some((s) => typeof s !== 'string' || !SLOT.test(s))) {
+      throw new WatchConfigError(`${CONFIG_FILE}: "slots"는 "HH:MM" 시각의 배열이어야 합니다 (예: ["12:00", "19:00"])`);
+    }
+  }
   return config;
+}
+
+const SLOT = /^([01]\d|2[0-3]):[0-5]\d$/;
+/** Leave room for platforms that refuse schedules too close (Facebook 10 min, Mastodon 5). */
+const SLOT_LEAD_MS = 15 * 60_000;
+const SLOT_HORIZON_DAYS = 120;
+
+/**
+ * The next daily slot at least 15 minutes ahead that no live post is already scheduled at. Slots are
+ * in this machine's local time (set TZ in a container).
+ */
+export function nextFreeSlot(slots: string[], taken: ReadonlySet<string>, now: Date): string {
+  const times = [...new Set(slots)].map((s) => s.split(':').map(Number) as [number, number]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  for (let day = 0; day < SLOT_HORIZON_DAYS; day++) {
+    for (const [h, m] of times) {
+      const at = new Date(now.getFullYear(), now.getMonth(), now.getDate() + day, h, m, 0, 0);
+      if (at.getTime() - now.getTime() < SLOT_LEAD_MS) continue;
+      const iso = at.toISOString();
+      if (!taken.has(iso)) return iso;
+    }
+  }
+  throw new WatchConfigError(`앞으로 ${SLOT_HORIZON_DAYS}일 동안 빈 예약 슬롯이 없습니다`);
 }
 
 /** Sidecar next to the video: "clip.mp4" → "clip.json" (or "clip.mp4.json"). */
@@ -336,6 +369,9 @@ export async function ingest(args: {
       return { ok: false, error, movedTo: failedTo };
     }
     plan.targets = fresh;
+  }
+  if (!plan.input.scheduledAt && config.slots?.length) {
+    plan.input.scheduledAt = nextFreeSlot(config.slots, new Set(store.scheduledTimes(now.toISOString())), now);
   }
   const movedTo = moveVideo(videoPath, dir, 'posted');
   plan.input.mediaPath = movedTo;
