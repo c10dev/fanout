@@ -19,10 +19,36 @@
 - **BYO(bring-your-own) 앱** — YouTube·TikTok 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사용자가 자기 개발자 앱을 등록합니다. `fanout setup <platform>`이 단계별로 안내합니다.
 - **Apache-2.0** — 브라우저 자동화가 필요한 어댑터(네이버 클립 등)는 약관 위험이 코어로 번지지 않게 별도 저장소의 opt-in 플러그인으로 둡니다.
 
-## 요구 사항
+## 설치
 
-- Node.js 24 이상 (TypeScript 파일을 그대로 실행합니다)
-- `ffmpeg`, `ffprobe`
+필요한 것: Node.js 24 이상, `ffmpeg`·`ffprobe`. Docker로 쓰면 이미지에 둘 다 들어 있습니다.
+
+**GitHub에서 바로 설치** (npm 레지스트리에는 아직 올리지 않았습니다)
+
+```bash
+npm install -g github:c10dev/fanout
+```
+
+설치하면 `fanout` 명령이 생깁니다. 아래 예시의 `node src/cli.ts`를 `fanout`으로 바꿔 쓰면 됩니다.
+
+**Docker**
+
+```bash
+docker compose up -d
+```
+
+http://127.0.0.1:8780/ 에서 대시보드가 열리고, 데이터는 `fanout-data` 볼륨에 저장됩니다. [`docker-compose.yml`](docker-compose.yml)은 포트를 호스트의 127.0.0.1에만 열고 `FANOUT_ASSUME_LOCAL=1`을 켭니다. 그래서 컨테이너 안에서도 설정 탭을 쓸 수 있습니다.
+
+- 포트를 `0.0.0.0`이나 다른 기기에서 접속할 수 있는 주소에 열 때는 `FANOUT_ASSUME_LOCAL`을 켜지 마세요. 그때는 `FANOUT_DASHBOARD_TOKEN`이 필요합니다.
+- 대시보드가 Host 헤더를 검사하므로 호스트 포트와 컨테이너 포트를 같게 두세요.
+
+**소스에서 실행**
+
+```bash
+git clone https://github.com/c10dev/fanout.git && cd fanout && npm install
+```
+
+`node src/cli.ts`는 TypeScript를 빌드 없이 바로 실행합니다. `npm run build`를 하면 `dist/`에 JavaScript가 만들어집니다.
 
 ## 빠른 시작
 
@@ -189,7 +215,7 @@ npm test           # node --test (ffmpeg가 있으면 실제 트랜스코딩 테
 npm run typecheck
 ```
 
-PR과 `main` 푸시마다 GitHub Actions([`.github/workflows/ci.yml`](.github/workflows/ci.yml))가 ffmpeg를 설치한 Ubuntu·Node 24에서 typecheck와 테스트를 실행합니다.
+`npm run build`는 `dist/`로 컴파일하고 대시보드 정적 파일을 복사합니다. `npm install` 때도 자동으로 실행됩니다(`prepare`). PR과 `main` 푸시마다 GitHub Actions([`.github/workflows/ci.yml`](.github/workflows/ci.yml))가 ffmpeg를 설치한 Ubuntu·Node 24에서 typecheck, 테스트, 패키지 설치 확인, Docker 이미지 빌드를 실행합니다.
 
 ## 로드맵
 

@@ -108,6 +108,21 @@ describe('dashboard settings', () => {
 });
 
 describe('dashboard settings on a non-local dashboard', () => {
+  it('treats an assumed-local container bind as local', async () => {
+    const env = makeCtx();
+    const d = new Dashboard({ ctx: env.ctx, providers: providerMap(), host: '0.0.0.0', assumeLocal: true, port: 0, workerIntervalMs: 60_000, pruneDays: null });
+    const url = await d.start();
+    const port = new URL(url).port;
+    try {
+      const html = await (await fetch(`http://127.0.0.1:${port}/`)).text();
+      assert.ok(html.includes(`content="${d.token}"`));
+      assert.equal((await fetch(`http://127.0.0.1:${port}/api/settings`, { headers: { 'x-fanout-token': d.token } })).status, 200);
+    } finally {
+      await d.stop();
+      env.store.close();
+    }
+  });
+
   it('refuses settings when reachable through other hosts', async () => {
     const env = makeCtx();
     const d = new Dashboard({ ctx: env.ctx, providers: providerMap(), port: 0, token: TOKEN, allowedHosts: ['fanout.example:443'], workerIntervalMs: 60_000 });
