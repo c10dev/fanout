@@ -336,8 +336,8 @@ async function uploadAsset(kind, file) {
 
 // ── Submit ───────────────────────────────────────────────────────
 
-$('#post-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
+/** Read and check the form; returns errors, or everything needed to preview and post. */
+function collectForm() {
   const errors = [];
   if (!media) errors.push('먼저 영상을 고르세요');
   const title = $('#title').value.trim();
@@ -359,48 +359,104 @@ $('#post-form').addEventListener('submit', async (e) => {
     .map((r) => ({ language: r.querySelector('[name="language"]').value.trim(), file: r.querySelector('[name="file"]').files[0] }))
     .filter((c) => c.file || c.language);
   for (const c of captionRows) if (!c.file || !c.language) errors.push('자막은 언어 코드와 파일을 모두 넣어 주세요');
-  if ((thumbnail || captionRows.length) && !targets.some((t) => t.platform === 'youtube')) {
-    errors.push('썸네일·자막은 지금 YouTube에만 적용됩니다. YouTube를 고르거나 비워 주세요');
+  if ((thumbnail || captionRows.length) && !targets.some((t) => t.platform === 'youtube' || t.platform === 'bluesky')) {
+    errors.push('썸네일·자막은 지금 YouTube(자막은 Bluesky도)에만 적용됩니다. 해당 플랫폼을 고르거나 비워 주세요');
   }
-  if (errors.length) {
-    $('#form-error').textContent = errors.join('\n');
+  const payload = {
+    mediaId: media?.id,
+    title,
+    description: $('#description').value,
+    tags: $('#tags').value.split(',').map((t) => t.trim()).filter(Boolean),
+    scheduledAt: scheduled ? new Date(scheduled).toISOString() : undefined,
+    containsSyntheticMedia: $('#ai').checked,
+    targets,
+  };
+  return { errors, payload, thumbnail, captionRows };
+}
+
+function hideConfirm() {
+  $('#confirm').hidden = true;
+  $('#confirm').replaceChildren();
+  $('#submit').hidden = false;
+}
+
+// Any edit after a preview makes it stale.
+$('#post-form').addEventListener('input', hideConfirm);
+$('#post-form').addEventListener('change', (e) => e.target.id !== 'file' && hideConfirm());
+
+// Step 1: preview. Shows the destination account and visibility for every target (YouTube policy)
+// and anything the upload would trip over, before a single byte goes out.
+$('#post-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const form = collectForm();
+  if (form.errors.length) {
+    $('#form-error').textContent = form.errors.join('\n');
     return;
   }
-
+  $('#form-error').textContent = '';
   const button = $('#submit');
   button.disabled = true;
   try {
-    const thumbnailId = thumbnail ? await uploadAsset('thumbnail', thumbnail) : undefined;
-    const captions = [];
-    for (const c of captionRows) captions.push({ language: c.language, assetId: await uploadAsset('caption', c.file) });
-    await api('/posts', {
-      method: 'POST',
-      body: JSON.stringify({
-        mediaId: media.id,
-        title,
-        description: $('#description').value,
-        tags: $('#tags').value.split(',').map((t) => t.trim()).filter(Boolean),
-        scheduledAt: scheduled ? new Date(scheduled).toISOString() : undefined,
-        containsSyntheticMedia: $('#ai').checked,
-        targets,
-        thumbnailId,
-        captions,
-      }),
-    });
-    $('#post-form').reset();
-    $('#captions').replaceChildren();
-    $('#drop-label').textContent = '영상 파일을 고르거나 여기에 끌어다 놓으세요';
-    $('#form-error').textContent = '';
-    media = null;
-    renderMedia();
-    renderTargets();
-    refreshBoard();
+    const { targets } = await api('/preview', { method: 'POST', body: JSON.stringify(form.payload) });
+    renderConfirm(targets, form);
   } catch (err) {
     $('#form-error').textContent = err.message;
   } finally {
     button.disabled = false;
   }
 });
+
+function renderConfirm(previews, form) {
+  const blocked = previews.some((p) => p.errors.length);
+  const rows = previews.map((p) =>
+    h(
+      'li',
+      { class: 'confirm-row' },
+      h('div', { class: 'confirm-head' }, h('strong', {}, p.platform), ` → ${p.accountLabel ?? p.account}`, h('span', { class: 'muted' }, ` · ${p.visibility}`), badge(VERDICT[p.verdict])),
+      p.errors.map((m) => h('div', { class: 'err' }, `✗ ${m}`)),
+      p.warnings.map((m) => h('div', { class: 'warnline' }, `⚠ ${m}`)),
+      p.transcode.length ? h('div', { class: 'muted' }, `변환: ${p.transcode.join(', ')}`) : null,
+    ),
+  );
+  const box = $('#confirm');
+  box.replaceChildren(
+    h('h3', { class: 'sub' }, blocked ? '이대로는 올릴 수 없습니다' : '이렇게 올립니다'),
+    h('ul', { class: 'confirm-list' }, rows),
+    h(
+      'div',
+      { class: 'actions' },
+      blocked ? null : h('button', { type: 'button', class: 'primary', id: 'confirm-post', onclick: () => post(form) }, '이대로 업로드'),
+      h('button', { type: 'button', class: 'small', onclick: hideConfirm }, blocked ? '고치기' : '취소'),
+    ),
+  );
+  box.hidden = false;
+  $('#submit').hidden = true;
+  box.scrollIntoView?.({ block: 'nearest' });
+}
+
+// Step 2: upload assets, create the post, reset the form.
+async function post(form) {
+  const button = $('#confirm-post');
+  button.disabled = true;
+  try {
+    const thumbnailId = form.thumbnail ? await uploadAsset('thumbnail', form.thumbnail) : undefined;
+    const captions = [];
+    for (const c of form.captionRows) captions.push({ language: c.language, assetId: await uploadAsset('caption', c.file) });
+    await api('/posts', { method: 'POST', body: JSON.stringify({ ...form.payload, thumbnailId, captions }) });
+    $('#post-form').reset();
+    $('#captions').replaceChildren();
+    $('#drop-label').textContent = '영상 파일을 고르거나 여기에 끌어다 놓으세요';
+    $('#form-error').textContent = '';
+    hideConfirm();
+    media = null;
+    renderMedia();
+    renderTargets();
+    refreshBoard();
+  } catch (err) {
+    $('#form-error').textContent = err.message;
+    button.disabled = false;
+  }
+}
 
 // ── Status board ─────────────────────────────────────────────────
 

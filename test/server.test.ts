@@ -189,6 +189,20 @@ describe('dashboard server', () => {
     await dashboard.idle();
   });
 
+  it('previews a post without creating it', async () => {
+    const before = env.store.listPosts(100).length;
+    const { id } = (await (await upload()).json()) as { id: string };
+    const res = await fetch(`${base}/api/preview`, {
+      method: 'POST',
+      headers: { ...auth, 'content-type': 'application/json' },
+      body: JSON.stringify({ mediaId: id, title: 'preview', targets: [{ platform: 'alpha', account: 'main', options: {} }] }),
+    });
+    assert.equal(res.status, 200);
+    const { targets } = (await res.json()) as { targets: Array<{ platform: string; accountLabel: string; verdict: string; errors: string[] }> };
+    assert.deepEqual(targets.map((t) => [t.platform, t.accountLabel, t.verdict, t.errors]), [['alpha', '내 채널', 'as_is', []]]);
+    assert.equal(env.store.listPosts(100).length, before, 'nothing created');
+  });
+
   it('validates post requests', async () => {
     const post = (body: unknown) => fetch(`${base}/api/posts`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await post({ mediaId: '../../etc/passwd', title: 't', targets: [{ platform: 'alpha', account: 'main' }] })).status, 400);
