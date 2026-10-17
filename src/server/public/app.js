@@ -114,6 +114,10 @@ const OPTION_FORMS = {
     opt('설명 (비우면 제목·설명·태그로 만듦)', h('textarea', { name: 'caption', rows: 2 }), true),
     h('p', { class: 'note' }, 'Facebook Reels는 9:16, 3~90초 영상만 받습니다.'),
   ],
+  x: () => [
+    opt('글 (비우면 제목·설명·태그로 만듦, 가중치 280 이하·한글은 2로 셈)', h('textarea', { name: 'text', rows: 2 }), true),
+    h('p', { class: 'note' }, 'X API는 종량제입니다. URL이 들어간 게시물은 요금이 훨씬 비쌉니다.'),
+  ],
   mastodon: () => [
     opt('공개 범위', select('visibility', [['public', '공개'], ['unlisted', '조용히 공개'], ['private', '팔로워만']], { placeholder: '선택하세요' })),
     opt('글 (비우면 제목·설명·태그로 만듦)', h('textarea', { name: 'text', rows: 2 }), true),
@@ -165,6 +169,8 @@ function readOptions(platform, body) {
       return { shareToFeed: on('shareToFeed') ? undefined : false, caption: text('caption') };
     case 'facebook':
       return { caption: text('caption') };
+    case 'x':
+      return { text: text('text') };
     case 'mastodon':
       return { visibility: val('visibility').value || undefined, text: text('text'), alt: text('alt'), language: text('language'), spoilerText: text('spoilerText') };
     case 'bluesky':
@@ -586,7 +592,7 @@ function banner(text, kind) {
 
 // ── Settings ─────────────────────────────────────────────────────
 
-const APP_TITLE = { youtube: 'YouTube', tiktok: 'TikTok', meta: 'Meta (Instagram · Facebook)', bluesky: 'Bluesky', mastodon: 'Mastodon' };
+const APP_TITLE = { youtube: 'YouTube', tiktok: 'TikTok', meta: 'Meta (Instagram · Facebook)', bluesky: 'Bluesky', mastodon: 'Mastodon', x: 'X (Twitter)' };
 const CHECK_ICON = { ok: '✓', warn: '⚠', fail: '✗', info: 'ℹ' };
 const LIVE_NOTICE = {
   youtube: '4초짜리 테스트 영상을 일부 공개로 올려, 공개 업로드가 실제로 되는지 확인하고 바로 삭제합니다. 오늘 업로드 한도 1회를 씁니다. 처리를 기다리느라 몇 분 걸릴 수 있습니다.',
@@ -718,11 +724,11 @@ function connectForm(p, appReady) {
       ? h(
           'p',
           { class: 'redirect' },
-          p.id === 'tiktok' ? 'TikTok 개발자 포털 Login Kit에 이 Redirect URI를 등록해야 합니다: ' : 'Redirect URI (Google 데스크톱 앱 클라이언트는 따로 등록하지 않아도 됩니다): ',
+          p.id === 'youtube' ? 'Redirect URI (Google 데스크톱 앱 클라이언트는 따로 등록하지 않아도 됩니다): ' : `${p.displayName} 개발자 포털에 이 Redirect URI를 등록해야 합니다: `,
           h('code', {}, p.redirectUri),
         )
       : null;
-  const button = h('button', { class: 'primary', type: 'submit', disabled: !appReady }, p.connectMethod === 'oauth' ? `${p.id === 'youtube' ? 'Google' : 'TikTok'} 계정으로 연결` : '연결');
+  const button = h('button', { class: 'primary', type: 'submit', disabled: !appReady }, p.connectMethod === 'oauth' ? `${{ youtube: 'Google', tiktok: 'TikTok', x: 'X' }[p.id] ?? p.displayName} 계정으로 연결` : '연결');
   return h(
     'form',
     {

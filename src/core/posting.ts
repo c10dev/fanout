@@ -107,3 +107,16 @@ export function previewPost(
     };
   });
 }
+
+/**
+ * Queue a failed or needs_reauth target again on the user's request. Clears the error and backoff,
+ * and the `posting` marker a provider leaves when a post's outcome was unknown: the user retrying
+ * means they checked it did not go out.
+ */
+export function retryTarget(store: Store, id: string, via: string): Target {
+  const t = store.getTarget(id);
+  if (!t) throw new Error(`대상 없음: ${id}`);
+  if (t.state !== 'failed' && t.state !== 'needs_reauth') throw new Error(`${t.state} 상태는 다시 시도할 수 없습니다`);
+  const resume = t.resume && 'posting' in t.resume ? { ...t.resume, posting: false } : t.resume;
+  return store.transition(t.id, 'queued', { attempts: 0, errorCode: undefined, errorMessage: undefined, notBefore: undefined, resume }, via);
+}

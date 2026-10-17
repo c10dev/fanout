@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, retryTarget } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
@@ -555,11 +555,10 @@ export class Dashboard {
   }
 
   #retry(targetId: string) {
-    const { store } = this.#opts.ctx;
-    const t = store.getTarget(targetId);
+    const t = this.#opts.ctx.store.getTarget(targetId);
     if (!t) throw new HttpError(404, '대상이 없습니다');
     if (t.state !== 'failed' && t.state !== 'needs_reauth') throw new HttpError(409, `${t.state} 상태는 다시 시도할 수 없습니다`);
-    const next = store.transition(t.id, 'queued', { attempts: 0, errorCode: undefined, errorMessage: undefined, notBefore: undefined }, 'manual retry');
+    const next = retryTarget(this.#opts.ctx.store, targetId, 'manual retry');
     this.tick();
     return this.#publicTarget(next);
   }

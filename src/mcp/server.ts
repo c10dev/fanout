@@ -3,7 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, type TargetPreview } from '../core/posting.ts';
+import { accountLabel, appReady, assessMedia, createScheduledPost, previewPost, retryTarget, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
 import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
@@ -42,12 +42,12 @@ const TARGETS_SCHEMA = {
   description:
     'Where to post. options per platform — youtube: {privacy: "public"|"unlisted"|"private" (required), madeForKids: boolean (required), categoryId?, playlistId?, notifySubscribers?}; ' +
     'tiktok: {mode: "inbox"|"direct", and for direct: privacyLevel (required, from list_accounts), musicConsent: true (required), allowComment?, allowDuet?, allowStitch?, brandOrganic?, brandedContent?, caption?}; ' +
-    'instagram: {caption?, shareToFeed?, thumbOffsetMs?}; facebook: {caption?}; bluesky: {text? (≤300 chars), alt?, langs?}; mastodon: {visibility: "public"|"unlisted"|"private" (required), text?, alt?, language?, spoilerText?}.',
+    'instagram: {caption?, shareToFeed?, thumbOffsetMs?}; facebook: {caption?}; x: {text? (≤280 weighted; Korean counts double)}; bluesky: {text? (≤300 chars), alt?, langs?}; mastodon: {visibility: "public"|"unlisted"|"private" (required), text?, alt?, language?, spoilerText?}.',
   items: {
     type: 'object',
     required: ['platform'],
     properties: {
-      platform: { type: 'string', enum: ['youtube', 'tiktok', 'instagram', 'facebook', 'bluesky', 'mastodon'] },
+      platform: { type: 'string', enum: ['youtube', 'tiktok', 'instagram', 'facebook', 'x', 'bluesky', 'mastodon'] },
       account: { type: 'string', description: 'Connected account name; defaults to "main" or the only connected account.' },
       options: { type: 'object' },
     },
@@ -161,7 +161,7 @@ export class McpServer {
           capabilities: { tools: {} },
           serverInfo: { name: 'fanout', title: 'fanout video uploader', version: this.#version },
           instructions:
-            'fanout uploads one local video to YouTube, TikTok, Instagram Reels, Facebook Reels, Bluesky and Mastodon through the user\'s own platform apps. ' +
+            'fanout uploads one local video to YouTube, TikTok, Instagram Reels, Facebook Reels, X, Bluesky and Mastodon through the user\'s own platform apps. ' +
             'Use preview_post and get the user\'s approval before create_post: posts go to real, often public, accounts.',
         };
       }
@@ -236,10 +236,12 @@ export class McpServer {
         };
       }
       case 'retry_target': {
-        const t = store.getTarget(String(args.targetId ?? ''));
-        if (!t) throw new ToolError(`대상 없음: ${String(args.targetId)}`);
-        if (t.state !== 'failed' && t.state !== 'needs_reauth') throw new ToolError(`${t.state} 상태는 다시 시도할 수 없습니다`);
-        const next = store.transition(t.id, 'queued', { attempts: 0, errorCode: undefined, errorMessage: undefined, notBefore: undefined }, 'retry via MCP');
+        let next: Target;
+        try {
+          next = retryTarget(store, String(args.targetId ?? ''), 'retry via MCP');
+        } catch (err) {
+          throw new ToolError((err as Error).message);
+        }
         this.#deps.worker?.tick();
         return { target: publicTarget(next) };
       }
