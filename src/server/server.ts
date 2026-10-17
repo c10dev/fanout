@@ -112,6 +112,11 @@ function requestLang(req: IncomingMessage): Lang {
   return req.headers['x-fanout-lang'] === 'en' ? 'en' : 'ko';
 }
 
+/** For a page load with no dashboard header: the browser's first language, as the dashboard picks it. */
+function browserLang(req: IncomingMessage): Lang {
+  return String(req.headers['accept-language'] ?? 'en').trim().toLowerCase().startsWith('ko') ? 'ko' : 'en';
+}
+
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
   res.end(JSON.stringify(translateDeep(body, responseLang.get(res) ?? 'ko')));
@@ -515,18 +520,20 @@ export class Dashboard {
     return { account: { name, label: accountLabel(account.profile, name) } };
   }
 
-  async #oauthCallback(_req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
+  async #oauthCallback(req: IncomingMessage, res: ServerResponse, url: URL): Promise<void> {
     const back = (params: Record<string, string>) => {
       res.writeHead(303, { location: `/?${new URLSearchParams({ view: 'settings', ...params })}`, 'cache-control': 'no-store' });
       res.end();
     };
-    if (!this.settingsEnabled) return back({ oauthError: msg('설정 화면은 127.0.0.1 전용입니다') });
-    const platform = url.pathname.split('/')[2] ?? '';
     const state = url.searchParams.get('state') ?? '';
     const pending = this.#pendingOAuth.get(state);
+    // The platform redirects here without the dashboard's header: use the language the connect started in.
+    const lang = pending?.lang ?? browserLang(req);
+    if (!this.settingsEnabled) return back({ oauthError: translate(msg('설정 화면은 127.0.0.1 전용입니다'), lang) });
+    const platform = url.pathname.split('/')[2] ?? '';
     this.#pendingOAuth.delete(state);
     if (!pending || pending.platform !== platform || pending.expiresAt < Date.now()) {
-      return back({ oauthError: msg('연결 요청이 만료됐거나 올바르지 않습니다. 다시 연결을 눌러 주세요') });
+      return back({ oauthError: translate(msg('연결 요청이 만료됐거나 올바르지 않습니다. 다시 연결을 눌러 주세요'), lang) });
     }
     try {
       const provider = this.#provider(platform);

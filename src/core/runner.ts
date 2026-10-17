@@ -136,7 +136,7 @@ async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> 
       if (variant.transcoded) {
         mediaPath = variant.path;
         uploadMedia = await probeFn(variant.path);
-        if (target.state === 'transcoding') ctx.log.info(msg('트랜스코딩: {variant}', { variant: variant.reasons.join(', ') }));
+        if (target.state === 'transcoding') ctx.log.info(msg('트랜스코딩: {variant}', { variant: variant.reasons.join(' / ') }));
       }
     }
 

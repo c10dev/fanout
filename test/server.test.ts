@@ -293,6 +293,17 @@ describe('dashboard server', () => {
     assert.deepEqual(after.presets, []);
   });
 
+  it('keeps preset names and options as written in English, so they can be deleted', async () => {
+    const en = { ...auth, 'x-fanout-lang': 'en' };
+    // "전체", "썸네일" and "실패" are also whole messages in the catalogue.
+    const options = { caption: '오늘의 영상\n썸네일', alt: '실패', spoilerText: '전체' };
+    await fetch(`${base}/api/presets/${encodeURIComponent('전체')}`, { method: 'PUT', headers: { ...en, 'content-type': 'application/json' }, body: JSON.stringify({ targets: [{ platform: 'alpha', account: 'main', options }] }) });
+    const list = (await (await fetch(`${base}/api/presets`, { headers: en })).json()) as { presets: Array<{ name: string; targets: Array<{ options: unknown }> }> };
+    assert.deepEqual(list.presets.map((p) => [p.name, p.targets[0]!.options]), [['전체', options]]);
+    const after = (await (await fetch(`${base}/api/presets/${encodeURIComponent(list.presets[0]!.name)}`, { method: 'DELETE', headers: en })).json()) as { presets: unknown[] };
+    assert.deepEqual(after.presets, []);
+  });
+
   it('validates post requests', async () => {
     const post = (body: unknown) => fetch(`${base}/api/posts`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await post({ mediaId: '../../etc/passwd', title: 't', targets: [{ platform: 'alpha', account: 'main' }] })).status, 400);
