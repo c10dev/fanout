@@ -15,6 +15,8 @@ const DEFAULT_MAX_CHARS = 500;
 const DEFAULT_VIDEO_BYTES = 99 * 1024 * 1024;
 /** scheduled_at must be at least 5 minutes in the future. */
 const SCHEDULE_MIN_MS = 5 * 60_000;
+/** Mastodon remembers Idempotency-Key for about an hour; stay well inside it. */
+const IDEMPOTENCY_WINDOW_MS = 50 * 60_000;
 
 export interface MastodonCredentials {
   instance: string;
@@ -143,7 +145,8 @@ export const mastodon: Provider = {
       issues.push({ severity: 'warning', code: 'text', message: `Mastodon 글이 ${[...text].length}자입니다. 기본 한도 ${DEFAULT_MAX_CHARS}자를 넘으면 인스턴스에 따라 거부됩니다` });
     }
     if (post.scheduledAt && new Date(post.scheduledAt).getTime() - Date.now() < SCHEDULE_MIN_MS) {
-      issues.push({ severity: 'error', code: 'schedule', message: 'Mastodon 예약은 5분 뒤부터 가능합니다' });
+      // Mastodon refuses schedules under 5 minutes away; post right away instead of failing forever.
+      issues.push({ severity: 'warning', code: 'schedule', message: 'Mastodon 예약은 5분 뒤부터 가능해, 예약 시각이 가까우면 바로 게시합니다' });
     }
     if (post.captions.length) issues.push({ severity: 'warning', code: 'captions', message: 'Mastodon은 자막 파일을 받지 않아 무시됩니다' });
     return issues;
@@ -172,12 +175,34 @@ export const mastodon: Provider = {
 
   async poll({ ctx, post, target, account }): Promise<PollOutcome> {
     const c = creds(account);
-    const resume = (target.resume ?? {}) as { mediaId?: string; statusId?: string; statusUrl?: string };
+    const resume = (target.resume ?? {}) as { mediaId?: string; statusId?: string; statusUrl?: string; posting?: boolean; postingAt?: string };
     if (resume.statusId) return { state: 'published', remoteId: resume.statusId, remoteUrl: resume.statusUrl };
     const mediaId = resume.mediaId ?? target.remoteId;
-    // 206 Partial Content while the server is still transcoding.
-    const media = await api<{ id: string; url: string | null }>(ctx, c, `/api/v1/media/${mediaId}`, { allow: [206] });
-    if (media.status === 206 || !media.body.url) return { state: 'processing', remoteId: mediaId };
+
+    if (resume.posting) {
+      // An earlier status POST may have gone through. GET /media 404s once media is attached, so don't
+      // look there: re-send with the same Idempotency-Key, which the server dedupes for about an hour.
+      const since = resume.postingAt ? ctx.now().getTime() - Date.parse(resume.postingAt) : Infinity;
+      if (since > IDEMPOTENCY_WINDOW_MS) {
+        throw new ProviderError(
+          'rejected',
+          'mastodon.maybe_posted',
+          `이전 시도에서 이미 게시됐을 수 있습니다. ${c.instance} 에서 확인한 뒤, 없으면 다시 시도하세요`,
+          undefined,
+          { keepResume: true },
+        );
+      }
+    } else {
+      // 206 Partial Content while the server is still transcoding. 404 once the media is attached to a
+      // status — i.e. an earlier attempt already posted it.
+      const media = await api<{ id: string; url: string | null }>(ctx, c, `/api/v1/media/${mediaId}`, { allow: [206] }).catch((err: unknown) => {
+        if (err instanceof ProviderError && err.code === 'mastodon.http_404' && resume.postingAt) {
+          throw new ProviderError('rejected', 'mastodon.media_attached', `영상이 이미 게시물에 붙어 있습니다. ${c.instance} 에서 게시물을 확인하세요`, undefined, { keepResume: true });
+        }
+        throw err;
+      });
+      if (media.status === 206 || !media.body.url) return { state: 'processing', remoteId: mediaId };
+    }
 
     const o = target.options as unknown as MastodonOptions;
     const payload: Record<string, unknown> = {
@@ -186,16 +211,26 @@ export const mastodon: Provider = {
       visibility: o.visibility,
       ...(o.language ? { language: o.language } : {}),
       ...(o.spoilerText ? { spoiler_text: o.spoilerText, sensitive: true } : {}),
-      ...(post.scheduledAt ? { scheduled_at: new Date(post.scheduledAt).toISOString() } : {}),
     };
+    const warnings: string[] = [];
+    if (post.scheduledAt) {
+      if (Date.parse(post.scheduledAt) - ctx.now().getTime() >= SCHEDULE_MIN_MS) payload.scheduled_at = new Date(post.scheduledAt).toISOString();
+      else warnings.push('예약 시각이 5분 안으로 다가와 바로 게시했습니다');
+    }
+    const postingAt = resume.posting && resume.postingAt ? resume.postingAt : ctx.now().toISOString();
+    ctx.store.updateTarget(target.id, { resume: { ...resume, posting: true, postingAt } });
     // The server dedupes on Idempotency-Key, so a retry after a lost response can't post twice.
     const { body } = await api<{ id: string; url?: string; scheduled_at?: string }>(ctx, c, '/api/v1/statuses', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'idempotency-key': `fanout-${target.id}` },
       body: JSON.stringify(payload),
+    }).catch((err: unknown) => {
+      // A clear refusal means nothing was posted; anything else may have gone through.
+      if (err instanceof ProviderError && err.kind === 'rejected') ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false } });
+      throw err;
     });
-    ctx.store.updateTarget(target.id, { resume: { ...resume, statusId: body.id, statusUrl: body.url } });
-    const warnings = body.scheduled_at ? [`예약 게시: ${body.scheduled_at}`] : [];
+    ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false, statusId: body.id, statusUrl: body.url } });
+    if (body.scheduled_at) warnings.push(`예약 게시: ${body.scheduled_at}`);
     return { state: 'published', remoteId: body.id, remoteUrl: body.url, warnings };
   },
 

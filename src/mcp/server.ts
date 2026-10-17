@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { extname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
@@ -15,6 +15,8 @@ import { isShort } from '../providers/youtube.ts';
 // Spec: https://modelcontextprotocol.io/specification
 
 const SUPPORTED_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
+const THUMBNAIL_EXT = ['.jpg', '.jpeg', '.png'] as const;
+const CAPTION_EXT = ['.srt', '.vtt', '.sbv', '.scc', '.ttml', '.dfxp'] as const;
 
 function packageVersion(): string {
   for (const rel of ['../../package.json', '../package.json']) {
@@ -126,8 +128,15 @@ const TOOLS = [
   {
     name: 'retry_target',
     title: 'Retry a failed target',
-    description: 'Queue a failed or needs_reauth target again (after fixing the cause, e.g. reconnecting the account).',
-    inputSchema: { type: 'object', required: ['targetId'], properties: { targetId: { type: 'string' } } },
+    description:
+      'Queue a failed or needs_reauth target again (after fixing the cause, e.g. reconnecting the account). ' +
+      'If the target failed with *.maybe_posted or *.media_attached, the post may already be live: ask the user to check the platform, ' +
+      'and only pass confirmedNotPosted: true once they confirm it is not there — otherwise it can be posted twice.',
+    inputSchema: {
+      type: 'object',
+      required: ['targetId'],
+      properties: { targetId: { type: 'string' }, confirmedNotPosted: { type: 'boolean' } },
+    },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
 ];
@@ -148,7 +157,12 @@ export class McpServer {
   }
 
   /** Handle one JSON-RPC message; returns the response, or undefined for notifications. */
-  async handle(msg: JsonRpcRequest): Promise<Record<string, unknown> | undefined> {
+  async handle(raw: unknown): Promise<Record<string, unknown> | undefined> {
+    // Anything that parses as JSON can arrive here: null, numbers, arrays.
+    if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+      return { jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } };
+    }
+    const msg = raw as JsonRpcRequest;
     const isRequest = msg.id !== undefined && msg.id !== null;
     try {
       if (msg.jsonrpc !== '2.0' || typeof msg.method !== 'string') throw { code: -32600, message: 'Invalid Request' };
@@ -219,7 +233,11 @@ export class McpServer {
       }
       case 'preview_post': {
         const { input, targets, media } = await this.#postArgs(args);
-        return { targets: previewPost(store, providers, input, targets, media) };
+        return {
+          targets: previewPost(store, providers, input, targets, media),
+          // Shown so the user sees exactly which local files go out with the post.
+          files: { video: input.mediaPath, thumbnail: input.thumbnailPath, captions: input.captions.map((c) => ({ language: c.language, path: c.path })) },
+        };
       }
       case 'create_post': {
         const { input, targets, media } = await this.#postArgs(args);
@@ -250,6 +268,13 @@ export class McpServer {
         return { postId: p.id, results: await refreshStats(this.#deps.ctx, providers, p.id, { includePaid: args.includePaid === true }) };
       }
       case 'retry_target': {
+        const current = store.getTarget(String(args.targetId ?? ''));
+        // The user, not the model, has to vouch that a maybe-posted target didn't go out.
+        if (current && (current.resume as { posting?: boolean } | undefined)?.posting && args.confirmedNotPosted !== true) {
+          throw new ToolError(
+            `이 대상은 이미 게시됐을 수 있습니다 (${current.errorCode ?? 'posting'}). 사용자에게 ${current.platform}에서 확인을 받은 뒤 confirmedNotPosted: true 로 다시 호출하세요`,
+          );
+        }
         let next: Target;
         try {
           next = retryTarget(store, String(args.targetId ?? ''), 'retry via MCP');
@@ -268,6 +293,14 @@ export class McpServer {
     if (typeof value !== 'string' || !value.trim()) throw new ToolError(`${field}: 파일 경로가 필요합니다`);
     const path = isAbsolute(value) ? value : resolve(value);
     if (!existsSync(path)) throw new ToolError(`${field}: 파일이 없습니다: ${path}`);
+    return path;
+  }
+
+  /** Thumbnail and caption files: same type and size rules as the dashboard's uploads. */
+  #asset(value: unknown, field: string, exts: readonly string[], maxBytes: number): string {
+    const path = this.#file(value, field);
+    if (!exts.includes(extname(path).toLowerCase())) throw new ToolError(`${field}: ${exts.join(', ')} 파일만 받습니다`);
+    if (statSync(path).size > maxBytes) throw new ToolError(`${field}: ${maxBytes / 1024 / 1024}MB 이하여야 합니다`);
     return path;
   }
 
@@ -294,14 +327,14 @@ export class McpServer {
       return { platform, account, options: platform === 'tiktok' && !options.mode ? { mode: 'inbox', ...options } : options };
     });
     const captions: CaptionFile[] = Array.isArray(args.captions)
-      ? (args.captions as Array<Record<string, unknown>>).map((c, i) => ({ language: String(c.language ?? ''), path: this.#file(c.path, `captions[${i}].path`) }))
+      ? (args.captions as Array<Record<string, unknown>>).map((c, i) => ({ language: String(c.language ?? ''), path: this.#asset(c.path, `captions[${i}].path`, CAPTION_EXT, 5 * 1024 * 1024) }))
       : [];
     const input: PostInput = {
       mediaPath,
       title,
       description: typeof args.description === 'string' ? args.description : '',
       tags: Array.isArray(args.tags) ? args.tags.map(String).map((t) => t.trim()).filter(Boolean) : [],
-      thumbnailPath: args.thumbnailPath ? this.#file(args.thumbnailPath, 'thumbnailPath') : undefined,
+      thumbnailPath: args.thumbnailPath ? this.#asset(args.thumbnailPath, 'thumbnailPath', THUMBNAIL_EXT, 2 * 1024 * 1024) : undefined,
       captions,
       containsSyntheticMedia: Boolean(args.aiGenerated),
       scheduledAt: args.scheduledAt ? new Date(String(args.scheduledAt)).toISOString() : undefined,
@@ -337,17 +370,20 @@ export async function serveStdio(server: McpServer, input: Readable = process.st
   const pending = new Set<Promise<void>>();
   for await (const line of rl) {
     if (!line.trim()) continue;
-    let msg: JsonRpcRequest;
+    let msg: unknown;
     try {
-      msg = JSON.parse(line) as JsonRpcRequest;
+      msg = JSON.parse(line);
     } catch {
       output.write(`${JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } })}\n`);
       continue;
     }
     // Requests run concurrently (a long check_video must not block ping); responses carry their id.
-    const job = server.handle(msg).then((res) => {
-      if (res) output.write(`${JSON.stringify(res)}\n`);
-    });
+    const job = server
+      .handle(msg)
+      .then((res) => {
+        if (res) output.write(`${JSON.stringify(res)}\n`);
+      })
+      .catch((err: unknown) => console.error(`mcp: ${err instanceof Error ? err.message : String(err)}`));
     pending.add(job);
     void job.finally(() => pending.delete(job));
   }

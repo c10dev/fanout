@@ -50,22 +50,36 @@ function creds(account: Account): XCredentials {
   return account.credentials as unknown as XCredentials;
 }
 
+/** Links as X counts them: with a scheme, or a bare domain on a common TLD (x.ai, fanout.dev/docs). */
+const URL_RE =
+  /(?:https?:\/\/\S+)|(?:\b(?:[a-z0-9-]+\.)+(?:com|net|org|io|ai|dev|app|co|kr|me|tv|ly|gg|xyz|info|biz|edu|gov|jp|uk|de|fr|so|to|sh|page|link|site|blog|news|shop|store|art)\b(?:\/[^\s]*)?)/gi;
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
+export function hasUrl(text: string): boolean {
+  return new RegExp(URL_RE.source, 'i').test(text);
+}
+
 /**
- * X's weighted length: most Latin and punctuation count 1, CJK/Hangul/emoji count 2, URLs count 23
- * (twitter-text v3 ranges).
+ * X's weighted length (twitter-text v3): each URL counts 23; an emoji (even a multi-code-point
+ * sequence like 👨‍👩‍👧 or ❤️) counts 2; otherwise Latin and common punctuation count 1 and
+ * everything else — Hangul, CJK — counts 2.
  */
 export function weightedLength(text: string): number {
   let n = 0;
-  const urls = text.match(/https?:\/\/\S+/g) ?? [];
-  let rest = text;
-  for (const u of urls) {
-    rest = rest.replace(u, '');
+  const rest = text.replace(URL_RE, () => {
     n += 23;
-  }
-  for (const ch of rest) {
-    const cp = ch.codePointAt(0)!;
-    const light = (cp >= 0 && cp <= 4351) || (cp >= 8192 && cp <= 8205) || (cp >= 8208 && cp <= 8223) || (cp >= 8242 && cp <= 8247);
-    n += light ? 1 : 2;
+    return '';
+  });
+  for (const { segment } of graphemeSegmenter.segment(rest)) {
+    if (/\p{Extended_Pictographic}/u.test(segment)) {
+      n += 2;
+      continue;
+    }
+    for (const ch of segment) {
+      const cp = ch.codePointAt(0)!;
+      const light = (cp >= 0 && cp <= 4351) || (cp >= 8192 && cp <= 8205) || (cp >= 8208 && cp <= 8223) || (cp >= 8242 && cp <= 8247);
+      n += light ? 1 : 2;
+    }
   }
   return n;
 }
@@ -206,32 +220,40 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     if (len > TEXT_MAX) {
       issues.push({ severity: 'warning', code: 'text', message: `X 글이 ${len}(가중치) / ${TEXT_MAX}입니다. Premium이 아니면 거부됩니다 — options.text로 줄이세요` });
     }
-    if (/https?:\/\//.test(text)) issues.push({ severity: 'warning', code: 'url_cost', message: 'X는 URL이 들어간 게시물 요금이 훨씬 비쌉니다(약 $0.20)' });
+    if (hasUrl(text)) issues.push({ severity: 'warning', code: 'url_cost', message: 'X는 URL이 들어간 게시물 요금이 훨씬 비쌉니다(약 $0.20)' });
     if (post.scheduledAt) issues.push({ severity: 'warning', code: 'schedule', message: 'X는 API 예약 게시가 없어 fanout이 예약 시각에 올립니다 (fanout worker 필요)' });
     if (post.thumbnailPath || post.captions.length) issues.push({ severity: 'warning', code: 'extras', message: 'X에는 썸네일·자막을 보내지 않습니다' });
     return issues;
   },
 
   async publish({ ctx, target, account, mediaPath, saveResume }): Promise<PublishOutcome> {
-    const resume = (target.resume ?? {}) as { mediaId?: string; segment?: number; finalized?: boolean; tweetId?: string; posting?: boolean };
+    const resume = (target.resume ?? {}) as { mediaId?: string; segment?: number; finalized?: boolean; tweetId?: string; posting?: boolean; expiresAt?: number };
     if (resume.tweetId) return { state: 'published', remoteId: resume.tweetId, remoteUrl: `https://x.com/${creds(account).username}/status/${resume.tweetId}` };
     if (resume.finalized && resume.mediaId) return { state: 'processing', remoteId: resume.mediaId };
 
     const size = statSync(mediaPath).size;
     let mediaId = resume.mediaId;
     let segment = resume.segment ?? 0;
-    if (!mediaId) {
-      const init = await api<{ data: { id: string } }>(ctx, account, '/2/media/upload/initialize', {
+    let expiresAt = resume.expiresAt;
+    // Upload sessions expire (expires_after_secs, 24h): don't keep appending to a dead one.
+    if (mediaId && expiresAt !== undefined && ctx.now().getTime() > expiresAt - 10 * 60_000) {
+      ctx.log.info('x: 이전 업로드 세션이 만료돼 처음부터 올립니다');
+      mediaId = undefined;
+    }
+    const initialize = async () => {
+      const init = await api<{ data: { id: string; expires_after_secs?: number } }>(ctx, account, '/2/media/upload/initialize', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ media_type: 'video/mp4', total_bytes: size, media_category: 'tweet_video' }),
       });
       mediaId = init.data.id;
       segment = 0;
-      saveResume({ mediaId, segment });
-    } else if (segment > 0) {
-      ctx.log.info(`x: ${segment}번째 조각부터 이어 올립니다`);
-    }
+      expiresAt = ctx.now().getTime() + (init.data.expires_after_secs ?? 86_400) * 1000;
+      saveResume({ mediaId, segment, expiresAt });
+    };
+    const resumed = Boolean(mediaId);
+    if (!mediaId) await initialize();
+    else if (segment > 0) ctx.log.info(`x: ${segment}번째 조각부터 이어 올립니다`);
 
     // Access tokens last 2 hours; a long upload can outlive one. Refresh once on 401 and carry on.
     let acct = account;
@@ -245,19 +267,29 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       }
     };
 
-    // Segments are idempotent by index, so resuming from the last saved index is safe.
-    for (let offset = segment * SEGMENT; offset < size; offset += SEGMENT, segment++) {
-      const chunk = await readChunk(mediaPath, offset, Math.min(SEGMENT, size - offset));
-      const form = new FormData();
-      form.set('segment_index', String(segment));
-      form.set('media', new Blob([new Uint8Array(chunk)]), 'chunk');
-      await call(`/2/media/upload/${mediaId}/append`, { method: 'POST', body: form });
-      saveResume({ mediaId, segment: segment + 1 });
+    const sendAll = async () => {
+      // Segments are idempotent by index, so resuming from the last saved index is safe.
+      for (let offset = segment * SEGMENT; offset < size; offset += SEGMENT, segment++) {
+        const chunk = await readChunk(mediaPath, offset, Math.min(SEGMENT, size - offset));
+        const form = new FormData();
+        form.set('segment_index', String(segment));
+        form.set('media', new Blob([new Uint8Array(chunk)]), 'chunk');
+        await call(`/2/media/upload/${mediaId}/append`, { method: 'POST', body: form });
+        saveResume({ mediaId, segment: segment + 1, expiresAt });
+      }
+      await call<{ data: MediaData }>(`/2/media/upload/${mediaId}/finalize`, { method: 'POST' });
+    };
+    try {
+      await sendAll();
+    } catch (err) {
+      // A resumed session X no longer accepts (expired, unknown id) gets one fresh start.
+      if (!resumed || !(err instanceof ProviderError) || err.kind !== 'rejected') throw err;
+      ctx.log.info(`x: 이어 올리던 세션을 받지 않아 처음부터 올립니다 (${err.message})`);
+      await initialize();
+      await sendAll();
     }
-
-    await call<{ data: MediaData }>(`/2/media/upload/${mediaId}/finalize`, { method: 'POST' });
-    saveResume({ mediaId, segment, finalized: true });
-    return { state: 'processing', remoteId: mediaId };
+    saveResume({ mediaId, segment, finalized: true, expiresAt });
+    return { state: 'processing', remoteId: mediaId! };
   },
 
   async poll({ ctx, post, target, account }): Promise<PollOutcome> {

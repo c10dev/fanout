@@ -334,7 +334,7 @@ function addCaptionRow(language = 'ko') {
     { class: 'caption-row' },
     h('input', { name: 'language', value: language, 'aria-label': '자막 언어 코드', placeholder: 'ko' }),
     h('input', { type: 'file', name: 'file', accept: '.srt,.vtt,.sbv,.scc,.ttml,.dfxp', 'aria-label': '자막 파일' }),
-    h('button', { type: 'button', class: 'small', onclick: () => row.remove() }, '빼기'),
+    h('button', { type: 'button', class: 'small', onclick: () => { row.remove(); hideConfirm(); } }, '빼기'),
   );
   $('#captions').append(row);
 }
@@ -415,6 +415,10 @@ $('#post-form').addEventListener('submit', async (e) => {
   const button = $('#submit');
   button.disabled = true;
   try {
+    // Attachments go up first so the preview covers them too (e.g. "X doesn't take thumbnails").
+    form.payload.thumbnailId = form.thumbnail ? await uploadAsset('thumbnail', form.thumbnail) : undefined;
+    form.payload.captions = [];
+    for (const c of form.captionRows) form.payload.captions.push({ language: c.language, assetId: await uploadAsset('caption', c.file) });
     const { targets } = await api('/preview', { method: 'POST', body: JSON.stringify(form.payload) });
     renderConfirm(targets, form);
   } catch (err) {
@@ -452,15 +456,12 @@ function renderConfirm(previews, form) {
   box.scrollIntoView?.({ block: 'nearest' });
 }
 
-// Step 2: upload assets, create the post, reset the form.
+// Step 2: create the post with exactly what was previewed, then reset the form.
 async function post(form) {
   const button = $('#confirm-post');
   button.disabled = true;
   try {
-    const thumbnailId = form.thumbnail ? await uploadAsset('thumbnail', form.thumbnail) : undefined;
-    const captions = [];
-    for (const c of form.captionRows) captions.push({ language: c.language, assetId: await uploadAsset('caption', c.file) });
-    await api('/posts', { method: 'POST', body: JSON.stringify({ ...form.payload, thumbnailId, captions }) });
+    await api('/posts', { method: 'POST', body: JSON.stringify(form.payload) });
     $('#post-form').reset();
     $('#captions').replaceChildren();
     $('#drop-label').textContent = '영상 파일을 고르거나 여기에 끌어다 놓으세요';
