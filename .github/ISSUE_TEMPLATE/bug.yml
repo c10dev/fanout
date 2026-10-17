@@ -1,0 +1,32 @@
+name: 버그 신고
+description: 업로드 실패, 잘못된 동작, 오류 메시지
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: 무슨 일이 있었나요?
+      description: 기대한 동작과 실제 동작을 적어 주세요.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: 플랫폼
+      placeholder: youtube / tiktok / instagram / facebook
+  - type: textarea
+    id: status
+    attributes:
+      label: 상태와 오류 코드
+      description: "`fanout status <postId> --events` 출력이나 대시보드 게시 현황의 오류 줄을 붙여 주세요. 토큰이나 비밀값은 지워 주세요."
+      render: text
+  - type: textarea
+    id: doctor
+    attributes:
+      label: fanout doctor 결과
+      render: text
+  - type: input
+    id: env
+    attributes:
+      label: 환경
+      placeholder: "macOS 15 / Node 24.x / ffmpeg 7.x / Docker 여부"
