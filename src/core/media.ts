@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs';
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { msg } from './i18n.ts';
 
 const run = promisify(execFile);
 
@@ -131,47 +132,47 @@ export function checkMedia(info: MediaInfo, spec: MediaSpec): Violation[] {
   const ratio = video.height ? video.width / video.height : 0;
 
   if (spec.minDurationSec !== undefined && info.durationSec < spec.minDurationSec) {
-    out.push({ code: 'duration_short', fixable: false, message: `길이 ${info.durationSec.toFixed(1)}s < 최소 ${spec.minDurationSec}s` });
+    out.push({ code: 'duration_short', fixable: false, message: msg('길이 {info}s < 최소 {minDurationSec}s', { info: info.durationSec.toFixed(1), minDurationSec: spec.minDurationSec }) });
   }
   if (spec.maxDurationSec !== undefined && info.durationSec > spec.maxDurationSec) {
-    out.push({ code: 'duration_long', fixable: false, message: `길이 ${info.durationSec.toFixed(1)}s > 최대 ${spec.maxDurationSec}s` });
+    out.push({ code: 'duration_long', fixable: false, message: msg('길이 {info}s > 최대 {maxDurationSec}s', { info: info.durationSec.toFixed(1), maxDurationSec: spec.maxDurationSec }) });
   }
   if (spec.aspect && (ratio < spec.aspect.min - 0.01 || ratio > spec.aspect.max + 0.01)) {
     out.push({
       code: 'aspect',
       fixable: false,
-      message: `화면비 ${video.width}x${video.height} (${ratio.toFixed(3)})가 허용 범위 ${spec.aspect.min.toFixed(3)}–${spec.aspect.max.toFixed(3)} 밖`,
+      message: msg('화면비 {width}x{height} ({ratio})가 허용 범위 {spec}–{spec2} 밖', { width: video.width, height: video.height, ratio: ratio.toFixed(3), spec: spec.aspect.min.toFixed(3), spec2: spec.aspect.max.toFixed(3) }),
     });
   }
   if (spec.minShortEdge !== undefined && shortEdge < spec.minShortEdge) {
-    out.push({ code: 'resolution_low', fixable: false, message: `짧은 변 ${shortEdge}px < 최소 ${spec.minShortEdge}px` });
+    out.push({ code: 'resolution_low', fixable: false, message: msg('짧은 변 {shortEdge}px < 최소 {minShortEdge}px', { shortEdge, minShortEdge: spec.minShortEdge }) });
   }
   if (spec.containers && !spec.containers.some((c) => info.container.split(',').includes(c))) {
-    out.push({ code: 'container', fixable: true, message: `컨테이너 ${info.container} 미지원` });
+    out.push({ code: 'container', fixable: true, message: msg('컨테이너 {container} 미지원', { container: info.container }) });
   }
   if (spec.videoCodecs && !spec.videoCodecs.includes(video.codec)) {
-    out.push({ code: 'video_codec', fixable: true, message: `영상 코덱 ${video.codec} 미지원 (${spec.videoCodecs.join('/')})` });
+    out.push({ code: 'video_codec', fixable: true, message: msg('영상 코덱 {codec} 미지원 ({spec})', { codec: video.codec, spec: spec.videoCodecs.join('/') }) });
   }
   if (audio && spec.audioCodecs && !spec.audioCodecs.includes(audio.codec)) {
-    out.push({ code: 'audio_codec', fixable: true, message: `오디오 코덱 ${audio.codec} 미지원 (${spec.audioCodecs.join('/')})` });
+    out.push({ code: 'audio_codec', fixable: true, message: msg('오디오 코덱 {codec} 미지원 ({spec})', { codec: audio.codec, spec: spec.audioCodecs.join('/') }) });
   }
   if (audio && spec.maxAudioSampleRate !== undefined && audio.sampleRate > spec.maxAudioSampleRate) {
-    out.push({ code: 'audio_rate', fixable: true, message: `샘플레이트 ${audio.sampleRate}Hz > ${spec.maxAudioSampleRate}Hz` });
+    out.push({ code: 'audio_rate', fixable: true, message: msg('샘플레이트 {sampleRate}Hz > {maxAudioSampleRate}Hz', { sampleRate: audio.sampleRate, maxAudioSampleRate: spec.maxAudioSampleRate }) });
   }
   if (spec.maxFps !== undefined && video.fps > spec.maxFps + 0.01) {
-    out.push({ code: 'fps_high', fixable: true, message: `${video.fps.toFixed(2)}fps > 최대 ${spec.maxFps}fps` });
+    out.push({ code: 'fps_high', fixable: true, message: msg('{video}fps > 최대 {maxFps}fps', { video: video.fps.toFixed(2), maxFps: spec.maxFps }) });
   }
   if (spec.minFps !== undefined && video.fps < spec.minFps - 0.01) {
-    out.push({ code: 'fps_low', fixable: true, message: `${video.fps.toFixed(2)}fps < 최소 ${spec.minFps}fps` });
+    out.push({ code: 'fps_low', fixable: true, message: msg('{video}fps < 최소 {minFps}fps', { video: video.fps.toFixed(2), minFps: spec.minFps }) });
   }
   if (spec.maxLongEdge !== undefined && longEdge > spec.maxLongEdge) {
-    out.push({ code: 'resolution_high', fixable: true, message: `긴 변 ${longEdge}px > 최대 ${spec.maxLongEdge}px` });
+    out.push({ code: 'resolution_high', fixable: true, message: msg('긴 변 {longEdge}px > 최대 {maxLongEdge}px', { longEdge, maxLongEdge: spec.maxLongEdge }) });
   }
   if (spec.maxBitrate !== undefined && info.bitrate > spec.maxBitrate) {
     out.push({
       code: 'bitrate',
       fixable: true,
-      message: `비트레이트 ${(info.bitrate / 1e6).toFixed(1)}Mbps > ${(spec.maxBitrate / 1e6).toFixed(1)}Mbps`,
+      message: msg('비트레이트 {info}Mbps > {spec}Mbps', { info: (info.bitrate / 1e6).toFixed(1), spec: (spec.maxBitrate / 1e6).toFixed(1) }),
     });
   }
   if (spec.maxBytes !== undefined && info.sizeBytes > spec.maxBytes) {
@@ -180,7 +181,7 @@ export function checkMedia(info: MediaInfo, spec: MediaSpec): Violation[] {
     out.push({
       code: 'size',
       fixable: budgetBps >= 1_000_000,
-      message: `파일 ${(info.sizeBytes / MB).toFixed(0)}MB > 최대 ${(spec.maxBytes / MB).toFixed(0)}MB`,
+      message: msg('파일 {info}MB > 최대 {spec}MB', { info: (info.sizeBytes / MB).toFixed(0), spec: (spec.maxBytes / MB).toFixed(0) }),
     });
   }
   return out;

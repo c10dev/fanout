@@ -1,5 +1,6 @@
 import type { ProviderContext } from './provider.ts';
 import type { Post, Target, TargetState } from './types.ts';
+import { msg } from './i18n.ts';
 
 /**
  * Webhook notifications on state changes, so unattended runs (watch folder, worker) don't fail
@@ -25,11 +26,11 @@ export function detectFormat(url: string): NotifyConfig['format'] {
 
 const ICON: Partial<Record<TargetState, string>> = { published: '✅', handed_off: '📲', failed: '❌', needs_reauth: '🔑', removed: '🗑️' };
 const LABEL: Partial<Record<TargetState, string>> = {
-  published: '게시됨',
-  handed_off: '앱에서 마무리 필요',
-  failed: '실패',
-  needs_reauth: '재연결 필요',
-  removed: '삭제됨',
+  published: msg('게시됨'),
+  handed_off: msg('앱에서 마무리 필요'),
+  failed: msg('실패'),
+  needs_reauth: msg('재연결 필요'),
+  removed: msg('삭제됨'),
 };
 
 export function messageFor(post: Post | undefined, t: Target): string {
@@ -90,7 +91,7 @@ export function attachNotifier(ctx: ProviderContext): void {
     const post = ctx.store.getPost(t.postId);
     const format = config.format ?? detectFormat(config.url);
     const job = send(ctx, config, payloadFor(format, messageFor(post, t), post, t)).catch((err: unknown) =>
-      ctx.log.warn(`알림 전송 실패: ${err instanceof Error ? err.message : String(err)}`),
+      ctx.log.warn(msg('알림 전송 실패: {err}', { err: err instanceof Error ? err.message : String(err) })),
     );
     pending.add(job);
     void job.finally(() => pending.delete(job));

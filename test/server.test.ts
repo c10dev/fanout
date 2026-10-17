@@ -259,6 +259,22 @@ describe('dashboard server', () => {
     assert.match(await (await fetch(`${base}/`)).text(), /<script src="\/i18n\.js" defer><\/script>\s*<script src="\/app\.js"/);
   });
 
+  it('answers in English when the dashboard asks for it, Korean otherwise', async () => {
+    const { msg } = await import('../src/core/i18n.ts');
+    const { targets } = env.store.createPost({ mediaPath: '/x.mp4', title: '내 영상', description: '', tags: [], captions: [], containsSyntheticMedia: false }, [{ platform: 'alpha', account: 'main', options: {} }]);
+    env.store.transition(targets[0]!.id, 'failed', { errorCode: 'x', errorMessage: msg('연결된 계정 없음: {platform}/{account} — fanout connect {platform} 실행', { platform: 'alpha', account: 'main' }) });
+    const get = async (lang?: string) =>
+      ((await (await fetch(`${base}/api/posts?limit=50`, { headers: { ...auth, ...(lang ? { 'x-fanout-lang': lang } : {}) } })).json()) as Array<{ post: { title: string }; targets: Array<{ id: string; errorMessage?: string }> }>).find(
+        (p) => p.targets.some((t) => t.id === targets[0]!.id),
+      )!;
+    const en = await get('en');
+    assert.equal(en.targets[0]!.errorMessage, 'No connected account: alpha/main — run fanout connect alpha');
+    assert.equal(en.post.title, '내 영상', 'user content untouched');
+    assert.match((await get()).targets[0]!.errorMessage!, /연결된 계정 없음/);
+    const denied = await fetch(`${base}/api/posts`, { headers: { 'x-fanout-lang': 'en' } });
+    assert.equal(((await denied.json()) as { error: string }).error, 'The dashboard token is required');
+  });
+
   it('validates replies and reports refusals as conflicts', async () => {
     const reply = (id: string, body: unknown) => fetch(`${base}/api/targets/${id}/reply`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await reply('nope', { text: 'hi' })).status, 400);

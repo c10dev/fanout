@@ -24,6 +24,7 @@ import {
 } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
+import { msg, translate, translateDeep, type Lang } from '../core/i18n.ts';
 import { DEFAULT_EVENTS, detectFormat, notifyConfig, send as sendWebhook, validWebhookUrl, type NotifyConfig } from '../core/notify.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import type { RunnerDeps } from '../core/runner.ts';
@@ -77,8 +78,8 @@ const PRUNE_INTERVAL_MS = 6 * 3600_000;
 const ACCOUNT_NAME = /^[A-Za-z0-9_-]{1,32}$/;
 /** Token-connect form for providers that don't declare their own fields (Meta). */
 const DEFAULT_CONNECT_FIELDS = [
-  { key: 'token', label: '액세스 토큰', secret: true },
-  { key: 'page', label: '페이지 ID (선택)', secret: false, optional: true },
+  { key: 'token', label: msg('액세스 토큰'), secret: true },
+  { key: 'page', label: msg('페이지 ID (선택)'), secret: false, optional: true },
 ];
 const OAUTH_TTL_MS = 10 * 60_000;
 
@@ -88,6 +89,8 @@ interface PendingOAuth {
   verifier: string;
   redirectUri: string;
   expiresAt: number;
+  /** The dashboard's language when connecting started: the callback's error goes back in it. */
+  lang: Lang;
 }
 
 class HttpError extends Error {
@@ -102,9 +105,16 @@ function isLoopback(host: string): boolean {
   return host === '127.0.0.1' || host === 'localhost' || host === '::1';
 }
 
+/** The language each request asked for (x-fanout-lang); responses are translated on the way out. */
+const responseLang = new WeakMap<ServerResponse, Lang>();
+
+function requestLang(req: IncomingMessage): Lang {
+  return req.headers['x-fanout-lang'] === 'en' ? 'en' : 'ko';
+}
+
 function send(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
-  res.end(JSON.stringify(body));
+  res.end(JSON.stringify(translateDeep(body, responseLang.get(res) ?? 'ko')));
 }
 
 async function readJson<T>(req: IncomingMessage): Promise<T> {
@@ -112,13 +122,13 @@ async function readJson<T>(req: IncomingMessage): Promise<T> {
   let size = 0;
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > JSON_LIMIT) throw new HttpError(413, '요청 본문이 너무 큽니다');
+    if (size > JSON_LIMIT) throw new HttpError(413, msg('요청 본문이 너무 큽니다'));
     chunks.push(chunk as Buffer);
   }
   try {
     return JSON.parse(Buffer.concat(chunks).toString('utf8')) as T;
   } catch {
-    throw new HttpError(400, 'JSON 형식이 아닙니다');
+    throw new HttpError(400, msg('JSON 형식이 아닙니다'));
   }
 }
 
@@ -236,9 +246,9 @@ export class Dashboard {
   prune(): void {
     try {
       const items = planPrune(this.#opts.ctx.home, this.#opts.ctx.store, { days: this.#opts.pruneDays ?? 7, now: this.#opts.ctx.now() });
-      if (items.length) this.#opts.ctx.log.info(`정리: 파일 ${items.length}개, ${formatBytes(applyPrune(items))}`);
+      if (items.length) this.#opts.ctx.log.info(msg('정리: 파일 {items}개, {formatBytes}', { items: items.length, formatBytes: formatBytes(applyPrune(items)) }));
     } catch (err) {
-      this.#opts.ctx.log.warn(`정리 실패: ${err instanceof Error ? err.message : String(err)}`);
+      this.#opts.ctx.log.warn(msg('정리 실패: {err}', { err: err instanceof Error ? err.message : String(err) }));
     }
   }
 
@@ -248,9 +258,10 @@ export class Dashboard {
   }
 
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+    responseLang.set(res, requestLang(req));
     res.setHeader('x-content-type-options', 'nosniff');
     res.setHeader('referrer-policy', 'no-referrer');
-    if (!this.#allowedHosts.has(req.headers.host ?? '')) throw new HttpError(421, `허용되지 않은 Host: ${req.headers.host}`);
+    if (!this.#allowedHosts.has(req.headers.host ?? '')) throw new HttpError(421, msg('허용되지 않은 Host: {host}', { host: req.headers.host }));
 
     const url = new URL(req.url ?? '/', 'http://local');
     const method = req.method ?? 'GET';
@@ -265,7 +276,7 @@ export class Dashboard {
     }
     if (method === 'GET' && url.pathname.startsWith('/oauth/') && url.pathname.endsWith('/callback')) return this.#oauthCallback(req, res, url);
     if (!url.pathname.startsWith('/api/')) throw new HttpError(404, 'not found');
-    if (req.headers['x-fanout-token'] !== this.#token) throw new HttpError(401, '대시보드 토큰이 필요합니다');
+    if (req.headers['x-fanout-token'] !== this.#token) throw new HttpError(401, msg('대시보드 토큰이 필요합니다'));
 
     const parts = url.pathname.split('/').filter(Boolean).slice(1);
     if (method === 'GET' && parts[0] === 'overview') return send(res, 200, this.#overview());
@@ -299,7 +310,7 @@ export class Dashboard {
     }
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'reply') {
       const body = await readJson<{ commentId?: unknown; text?: unknown }>(req);
-      if (typeof body.commentId !== 'string' || typeof body.text !== 'string') throw new HttpError(400, 'commentId와 text가 필요합니다');
+      if (typeof body.commentId !== 'string' || typeof body.text !== 'string') throw new HttpError(400, msg('commentId와 text가 필요합니다'));
       try {
         return send(res, 200, await replyToComment(this.#opts.ctx, this.#opts.providers, parts[1], body.commentId, body.text));
       } catch (err) {
@@ -308,7 +319,7 @@ export class Dashboard {
       }
     }
     if (method === 'GET' && parts[0] === 'posts' && parts[1] && parts[2] === 'comments') {
-      if (!this.#opts.ctx.store.getPost(parts[1])) throw new HttpError(404, '게시물이 없습니다');
+      if (!this.#opts.ctx.store.getPost(parts[1])) throw new HttpError(404, msg('게시물이 없습니다'));
       const limit = Math.min(Math.max(Number(url.searchParams.get('limit') ?? 20) || 20, 1), 100);
       return send(res, 200, { results: await fetchComments(this.#opts.ctx, this.#opts.providers, parts[1], limit) });
     }
@@ -321,11 +332,11 @@ export class Dashboard {
         options: t?.options && typeof t.options === 'object' ? (t.options as Record<string, unknown>) : {},
       }));
       for (const t of targets) {
-        if (!this.#opts.providers.has(t.platform)) throw new HttpError(400, `알 수 없는 플랫폼: ${t.platform}`);
-        if (!this.#opts.ctx.store.getAccount(t.platform, t.account)) throw new HttpError(400, `연결되지 않은 계정: ${t.platform}/${t.account}`);
+        if (!this.#opts.providers.has(t.platform)) throw new HttpError(400, msg('알 수 없는 플랫폼: {platform}', { platform: t.platform }));
+        if (!this.#opts.ctx.store.getAccount(t.platform, t.account)) throw new HttpError(400, msg('연결되지 않은 계정: {platform}/{account}', { platform: t.platform, account: t.account }));
       }
       const post = this.#opts.ctx.store.getPost(parts[1]);
-      if (!post) throw new HttpError(404, '게시물이 없습니다');
+      if (!post) throw new HttpError(404, msg('게시물이 없습니다'));
       try {
         const media = existsSync(post.mediaPath) ? await (this.#opts.probe ?? realProbe)(post.mediaPath) : undefined;
         if (parts[3] === 'preview') return send(res, 200, { targets: planAddTargets(this.#opts.ctx.store, this.#opts.providers, post.id, targets, media!).preview });
@@ -339,18 +350,18 @@ export class Dashboard {
     }
     if (method === 'POST' && parts[0] === 'posts' && parts[1] && parts[2] === 'edit') {
       const body = await readJson<{ title?: string; description?: string; tags?: string[] }>(req);
-      if (!this.#opts.ctx.store.getPost(parts[1])) throw new HttpError(404, '게시물이 없습니다');
+      if (!this.#opts.ctx.store.getPost(parts[1])) throw new HttpError(404, msg('게시물이 없습니다'));
       const patch = {
         ...(typeof body.title === 'string' ? { title: body.title.trim() } : {}),
         ...(typeof body.description === 'string' ? { description: body.description } : {}),
         ...(Array.isArray(body.tags) ? { tags: body.tags.map((t) => String(t).trim()).filter(Boolean) } : {}),
       };
-      if (patch.title !== undefined && !patch.title) throw new HttpError(400, '제목을 입력하세요');
+      if (patch.title !== undefined && !patch.title) throw new HttpError(400, msg('제목을 입력하세요'));
       return send(res, 200, { results: await editPost(this.#opts.ctx, this.#opts.providers, parts[1], patch) });
     }
     if (method === 'POST' && parts[0] === 'posts' && parts[1] && parts[2] === 'stats') {
       const body = await readJson<{ includePaid?: boolean; platform?: string }>(req);
-      if (!this.#opts.ctx.store.getPost(parts[1])) throw new HttpError(404, '게시물이 없습니다');
+      if (!this.#opts.ctx.store.getPost(parts[1])) throw new HttpError(404, msg('게시물이 없습니다'));
       return send(res, 200, { results: await refreshStats(this.#opts.ctx, this.#opts.providers, parts[1], { includePaid: Boolean(body.includePaid), platform: body.platform }) });
     }
 
@@ -391,13 +402,13 @@ export class Dashboard {
 
   #requireSettings(): void {
     if (!this.settingsEnabled) {
-      throw new HttpError(403, '설정 화면은 127.0.0.1 전용입니다. 이 서버에서 터미널로 fanout app set / connect 를 쓰세요');
+      throw new HttpError(403, msg('설정 화면은 127.0.0.1 전용입니다. 이 서버에서 터미널로 fanout app set / connect 를 쓰세요'));
     }
   }
 
   #provider(id: string): Provider {
     const p = this.#opts.providers.get(id);
-    if (!p) throw new HttpError(404, `알 수 없는 플랫폼: ${id}`);
+    if (!p) throw new HttpError(404, msg('알 수 없는 플랫폼: {id}', { id }));
     return p;
   }
 
@@ -447,7 +458,7 @@ export class Dashboard {
 
   #saveApp(key: string, body: { values?: Record<string, unknown>; clientJson?: string }) {
     const provider = [...this.#opts.providers.values()].find((p) => (p.appKey ?? p.id) === key);
-    if (!provider) throw new HttpError(404, `알 수 없는 앱: ${key}`);
+    if (!provider) throw new HttpError(404, msg('알 수 없는 앱: {key}', { key }));
     const { store } = this.#opts.ctx;
     const config: Record<string, unknown> = { ...(store.getApp(key) ?? {}) };
     if (body.clientJson) {
@@ -456,11 +467,11 @@ export class Dashboard {
       try {
         parsed = JSON.parse(body.clientJson) as typeof parsed;
       } catch {
-        throw new HttpError(400, 'JSON 파일을 읽을 수 없습니다');
+        throw new HttpError(400, msg('JSON 파일을 읽을 수 없습니다'));
       }
       const inner = parsed.installed ?? parsed.web;
-      if (!inner?.client_id) throw new HttpError(400, 'client_id가 있는 Google OAuth JSON이 아닙니다');
-      if (!parsed.installed) throw new HttpError(400, '"데스크톱 앱" 유형 OAuth 클라이언트 JSON이어야 합니다 (installed)');
+      if (!inner?.client_id) throw new HttpError(400, msg('client_id가 있는 Google OAuth JSON이 아닙니다'));
+      if (!parsed.installed) throw new HttpError(400, msg('"데스크톱 앱" 유형 OAuth 클라이언트 JSON이어야 합니다 (installed)'));
       config.clientId = inner.client_id;
       config.clientSecret = inner.client_secret;
     }
@@ -473,7 +484,7 @@ export class Dashboard {
       else if (!f.secret && f.optional) delete config[f.key];
     }
     const missing = provider.appFields.filter((f) => !f.optional && !config[f.key]).map((f) => f.label);
-    if (missing.length) throw new HttpError(400, `필수 항목이 비어 있습니다: ${missing.join(', ')}`);
+    if (missing.length) throw new HttpError(400, msg('필수 항목이 비어 있습니다: {missing}', { missing: missing.join(', ') }));
     store.setApp(key, config);
     return { ok: true };
   }
@@ -481,14 +492,14 @@ export class Dashboard {
   async #connect(req: IncomingMessage, platform: string, body: Record<string, unknown>) {
     const provider = this.#provider(platform);
     const name = String(body.name ?? 'main').trim();
-    if (!ACCOUNT_NAME.test(name)) throw new HttpError(400, '계정 이름은 영문·숫자·-·_ 32자 이내');
+    if (!ACCOUNT_NAME.test(name)) throw new HttpError(400, msg('계정 이름은 영문·숫자·-·_ 32자 이내'));
 
     if (provider.connectMethod === 'oauth') {
       const redirectUri = this.#redirectUri(req, platform);
       const start = provider.oauthBegin!(this.#opts.ctx, redirectUri);
       const now = Date.now();
       for (const [k, v] of this.#pendingOAuth) if (v.expiresAt < now) this.#pendingOAuth.delete(k);
-      this.#pendingOAuth.set(start.state, { platform, name, verifier: start.verifier, redirectUri, expiresAt: now + OAUTH_TTL_MS });
+      this.#pendingOAuth.set(start.state, { platform, name, verifier: start.verifier, redirectUri, expiresAt: now + OAUTH_TTL_MS, lang: requestLang(req) });
       return { authorizeUrl: start.url };
     }
 
@@ -496,7 +507,7 @@ export class Dashboard {
     const flags: Record<string, string | undefined> = {};
     for (const f of fields) {
       const v = typeof body[f.key] === 'string' ? (body[f.key] as string).trim() : '';
-      if (!v && !f.optional) throw new HttpError(400, `${f.label}을(를) 입력하세요`);
+      if (!v && !f.optional) throw new HttpError(400, msg('{label}을(를) 입력하세요', { label: f.label }));
       flags[f.key] = v || undefined;
     }
     const account = await provider.connect(this.#opts.ctx, name, flags);
@@ -509,13 +520,13 @@ export class Dashboard {
       res.writeHead(303, { location: `/?${new URLSearchParams({ view: 'settings', ...params })}`, 'cache-control': 'no-store' });
       res.end();
     };
-    if (!this.settingsEnabled) return back({ oauthError: '설정 화면은 127.0.0.1 전용입니다' });
+    if (!this.settingsEnabled) return back({ oauthError: msg('설정 화면은 127.0.0.1 전용입니다') });
     const platform = url.pathname.split('/')[2] ?? '';
     const state = url.searchParams.get('state') ?? '';
     const pending = this.#pendingOAuth.get(state);
     this.#pendingOAuth.delete(state);
     if (!pending || pending.platform !== platform || pending.expiresAt < Date.now()) {
-      return back({ oauthError: '연결 요청이 만료됐거나 올바르지 않습니다. 다시 연결을 눌러 주세요' });
+      return back({ oauthError: msg('연결 요청이 만료됐거나 올바르지 않습니다. 다시 연결을 눌러 주세요') });
     }
     try {
       const provider = this.#provider(platform);
@@ -523,7 +534,7 @@ export class Dashboard {
       this.#opts.ctx.store.saveAccount(account);
       back({ connected: `${platform}/${pending.name}` });
     } catch (err) {
-      back({ oauthError: err instanceof Error ? err.message : String(err) });
+      back({ oauthError: translate(err instanceof Error ? err.message : String(err), pending.lang) });
     }
   }
 
@@ -535,7 +546,7 @@ export class Dashboard {
     const { store } = this.#opts.ctx;
     const all = () => (store.getApp<{ items?: Preset[] }>('presets')?.items ?? []).map(cleanPreset);
     if (method === 'GET' && !name) return { presets: all() };
-    if (!name || !/^.{1,40}$/u.test(name.trim())) throw new HttpError(400, '프리셋 이름은 1~40자');
+    if (!name || !/^.{1,40}$/u.test(name.trim())) throw new HttpError(400, msg('프리셋 이름은 1~40자'));
     const key = name.trim();
     if (method === 'DELETE') {
       store.setApp('presets', { items: all().filter((p) => p.name !== key) });
@@ -546,7 +557,7 @@ export class Dashboard {
       const targets = (Array.isArray(body.targets) ? body.targets : [])
         .filter((t) => t && this.#opts.providers.has(String(t.platform)))
         .map((t) => ({ platform: String(t.platform), account: String(t.account ?? 'main'), options: presetOptions(String(t.platform), t.options) }));
-      if (!targets.length) throw new HttpError(400, '올릴 곳을 하나 이상 고른 뒤 저장하세요');
+      if (!targets.length) throw new HttpError(400, msg('올릴 곳을 하나 이상 고른 뒤 저장하세요'));
       const preset: Preset = {
         name: key,
         targets,
@@ -584,11 +595,11 @@ export class Dashboard {
     }
     if (method === 'POST' && action === 'test') {
       const c = notifyConfig(ctx);
-      if (!c) throw new HttpError(400, '알림 주소가 없습니다');
+      if (!c) throw new HttpError(400, msg('알림 주소가 없습니다'));
       const format = c.format ?? detectFormat(c.url);
-      const text = '🔔 fanout 알림 테스트입니다';
+      const text = msg('🔔 fanout 알림 테스트입니다');
       await sendWebhook(ctx, c, format === 'slack' ? { text } : format === 'discord' ? { content: text } : { event: 'test', text }).catch((err: Error) => {
-        throw new HttpError(502, `보내지 못했습니다: ${err.message}`);
+        throw new HttpError(502, msg('보내지 못했습니다: {message}', { message: err.message }));
       });
       return { sent: true };
     }
@@ -596,10 +607,10 @@ export class Dashboard {
       const body = await readJson<{ url?: string; events?: string[]; format?: string }>(req);
       const saved = ctx.store.getApp<NotifyConfig>('notify') ?? ({} as Partial<NotifyConfig>);
       const url = body.url?.trim() || saved.url;
-      if (!url || !validWebhookUrl(url)) throw new HttpError(400, '올바른 https:// webhook 주소를 넣으세요');
+      if (!url || !validWebhookUrl(url)) throw new HttpError(400, msg('올바른 https:// webhook 주소를 넣으세요'));
       const known: readonly string[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed'];
       const events = (body.events ?? []).filter((e) => known.includes(e)) as TargetState[];
-      if (!events.length) throw new HttpError(400, '알릴 상태를 하나 이상 고르세요');
+      if (!events.length) throw new HttpError(400, msg('알릴 상태를 하나 이상 고르세요'));
       const format = body.format && ['slack', 'discord', 'json'].includes(body.format) ? (body.format as NotifyConfig['format']) : undefined;
       ctx.store.setApp('notify', { url, events, ...(format ? { format } : {}) });
       return describe();
@@ -609,7 +620,7 @@ export class Dashboard {
 
   #disconnect(platform: string, name: string) {
     this.#provider(platform);
-    if (!this.#opts.ctx.store.removeAccount(platform, name)) throw new HttpError(404, '해당 계정이 없습니다');
+    if (!this.#opts.ctx.store.removeAccount(platform, name)) throw new HttpError(404, msg('해당 계정이 없습니다'));
     return { ok: true };
   }
 
@@ -617,11 +628,11 @@ export class Dashboard {
     const provider = this.#provider(platform);
     const name = body.account ?? 'main';
     const account = this.#opts.ctx.store.getAccount(platform, name);
-    if (!account) throw new HttpError(404, `${platform}/${name} 계정이 연결되지 않았습니다`);
+    if (!account) throw new HttpError(404, msg('{platform}/{name} 계정이 연결되지 않았습니다', { platform, name }));
     try {
       return { checks: await provider.doctor({ ctx: this.#opts.ctx, account, live: Boolean(body.live) }) };
     } catch (err) {
-      return { checks: [{ name: '점검 중 오류', status: 'fail', detail: err instanceof Error ? err.message : String(err) }] };
+      return { checks: [{ name: msg('점검 중 오류'), status: 'fail', detail: err instanceof Error ? err.message : String(err) }] };
     }
   }
 
@@ -645,7 +656,7 @@ export class Dashboard {
   async #upload(req: IncomingMessage) {
     const name = decodeURIComponent(String(req.headers['x-filename'] ?? 'video.mp4'));
     const ext = extname(name).toLowerCase();
-    if (!VIDEO_EXT.has(ext)) throw new HttpError(415, `지원하지 않는 확장자: ${ext || '(없음)'}`);
+    if (!VIDEO_EXT.has(ext)) throw new HttpError(415, msg('지원하지 않는 확장자: {ext}', { ext: ext || msg('(없음)') }));
     const id = `${randomUUID()}${ext}`;
     const path = join(this.#mediaDir, id);
     await pipeline(req, createWriteStream(path, { mode: 0o600 }));
@@ -654,7 +665,7 @@ export class Dashboard {
       media = await (this.#opts.probe ?? realProbe)(path);
     } catch (err) {
       rmSync(path, { force: true });
-      throw new HttpError(422, `영상으로 읽을 수 없습니다: ${err instanceof Error ? err.message.split('\n')[0] : String(err)}`);
+      throw new HttpError(422, msg('영상으로 읽을 수 없습니다: {err}', { err: err instanceof Error ? err.message.split('\n')[0] : String(err) }));
     }
     return { id, name, media: { ...media, path: undefined }, isShort: isShort(media), assessments: assessMedia(media, this.#opts.providers.values()) };
   }
@@ -664,10 +675,10 @@ export class Dashboard {
     const name = decodeURIComponent(String(req.headers['x-filename'] ?? ''));
     const ext = extname(name).toLowerCase();
     if (!(rule.ext as ReadonlySet<string>).has(ext)) {
-      throw new HttpError(415, `${kind === 'thumbnail' ? '썸네일' : '자막'} 형식이 아닙니다: ${ext || '(없음)'} (가능: ${[...rule.ext].join(', ')})`);
+      throw new HttpError(415, (kind === 'thumbnail' ? msg('썸네일 형식이 아닙니다: {ext} (가능: {allowed})', { ext: ext || msg('(없음)'), allowed: [...rule.ext].join(', ') }) : msg('자막 형식이 아닙니다: {ext} (가능: {allowed})', { ext: ext || msg('(없음)'), allowed: [...rule.ext].join(', ') })));
     }
     const length = Number(req.headers['content-length'] ?? 0);
-    if (length > rule.maxBytes) throw new HttpError(413, `${kind === 'thumbnail' ? '썸네일' : '자막'}은 ${rule.maxBytes / 1024 / 1024}MB 이하여야 합니다`);
+    if (length > rule.maxBytes) throw new HttpError(413, (kind === 'thumbnail' ? msg('썸네일은 {mb}MB 이하여야 합니다', { mb: rule.maxBytes / 1024 / 1024 }) : msg('자막은 {mb}MB 이하여야 합니다', { mb: rule.maxBytes / 1024 / 1024 })));
     const id = `${randomUUID()}${ext}`;
     const path = join(this.#mediaDir, id);
     let size = 0;
@@ -678,7 +689,7 @@ export class Dashboard {
         async function* (source: AsyncIterable<Buffer>) {
           for await (const chunk of source) {
             size += chunk.length;
-            if (size > rule.maxBytes) throw new HttpError(413, '파일이 너무 큽니다');
+            if (size > rule.maxBytes) throw new HttpError(413, msg('파일이 너무 큽니다'));
             yield chunk;
           }
         },
@@ -695,7 +706,7 @@ export class Dashboard {
     const ext = extname(String(id)).toLowerCase();
     const path = join(this.#mediaDir, String(id));
     if (typeof id !== 'string' || !MEDIA_ID.test(id) || !(ASSET_KINDS[kind].ext as ReadonlySet<string>).has(ext) || !existsSync(path)) {
-      throw new HttpError(400, `${kind === 'thumbnail' ? '썸네일' : '자막'} 파일을 다시 올려 주세요 (${String(id)})`);
+      throw new HttpError(400, (kind === 'thumbnail' ? msg('썸네일 파일을 다시 올려 주세요 ({id})', { id: String(id) }) : msg('자막 파일을 다시 올려 주세요 ({id})', { id: String(id) })));
     }
     return path;
   }
@@ -703,15 +714,15 @@ export class Dashboard {
   /** Validate a create/preview body into post input and targets (shared by both endpoints). */
   #parsePost(body: CreatePostBody): { input: PostInput; targets: TargetInput[] } {
     if (!body.mediaId || !MEDIA_ID.test(body.mediaId) || !existsSync(join(this.#mediaDir, body.mediaId))) {
-      throw new HttpError(400, '먼저 영상을 업로드하세요 (mediaId 없음)');
+      throw new HttpError(400, msg('먼저 영상을 업로드하세요 (mediaId 없음)'));
     }
-    if (!body.title?.trim()) throw new HttpError(400, '제목을 입력하세요');
-    if (!body.targets?.length) throw new HttpError(400, '올릴 플랫폼을 하나 이상 고르세요');
-    if (body.scheduledAt && Number.isNaN(Date.parse(body.scheduledAt))) throw new HttpError(400, '예약 시각 형식이 잘못됐습니다');
+    if (!body.title?.trim()) throw new HttpError(400, msg('제목을 입력하세요'));
+    if (!body.targets?.length) throw new HttpError(400, msg('올릴 플랫폼을 하나 이상 고르세요'));
+    if (body.scheduledAt && Number.isNaN(Date.parse(body.scheduledAt))) throw new HttpError(400, msg('예약 시각 형식이 잘못됐습니다'));
     const { store } = this.#opts.ctx;
     for (const t of body.targets) {
-      if (!this.#opts.providers.has(t.platform)) throw new HttpError(400, `알 수 없는 플랫폼: ${t.platform}`);
-      if (!store.getAccount(t.platform, t.account)) throw new HttpError(400, `연결되지 않은 계정: ${t.platform}/${t.account}`);
+      if (!this.#opts.providers.has(t.platform)) throw new HttpError(400, msg('알 수 없는 플랫폼: {platform}', { platform: t.platform }));
+      if (!store.getAccount(t.platform, t.account)) throw new HttpError(400, msg('연결되지 않은 계정: {platform}/{account}', { platform: t.platform, account: t.account }));
     }
     const input: PostInput = {
       mediaPath: join(this.#mediaDir, body.mediaId),
@@ -721,7 +732,7 @@ export class Dashboard {
       thumbnailPath: body.thumbnailId ? this.#assetPath(body.thumbnailId, 'thumbnail') : undefined,
       captions: (body.captions ?? []).map((c) => {
         const language = String(c.language ?? '').trim();
-        if (!/^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(language)) throw new HttpError(400, `자막 언어 코드가 올바르지 않습니다: ${language || '(비어 있음)'} (예: ko, en, ja)`);
+        if (!/^[a-zA-Z]{2,3}(-[A-Za-z0-9]{2,8})*$/.test(language)) throw new HttpError(400, msg('자막 언어 코드가 올바르지 않습니다: {language} (예: ko, en, ja)', { language: language || msg('(비어 있음)') }));
         return { language, path: this.#assetPath(c.assetId, 'caption') };
       }),
       containsSyntheticMedia: Boolean(body.containsSyntheticMedia),
@@ -761,7 +772,7 @@ export class Dashboard {
   #postDetail(id: string) {
     const { store } = this.#opts.ctx;
     const post = store.getPost(id);
-    if (!post) throw new HttpError(404, '게시물이 없습니다');
+    if (!post) throw new HttpError(404, msg('게시물이 없습니다'));
     return {
       post: this.#publicPost(post),
       targets: store.targetsForPost(id).map((t) => ({ ...this.#publicTarget(t), events: store.events(t.id) })),
@@ -770,8 +781,8 @@ export class Dashboard {
 
   #retry(targetId: string) {
     const t = this.#opts.ctx.store.getTarget(targetId);
-    if (!t) throw new HttpError(404, '대상이 없습니다');
-    if (t.state !== 'failed' && t.state !== 'needs_reauth') throw new HttpError(409, `${t.state} 상태는 다시 시도할 수 없습니다`);
+    if (!t) throw new HttpError(404, msg('대상이 없습니다'));
+    if (t.state !== 'failed' && t.state !== 'needs_reauth') throw new HttpError(409, msg('{state} 상태는 다시 시도할 수 없습니다', { state: t.state }));
     const next = retryTarget(this.#opts.ctx.store, targetId, 'manual retry');
     this.tick();
     return this.#publicTarget(next);
@@ -793,8 +804,8 @@ export class Dashboard {
   /** The post's video in the shape an upload returns, to load it back into the form and add platforms. */
   async #postMedia(id: string) {
     const post = this.#opts.ctx.store.getPost(id);
-    if (!post) throw new HttpError(404, '게시물이 없습니다');
-    if (!existsSync(post.mediaPath)) throw new HttpError(409, '원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요');
+    if (!post) throw new HttpError(404, msg('게시물이 없습니다'));
+    if (!existsSync(post.mediaPath)) throw new HttpError(409, msg('원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요'));
     const media = await (this.#opts.probe ?? realProbe)(post.mediaPath);
     return {
       name: post.mediaPath.split('/').pop(),
