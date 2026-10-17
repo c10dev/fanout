@@ -71,3 +71,47 @@ describe('fanout restore', () => {
     assert.ok(readFileSync(join(home, 'secret.key'), 'utf8'));
   });
 });
+
+describe('fanout restore, eleventh review fixes', () => {
+  it('refuses while another process merely has the database open', async () => {
+    const { spawn } = await import('node:child_process');
+    const { home, backup, store } = setup();
+    store.close();
+    const child = spawn(process.execPath, ['-e', `const { DatabaseSync } = require('node:sqlite'); const db = new DatabaseSync(${JSON.stringify(join(home, 'fanout.db'))}); db.prepare('SELECT 1').get(); console.log('open'); setInterval(() => {}, 1000);`]);
+    await new Promise((r) => child.stdout.once('data', r));
+    try {
+      assert.throws(() => restoreBackup({ home, backupDir: backup, now: NOW }), /열고 있습니다/);
+    } finally {
+      child.kill();
+      await new Promise((r) => child.once('exit', r));
+    }
+    assert.equal(restoreBackup({ home, backupDir: backup, now: NOW }).posts, 1);
+  });
+
+  it('a copy of a live folder keeps what was still in the WAL', () => {
+    const { root, home, key, store } = setup();
+    store.createPost({ ...POST, title: 'in the wal' }, []);
+    const copy = join(root, 'live-copy');
+    mkdirSync(copy);
+    for (const f of ['fanout.db', 'fanout.db-wal', 'fanout.db-shm', 'secret.key']) if (existsSync(join(home, f))) writeFileSync(join(copy, f), readFileSync(join(home, f)));
+    store.close();
+    const r = restoreBackup({ home, backupDir: copy, now: NOW });
+    const back = new Store(join(home, 'fanout.db'), new SecretBox(key), () => NOW);
+    assert.equal(back.listPosts(10).length, r.posts);
+    assert.ok(back.listPosts(10).some((p) => p.title === 'in the wal'));
+    back.close();
+  });
+
+  it('checks app credentials against the key too', () => {
+    const { root, home, store } = setup();
+    store.close();
+    // A backup with app credentials only, made with another key and without it.
+    const other = new Store(join(root, 'other.db'), new SecretBox(randomBytes(32)), () => NOW);
+    other.setApp('youtube', { clientId: 'c', clientSecret: 's' });
+    const bk = join(root, 'apps-only');
+    mkdirSync(bk);
+    other.backupTo(join(bk, 'fanout.db'));
+    other.close();
+    assert.throws(() => restoreBackup({ home, backupDir: bk, now: NOW }), /키/);
+  });
+});

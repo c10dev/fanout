@@ -308,21 +308,26 @@ export class Scanner {
 }
 
 /** Move a file into dir/sub, adding " (2)", " (3)"… if the name is taken. Returns the new path. */
-export function moveInto(path: string, dir: string, sub: string): string {
+/** Where `path` would land in `dir/sub` without overwriting anything: "clip.mp4", "clip (2).mp4", … */
+export function freePath(path: string, dir: string, sub: string): string {
   const destDir = join(dir, sub);
-  mkdirSync(destDir, { recursive: true });
   const ext = extname(path);
   const stem = basename(path, ext);
   let dest = join(destDir, basename(path));
   for (let i = 2; existsSync(dest); i++) dest = join(destDir, `${stem} (${i})${ext}`);
+  return dest;
+}
+
+export function moveInto(path: string, dir: string, sub: string, dest = freePath(path, dir, sub)): string {
+  mkdirSync(join(dir, sub), { recursive: true });
   renameSync(path, dest);
   return dest;
 }
 
 /** Move a video and its sidecar together. Returns the video's new path. */
-export function moveVideo(videoPath: string, dir: string, sub: string): string {
+export function moveVideo(videoPath: string, dir: string, sub: string, dest?: string): string {
   const side = sidecarPath(videoPath);
-  const dest = moveInto(videoPath, dir, sub);
+  dest = moveInto(videoPath, dir, sub, dest);
   if (side) {
     // Keep the sidecar paired with the (possibly renamed) video: "clip (2).mp4" ↔ "clip (2).json".
     let pairedSide = dest.slice(0, -extname(dest).length) + '.json';
@@ -404,16 +409,13 @@ export async function ingest(args: {
       }
       if (!kept.length) throw new WatchConfigError(`올릴 수 있는 플랫폼이 없습니다: ${plan.skipped.map((s) => `${s.platform} (${s.reason})`).join(', ')}`);
       plan.targets = kept;
-      const movedTo = moveVideo(videoPath, dir, 'posted');
+      // The post points at where the video is about to go; files move only once the post is
+      // committed, so a refused write leaves the video and its sidecar where they were.
+      const movedTo = freePath(videoPath, dir, 'posted');
       plan.input.mediaPath = movedTo;
-      try {
-        return { postId: createScheduledPost(store, providers, plan.input, plan.targets).post.id, movedTo };
-      } catch (err) {
-        // The database refused: put the video back so nothing is lost.
-        renameSync(movedTo, videoPath);
-        throw err;
-      }
+      return { postId: createScheduledPost(store, providers, plan.input, plan.targets).post.id, movedTo };
     });
+    moveVideo(videoPath, dir, 'posted', created.movedTo);
   } catch (err) {
     if (!(err instanceof WatchConfigError)) throw err;
     const movedTo = moveVideo(videoPath, dir, 'failed');

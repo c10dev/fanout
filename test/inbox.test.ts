@@ -332,3 +332,19 @@ describe('slots across a daylight-saving change', () => {
     }
   });
 });
+
+describe('watch folder ingest, eleventh review fixes', () => {
+  it('a refused database write leaves the video and its sidecar in the inbox', async () => {
+    const { store } = makeCtx();
+    const config: WatchConfig = { to: ['tiktok'], options: { tiktok: { mode: 'inbox' } } };
+    const dir = folder(config);
+    const path = video(dir, 'clip.mp4');
+    writeFileSync(join(dir, 'clip.json'), JSON.stringify({ title: 'from the sidecar' }));
+    store.createPost = () => {
+      throw new Error('SQLITE_FULL: database or disk is full');
+    };
+    await assert.rejects(ingest({ dir, config, videoPath: path, providers, store, probe: async () => fakeMedia(), now: NOW }), /disk is full/);
+    assert.ok(existsSync(path) && existsSync(join(dir, 'clip.json')));
+    assert.ok(!existsSync(join(dir, 'posted', 'clip.json')));
+  });
+});

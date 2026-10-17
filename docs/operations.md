@@ -55,7 +55,8 @@ fanout backup ~/fanout-backups --without-key
 - `secret.key`가 함께 들어가므로 백업 폴더가 있으면 모든 계정 토큰을 풀 수 있습니다. 안전한 곳에 두세요. 키를 `FANOUT_SECRET_KEY`로 주고 있다면 백업에 넣지 않으니 따로 보관하세요.
 - **복원**: 대시보드·worker·watch·mcp를 모두 끈 뒤 `fanout restore <백업 폴더>`로 되돌립니다. fanout이 하는 일은 다음과 같습니다.
   - 백업 DB가 온전한지, 저장된 토큰을 쓸 키(백업의 `secret.key` 또는 `FANOUT_SECRET_KEY`)로 풀 수 있는지 먼저 확인합니다.
-  - 다른 fanout 프로세스가 작업 중이면 거부합니다(`--force`로 무시).
+  - 다른 fanout 프로세스(대시보드·worker·watch·mcp)가 데이터베이스를 열고만 있어도 거부합니다(`--force`로 무시). 그대로 두면 그 프로세스가 옮겨 둔 이전 파일에 계속 쓰기 때문입니다.
+  - 실행 중인 폴더를 그대로 복사한 것처럼 WAL 파일이 함께 있는 백업도 SQLite를 거쳐 복사하므로 내용이 빠지지 않습니다.
   - 지금 데이터(`fanout.db`, WAL 파일, `secret.key`)는 지우지 않고 `FANOUT_HOME/before-restore-<시각>/`으로 옮겨 둡니다.
 
   ```bash

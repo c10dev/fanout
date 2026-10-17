@@ -740,7 +740,7 @@ async function cmdRestore(args: Args): Promise<number> {
   console.log(`${resolve(dirArg)} 의 백업으로 ${home} 의 데이터를 바꿉니다. 지금 데이터는 지우지 않고 따로 옮겨 둡니다.`);
   if (!args.flags.yes && !(await confirm('복원할까요?'))) return 1;
   try {
-    const r = restoreBackup({ home, backupDir: resolve(dirArg), now: new Date(), envKey: process.env.FANOUT_SECRET_KEY, force: Boolean(args.flags.force) });
+    const r = restoreBackup({ home, backupDir: resolve(dirArg), now: new Date(), envKey: process.env.FANOUT_SECRET_KEY || undefined, force: Boolean(args.flags.force) });
     console.log(`복원했습니다: 게시물 ${r.posts}개, 계정 ${r.accounts}개${r.keyRestored ? ', secret.key 포함' : ''}`);
     if (r.savedTo) console.log(`이전 데이터: ${r.savedTo}`);
     return 0;
