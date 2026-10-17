@@ -21,6 +21,7 @@ import { McpServer, serveStdio } from './mcp/server.ts';
 import { refreshDueStats } from './core/stats.ts';
 import { DEFAULT_STATS_EVERY_MS, Worker } from './core/worker.ts';
 import { isShort } from './providers/youtube.ts';
+import { currentLang, local, msg } from './core/i18n.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
 
@@ -61,14 +62,14 @@ function bool(args: Args, key: string): boolean | undefined {
   if (v === true) return true;
   if (['yes', 'true', '1', 'y'].includes(String(v).toLowerCase())) return true;
   if (['no', 'false', '0', 'n'].includes(String(v).toLowerCase())) return false;
-  throw new UsageError(`--${key} 값은 yes 또는 no`);
+  throw new UsageError(msg('--{key} 값은 yes 또는 no', { key }));
 }
 
 function num(args: Args, key: string): number | undefined {
   const v = str(args, key);
   if (v === undefined) return undefined;
   const n = Number(v);
-  if (!Number.isFinite(n)) throw new UsageError(`--${key} 값은 숫자`);
+  if (!Number.isFinite(n)) throw new UsageError(msg('--{key} 값은 숫자', { key }));
   return n;
 }
 
@@ -98,7 +99,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
       });
     case 'tiktok': {
       const privacy = str(args, 'tt-privacy');
-      if (privacy && !TT_PRIVACY[privacy]) throw new UsageError(`--tt-privacy는 ${Object.keys(TT_PRIVACY).join('|')}`);
+      if (privacy && !TT_PRIVACY[privacy]) throw new UsageError(msg('--tt-privacy는 {values}', { values: Object.keys(TT_PRIVACY).join('|') }));
       return drop({
         mode: str(args, 'tt-mode') ?? 'inbox',
         caption: str(args, 'tt-caption'),
@@ -142,7 +143,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
 function parseTargets(spec: string, providers: Map<string, Provider>, args: Args, accounts: ReadonlyArray<{ platform: string; name: string }>): TargetInput[] {
   return spec.split(',').map((s) => {
     const [platform, explicit] = s.trim().split(':');
-    if (!platform || !providers.has(platform)) throw new UsageError(`알 수 없는 플랫폼: ${platform} (가능: ${[...providers.keys()].join(', ')})`);
+    if (!platform || !providers.has(platform)) throw new UsageError(msg('알 수 없는 플랫폼: {platform} (가능: {providers})', { platform, providers: [...providers.keys()].join(', ') }));
     // Without ":name", use "main" or the platform's only connected account.
     return { platform, account: explicit || defaultAccountName(accounts, platform), options: targetOptions(platform, args) };
   });
@@ -151,9 +152,9 @@ function parseTargets(spec: string, providers: Map<string, Provider>, args: Args
 function parseCaptions(list: string[] | undefined): CaptionFile[] {
   return (list ?? []).map((c) => {
     const i = c.indexOf(':');
-    if (i <= 0) throw new UsageError(`--caption 형식은 언어:파일 (예: ko:subs.srt)`);
+    if (i <= 0) throw new UsageError(msg(`--caption 형식은 언어:파일 (예: ko:subs.srt)`));
     const path = resolve(c.slice(i + 1));
-    if (!existsSync(path)) throw new UsageError(`자막 파일 없음: ${path}`);
+    if (!existsSync(path)) throw new UsageError(msg('자막 파일 없음: {path}', { path }));
     return { language: c.slice(0, i), path };
   });
 }
@@ -175,9 +176,10 @@ const STATE_ICON: Record<string, string> = {
 
 function targetLine(t: Target): string {
   const head = `  ${STATE_ICON[t.state] ?? '?'} ${`${t.platform}/${t.account}`.padEnd(18)} ${t.state.padEnd(12)}`;
-  const lines = [`${head} ${t.remoteUrl ?? (t.notBefore && t.state === 'queued' ? `예정 ${t.notBefore}` : '')}`.trimEnd()];
-  if (t.errorCode) lines.push(`      ${t.errorCode}: ${t.errorMessage ?? ''}`);
-  for (const w of t.warnings) lines.push(`      ⚠ ${w}`);
+  const due = t.notBefore && t.state === 'queued' ? local(msg('예정 {at}', { at: t.notBefore })) : '';
+  const lines = [`${head} ${t.remoteUrl ?? due}`.trimEnd()];
+  if (t.errorCode) lines.push(`      ${t.errorCode}: ${local(t.errorMessage ?? '')}`);
+  for (const w of t.warnings) lines.push(`      ⚠ ${local(w)}`);
   return lines.join('\n');
 }
 
@@ -186,21 +188,37 @@ function printPost(ctx: ProviderContext, post: Post, withEvents = false): void {
   for (const t of ctx.store.targetsForPost(post.id)) {
     console.log(targetLine(t));
     if (withEvents) {
-      for (const e of ctx.store.events(t.id)) console.log(`        ${e.at}  ${e.from ?? '·'} → ${e.to}${e.detail ? `  (${e.detail})` : ''}`);
+      for (const e of ctx.store.events(t.id)) console.log(`        ${e.at}  ${e.from ?? '·'} → ${e.to}${e.detail ? `  (${local(e.detail)})` : ''}`);
     }
   }
 }
 
 function accountLine(ctx: ProviderContext, t: { platform: string; account: string }): string {
   const acct = ctx.store.getAccount(t.platform, t.account);
-  if (!acct) return `${t.platform}/${t.account} (연결 안 됨)`;
+  if (!acct) return local(msg('{platform}/{account} (연결 안 됨)', { platform: t.platform, account: t.account }));
   return `${t.platform}/${t.account} → ${accountLabel(acct.profile, t.account)}`;
+}
+
+/** A message for the person at the terminal, in FANOUT_LANG. */
+function say(text: string): void {
+  console.log(local(text));
+}
+
+function sayErr(text: string): void {
+  console.error(local(text));
+}
+
+const LOCALE = () => (currentLang() === 'en' ? 'en-US' : 'ko-KR');
+
+/** "조회 1 · 좋아요 2 · 댓글 3 · 공유 4" in FANOUT_LANG. */
+function counts(views: string, likes: string, comments: string, shares: string): string {
+  return local(msg('조회 {views} · 좋아요 {likes} · 댓글 {comments} · 공유 {shares}', { views, likes, comments, shares }));
 }
 
 async function confirm(question: string): Promise<boolean> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
-    return /^y(es)?$/i.test((await rl.question(`${question} [y/N] `)).trim());
+    return /^y(es)?$/i.test((await rl.question(`${local(question)} [y/N] `)).trim());
   } finally {
     rl.close();
   }
@@ -216,7 +234,7 @@ function settleOpts(ctx: ProviderContext) {
 
 // ── Commands ───────────────────────────────────────────────────────
 
-const HELP = `fanout — 영상 하나를 여러 플랫폼에 올리는 셀프호스팅 업로더
+const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀프호스팅 업로더
 
   fanout platforms                       지원 플랫폼과 기능
   fanout setup <platform>                내 개발자 앱(BYO) 만드는 방법
@@ -275,13 +293,14 @@ post 공통 옵션
   PeerTube   --pt-privacy public|unlisted|private|internal (필수)  --pt-channel 채널  --pt-comments enabled|disabled|approval
              --pt-lang ko  --pt-nsfw
 
-데이터 위치: FANOUT_HOME (기본 ~/.fanout). 토큰은 AES-256-GCM으로 암호화해 저장합니다.`;
+데이터 위치: FANOUT_HOME (기본 ~/.fanout). 토큰은 AES-256-GCM으로 암호화해 저장합니다.
+언어: FANOUT_LANG=en 이면 영어로 출력합니다 (기본 한국어).`);
 
 async function cmdPlatforms(providers: Map<string, Provider>): Promise<void> {
   for (const p of providers.values()) {
     const c = p.capabilities;
-    const caps = [c.nativeSchedule && '네이티브 예약', c.thumbnail && '썸네일', c.captions && '자막', c.syntheticMediaFlag && 'AI 표시'].filter(Boolean);
-    console.log(`${p.id.padEnd(10)} ${p.displayName.padEnd(24)} ${caps.join(', ') || '-'}${p.appKey ? `  (앱: ${p.appKey})` : ''}`);
+    const caps = [c.nativeSchedule && msg('네이티브 예약'), c.thumbnail && msg('썸네일'), c.captions && msg('자막'), c.syntheticMediaFlag && msg('AI 표시')].filter((x): x is string => Boolean(x)).map(local);
+    console.log(`${p.id.padEnd(10)} ${p.displayName.padEnd(24)} ${caps.join(', ') || '-'}${p.appKey ? `  ${local(msg('(앱: {app})', { app: p.appKey }))}` : ''}`);
   }
 }
 
@@ -293,7 +312,7 @@ async function cmdAppSet(ctx: ProviderContext, provider: Provider, args: Args): 
     // Google's downloaded client JSON: { installed: { client_id, client_secret } } or { web: {...} }.
     const json = JSON.parse(readFileSync(file, 'utf8')) as Record<string, { client_id?: string; client_secret?: string }>;
     const inner = json.installed ?? json.web;
-    if (!inner?.client_id) throw new UsageError('client_id가 있는 Google OAuth JSON이 아닙니다');
+    if (!inner?.client_id) throw new UsageError(msg('client_id가 있는 Google OAuth JSON이 아닙니다'));
     config.clientId = inner.client_id;
     config.clientSecret = inner.client_secret;
   }
@@ -310,29 +329,29 @@ async function cmdAppSet(ctx: ProviderContext, provider: Provider, args: Args): 
     rl.close();
   }
   ctx.store.setApp(key, config);
-  console.log(`${key} 앱 저장됨 (${provider.appFields.filter((f) => config[f.key] !== undefined).map((f) => f.key).join(', ')})`);
+  say(msg('{key} 앱 저장됨 ({fields})', { key, fields: provider.appFields.filter((f) => config[f.key] !== undefined).map((f) => f.key).join(', ') }));
 }
 
 async function cmdDoctor(ctx: ProviderContext, provider: Provider, args: Args): Promise<number> {
   const name = str(args, 'account') ?? 'main';
   const account = ctx.store.getAccount(provider.id, name);
   if (!account) {
-    console.log(`${provider.id}/${name} 계정이 연결되지 않았습니다. 먼저: fanout setup ${provider.id}`);
+    say(msg('{id}/{name} 계정이 연결되지 않았습니다. 먼저: fanout setup {id}', { id: provider.id, name }));
     return 1;
   }
   const checks: DoctorCheck[] = await provider.doctor({ ctx, account, live: Boolean(args.flags.live) });
   const icon = { ok: '✓', warn: '⚠', fail: '✗', info: 'ℹ' } as const;
-  for (const c of checks) console.log(`${icon[c.status]} ${c.name}: ${c.detail}`);
+  for (const c of checks) console.log(`${icon[c.status]} ${local(c.name)}: ${local(c.detail)}`);
   return checks.some((c) => c.status === 'fail') ? 1 : 0;
 }
 
 /** `fanout doctor` with no platform: check every connected account (never --live, which posts). */
 async function cmdDoctorAll(ctx: ProviderContext, providers: Map<string, Provider>, args: Args): Promise<number> {
-  if (args.flags.live) throw new UsageError('--live 는 테스트 게시물을 실제로 올리므로 플랫폼을 지정해서 하나씩 실행하세요: fanout doctor <platform> --live');
-  if (args.flags.account) throw new UsageError('--account 는 플랫폼과 함께 쓰세요: fanout doctor <platform> --account <이름>');
+  if (args.flags.live) throw new UsageError(msg('--live 는 테스트 게시물을 실제로 올리므로 플랫폼을 지정해서 하나씩 실행하세요: fanout doctor <platform> --live'));
+  if (args.flags.account) throw new UsageError(msg('--account 는 플랫폼과 함께 쓰세요: fanout doctor <platform> --account <이름>'));
   const accounts = ctx.store.listAccounts();
   if (!accounts.length) {
-    console.log('연결된 계정이 없습니다. fanout setup <platform> 부터 시작하세요');
+    say(msg('연결된 계정이 없습니다. fanout setup <platform> 부터 시작하세요'));
     return 1;
   }
   const icon = { ok: '✓', warn: '⚠', fail: '✗', info: 'ℹ' } as const;
@@ -341,7 +360,7 @@ async function cmdDoctorAll(ctx: ProviderContext, providers: Map<string, Provide
     const provider = providers.get(a.platform);
     console.log(`\n== ${a.platform}/${a.name}`);
     if (!provider) {
-      console.log('✗ 이 버전의 fanout이 모르는 플랫폼입니다');
+      say(msg('✗ 이 버전의 fanout이 모르는 플랫폼입니다'));
       failed.push(`${a.platform}/${a.name}`);
       continue;
     }
@@ -350,12 +369,12 @@ async function cmdDoctorAll(ctx: ProviderContext, providers: Map<string, Provide
       const account = ctx.store.getAccount(a.platform, a.name)!;
       checks = await provider.doctor({ ctx: withTimeout(ctx, 30_000), account, live: false });
     } catch (err) {
-      checks = [{ name: '점검', status: 'fail', detail: err instanceof Error ? err.message : String(err) }];
+      checks = [{ name: msg('점검'), status: 'fail', detail: err instanceof Error ? err.message : String(err) }];
     }
-    for (const c of checks) console.log(`${icon[c.status]} ${c.name}: ${c.detail}`);
+    for (const c of checks) console.log(`${icon[c.status]} ${local(c.name)}: ${local(c.detail)}`);
     if (checks.some((c) => c.status === 'fail')) failed.push(`${a.platform}/${a.name}`);
   }
-  console.log(`\n${accounts.length}개 계정 점검${failed.length ? `, 문제 있음: ${failed.join(', ')}` : ', 모두 정상'}`);
+  say(failed.length ? msg('\n{count}개 계정 점검, 문제 있음: {failed}', { count: accounts.length, failed: failed.join(', ') }) : msg('\n{count}개 계정 점검, 모두 정상', { count: accounts.length }));
   return failed.length ? 1 : 0;
 }
 
@@ -364,16 +383,14 @@ async function cmdCheck(providers: Map<string, Provider>, args: Args): Promise<v
   if (!file) throw new UsageError('fanout check <video>');
   const media = await probe(resolve(file));
   const v = media.video;
-  console.log(
-    `${file}: ${v.width}x${v.height} ${v.codec} ${v.fps.toFixed(2)}fps, ${media.durationSec.toFixed(1)}s, ${(media.sizeBytes / 1024 / 1024).toFixed(1)}MB, ` +
-      `${media.audio ? `${media.audio.codec} ${media.audio.sampleRate}Hz` : '오디오 없음'}`,
-  );
+  const audio = media.audio ? `${media.audio.codec} ${media.audio.sampleRate}Hz` : local(msg('오디오 없음'));
+  console.log(`${file}: ${v.width}x${v.height} ${v.codec} ${v.fps.toFixed(2)}fps, ${media.durationSec.toFixed(1)}s, ${(media.sizeBytes / 1024 / 1024).toFixed(1)}MB, ${audio}`);
   const ids = str(args, 'to')?.split(',').map((s) => s.split(':')[0]!) ?? [...providers.keys()];
   const selected = ids.map((id) => providers.get(id)).filter((p): p is Provider => Boolean(p));
-  const label = { as_is: '✓ 원본 그대로', transcode: '⚙ 변환 후 업로드', blocked: '✗ 올릴 수 없음' } as const;
+  const label = { as_is: msg('✓ 원본 그대로'), transcode: msg('⚙ 변환 후 업로드'), blocked: msg('✗ 올릴 수 없음') } as const;
   for (const a of assessMedia(media, selected)) {
-    console.log(`  ${a.platform.padEnd(10)} ${label[a.verdict]}${a.platform === 'youtube' && isShort(media) ? ' (Shorts로 분류)' : ''}`);
-    for (const x of a.violations) console.log(`      ${x.fixable ? '⚙' : '✗'} ${x.message}`);
+    console.log(`  ${a.platform.padEnd(10)} ${local(label[a.verdict])}${a.platform === 'youtube' && isShort(media) ? ` ${local(msg('(Shorts로 분류)'))}` : ''}`);
+    for (const x of a.violations) console.log(`      ${x.fixable ? '⚙' : '✗'} ${local(x.message)}`);
   }
 }
 
@@ -381,13 +398,13 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
   const file = args.positionals[1];
   const title = str(args, 'title');
   const to = str(args, 'to');
-  if (!file || !title || !to) throw new UsageError('fanout post <video> --title 제목 --to youtube,tiktok,...');
+  if (!file || !title || !to) throw new UsageError(msg('fanout post <video> --title 제목 --to youtube,tiktok,...'));
   const mediaPath = resolve(file);
-  if (!existsSync(mediaPath)) throw new UsageError(`파일 없음: ${mediaPath}`);
+  if (!existsSync(mediaPath)) throw new UsageError(msg('파일 없음: {path}', { path: mediaPath }));
   const descFile = str(args, 'description-file');
   const thumb = str(args, 'thumbnail');
   const at = str(args, 'at');
-  if (at && Number.isNaN(Date.parse(at))) throw new UsageError('--at 은 ISO-8601 시각 (예: 2026-10-20T09:00:00+09:00)');
+  if (at && Number.isNaN(Date.parse(at))) throw new UsageError(msg('--at 은 ISO-8601 시각 (예: 2026-10-20T09:00:00+09:00)'));
 
   const input: PostInput = {
     mediaPath,
@@ -404,35 +421,35 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
   const prior = priorPosts(ctx.store, input.mediaHash, targets);
 
   // YouTube policy: show which channel and which visibility before uploading.
-  console.log(`\n"${title}"  ${mediaPath}${input.scheduledAt ? `  예약 ${input.scheduledAt}` : ''}`);
+  console.log(`\n"${title}"  ${mediaPath}${input.scheduledAt ? `  ${local(msg('예약 {at}', { at: input.scheduledAt }))}` : ''}`);
   for (const t of targets) {
-    console.log(`  ${accountLine(ctx, t).padEnd(40)} ${visibilityLabel(t, input.scheduledAt)}`);
+    console.log(`  ${accountLine(ctx, t).padEnd(40)} ${local(visibilityLabel(t, input.scheduledAt))}`);
     const before = prior.get(`${t.platform}/${t.account}`)?.[0];
-    if (before) console.log(`      ⚠ ${describePrior(before)}`);
+    if (before) console.log(`      ⚠ ${local(describePrior(before))}`);
   }
-  if (!args.flags.yes && !(await confirm('이대로 업로드할까요?'))) return 1;
+  if (!args.flags.yes && !(await confirm(msg('이대로 업로드할까요?')))) return 1;
 
   const { post } = createScheduledPost(ctx.store, deps.providers, input, targets);
-  console.log(`post ${post.id.slice(0, 8)} 생성`);
+  say(msg('post {id} 생성', { id: post.id.slice(0, 8) }));
   if (args.flags['no-wait']) return 0;
 
   const due = ctx.store.targetsForPost(post.id).filter((t) => !t.notBefore || new Date(t.notBefore) <= ctx.now());
   await settle(deps, due.map((t) => t.id), settleOpts(ctx));
   printPost(ctx, post);
   const after = ctx.store.targetsForPost(post.id);
-  if (after.some((t) => t.notBefore && t.state === 'queued')) console.log('\n예약된 대상이 있습니다. 예약 시각에 올리려면 fanout worker 를 켜 두세요.');
+  if (after.some((t) => t.notBefore && t.state === 'queued')) say(msg('\n예약된 대상이 있습니다. 예약 시각에 올리려면 fanout worker 를 켜 두세요.'));
   return after.some((t) => t.state === 'failed' || t.state === 'needs_reauth') ? 1 : 0;
 }
 
 async function cmdAdd(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
   const to = str(args, 'to');
-  if (!post || !to) throw new UsageError('fanout add <postId> --to tiktok,x [플랫폼 옵션] [--yes] [--no-wait]');
+  if (!post || !to) throw new UsageError(msg('fanout add <postId> --to tiktok,x [플랫폼 옵션] [--yes] [--no-wait]'));
   const targets = parseTargets(to, deps.providers, args, ctx.store.listAccounts());
   const fail = (err: unknown): never => {
     throw new UsageError(err instanceof Error ? err.message : String(err));
   };
-  if (!existsSync(post.mediaPath)) fail(new Error('원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요'));
+  if (!existsSync(post.mediaPath)) fail(new Error(msg('원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요')));
   const media = await (deps.probe ?? probe)(post.mediaPath);
   let plan: ReturnType<typeof planAddTargets>;
   try {
@@ -440,16 +457,18 @@ async function cmdAdd(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promi
   } catch (err) {
     return fail(err);
   }
-  console.log(`\n"${post.title}"에 추가${post.scheduledAt ? `  예약 ${post.scheduledAt}` : ''}`);
+  const adding = local(msg('"{title}"에 추가', { title: post.title }));
+  const at = post.scheduledAt ? local(msg('예약 {at}', { at: post.scheduledAt })) : '';
+  console.log(`\n${adding}${at ? `  ${at}` : ''}`);
   for (const p of plan.preview) {
-    console.log(`  ${accountLine(ctx, p).padEnd(40)} ${p.visibility}`);
-    for (const e of p.errors) console.log(`      ✗ ${e}`);
-    for (const w of p.warnings) console.log(`      ⚠ ${w}`);
+    console.log(`  ${accountLine(ctx, p).padEnd(40)} ${local(p.visibility)}`);
+    for (const e of p.errors) console.log(`      ✗ ${local(e)}`);
+    for (const w of p.warnings) console.log(`      ⚠ ${local(w)}`);
   }
   if (plan.preview.some((p) => p.errors.length)) return 1;
-  if (!args.flags.yes && !(await confirm('이대로 추가해 업로드할까요?'))) return 1;
+  if (!args.flags.yes && !(await confirm(msg('이대로 추가해 업로드할까요?')))) return 1;
   const created = addTargets(ctx.store, deps.providers, post.id, targets, media);
-  console.log(`${created.length}곳 추가`);
+  say(msg('{count}곳 추가', { count: created.length }));
   if (args.flags['no-wait']) return 0;
   const due = created.filter((t) => !t.notBefore || new Date(t.notBefore) <= ctx.now());
   await settle(deps, due.map((t) => t.id), settleOpts(ctx));
@@ -460,7 +479,7 @@ async function cmdAdd(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promi
 async function cmdRun(ctx: ProviderContext, deps: RunnerDeps): Promise<number> {
   const ids = ctx.store.workableTargets().map((t) => t.id);
   if (!ids.length) {
-    console.log('처리할 작업 없음');
+    say(msg('처리할 작업 없음'));
     return 0;
   }
   const done = await settle(deps, ids, settleOpts(ctx));
@@ -478,7 +497,7 @@ function statsEvery(args: Args): number {
 async function cmdWorker(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<never> {
   const interval = (num(args, 'interval') ?? 60) * 1000;
   const everyMs = statsEvery(args);
-  console.log(`worker 시작 (${interval / 1000}s 간격, Ctrl+C로 종료)`);
+  say(msg('worker 시작 ({interval}s 간격, Ctrl+C로 종료)', { interval: interval / 1000 }));
   // Stats run beside uploads, never in front of them: a slow instance mustn't hold back a scheduled post.
   let stats: Promise<unknown> | undefined;
   for (;;) {
@@ -497,17 +516,17 @@ async function cmdWorker(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
 
 async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const dirArg = args.positionals[1];
-  if (!dirArg) throw new UsageError('fanout watch <폴더> [--init] [--once] [--yes] [--interval 15] [--settle 10]');
+  if (!dirArg) throw new UsageError(msg('fanout watch <폴더> [--init] [--once] [--yes] [--interval 15] [--settle 10]'));
   const dir = resolve(dirArg);
   if (args.flags.init) {
     mkdirSync(dir, { recursive: true });
     const path = join(dir, CONFIG_FILE);
-    if (existsSync(path)) throw new UsageError(`이미 있습니다: ${path}`);
+    if (existsSync(path)) throw new UsageError(msg('이미 있습니다: {path}', { path }));
     writeFileSync(path, `${JSON.stringify(exampleConfig(ctx.store.listAccounts()), null, 2)}\n`);
-    console.log(`예시 설정을 만들었습니다: ${path}\n올릴 곳(to)과 플랫폼별 옵션을 확인한 뒤 fanout watch ${dirArg} 로 시작하세요.`);
+    say(msg('예시 설정을 만들었습니다: {path}\n올릴 곳(to)과 플랫폼별 옵션을 확인한 뒤 fanout watch {dir} 로 시작하세요.', { path, dir: dirArg }));
     return 0;
   }
-  if (!existsSync(dir)) throw new UsageError(`폴더 없음: ${dir}`);
+  if (!existsSync(dir)) throw new UsageError(msg('폴더 없음: {dir}', { dir }));
   let config: WatchConfig;
   try {
     config = loadWatchConfig(dir);
@@ -517,20 +536,20 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   }
 
   // YouTube policy: show the destination accounts and visibility before anything is uploaded.
-  console.log(`\n감시 폴더: ${dir}`);
+  say(msg('\n감시 폴더: {dir}', { dir }));
   for (const spec of config.to ?? []) {
     const [platform = '', account = 'main'] = spec.split(':');
-    if (!deps.providers.has(platform)) throw new UsageError(`${CONFIG_FILE}: 알 수 없는 플랫폼 ${platform}`);
+    if (!deps.providers.has(platform)) throw new UsageError(msg('{file}: 알 수 없는 플랫폼 {platform}', { file: CONFIG_FILE, platform }));
     const t: TargetInput = { platform, account, options: config.options?.[platform] ?? {} };
-    const when = config.at ?? (config.slots?.length ? `다음 빈 슬롯(${config.slots.join(', ')})` : undefined);
-    console.log(`  ${accountLine(ctx, t).padEnd(40)} ${visibilityLabel(t, when)}`);
+    const when = config.at ?? (config.slots?.length ? msg('다음 빈 슬롯({slots})', { slots: config.slots.join(', ') }) : undefined);
+    console.log(`  ${accountLine(ctx, t).padEnd(40)} ${local(visibilityLabel(t, when))}`);
   }
-  console.log('  (영상별 <이름>.json 이 있으면 그 값이 우선합니다)');
+  say(msg('  (영상별 <이름>.json 이 있으면 그 값이 우선합니다)'));
   const missing = (config.to ?? []).map((s) => s.split(':')).filter(([p = '', a = 'main']) => !ctx.store.getAccount(p, a));
   if (missing.length) {
-    throw new UsageError(`연결되지 않은 계정이 있어 시작하지 않습니다: ${missing.map(([p, a = 'main']) => `${p}/${a}`).join(', ')}\n먼저 fanout connect 또는 대시보드 설정 탭에서 연결하세요.`);
+    throw new UsageError(msg('연결되지 않은 계정이 있어 시작하지 않습니다: {accounts}\n먼저 fanout connect 또는 대시보드 설정 탭에서 연결하세요.', { accounts: missing.map(([p, a = 'main']) => `${p}/${a}`).join(', ') }));
   }
-  if (!args.flags.yes && !(await confirm('이 폴더에 들어오는 영상을 위 설정대로 올릴까요?'))) return 1;
+  if (!args.flags.yes && !(await confirm(msg('이 폴더에 들어오는 영상을 위 설정대로 올릴까요?')))) return 1;
 
   const once = Boolean(args.flags.once);
   const interval = (num(args, 'interval') ?? 15) * 1000;
@@ -547,17 +566,17 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
       } catch (err) {
         // One bad video (or a busy database) must not stop the watcher; it is picked up again next scan.
         failures++;
-        console.log(`✗ ${basename(videoPath)}: ${err instanceof Error ? err.message : String(err)}`);
+        console.log(`✗ ${basename(videoPath)}: ${local(err instanceof Error ? err.message : String(err))}`);
         continue;
       }
       if (!r.ok) {
         failures++;
-        console.log(`✗ ${basename(videoPath)}: ${r.error}\n    → ${r.movedTo}`);
+        console.log(`✗ ${basename(videoPath)}: ${local(r.error)}\n    → ${r.movedTo}`);
         continue;
       }
-      const when = r.plan.input.scheduledAt ? `, 예약 ${new Date(r.plan.input.scheduledAt).toLocaleString('ko-KR')}` : '';
+      const when = r.plan.input.scheduledAt ? ', ' + local(msg('예약 {at}', { at: new Date(r.plan.input.scheduledAt).toLocaleString(LOCALE()) })) : '';
       console.log(`+ ${basename(videoPath)} → post ${r.postId.slice(0, 8)} "${r.plan.input.title}" (${r.plan.targets.map((t) => t.platform).join(', ')}${when})`);
-      for (const s of r.plan.skipped) console.log(`    건너뜀 ${s.platform}: ${s.reason}`);
+      for (const s of r.plan.skipped) say(msg('    건너뜀 {platform}: {reason}', { platform: s.platform, reason: s.reason }));
     }
   };
 
@@ -567,11 +586,11 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     return failures ? 1 : code;
   }
 
-  console.log(`감시 시작 (${interval / 1000}s 간격, Ctrl+C로 종료). 올린 영상은 posted/, 실패한 영상은 failed/ 로 옮깁니다.`);
+  say(msg('감시 시작 ({interval}s 간격, Ctrl+C로 종료). 올린 영상은 posted/, 실패한 영상은 failed/ 로 옮깁니다.', { interval: interval / 1000 }));
   let stop = false;
   process.once('SIGINT', () => {
     stop = true;
-    console.log('\n종료 중… 진행 중인 업로드는 다음 실행 때 이어서 처리됩니다');
+    say(msg('\n종료 중… 진행 중인 업로드는 다음 실행 때 이어서 처리됩니다'));
   });
   while (!stop) {
     await scan();
@@ -588,7 +607,7 @@ async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   const loopback = ['127.0.0.1', 'localhost', '::1'].includes(host) || assumeLocal;
   const token = process.env.FANOUT_DASHBOARD_TOKEN;
   if (!loopback && !token) {
-    throw new UsageError('127.0.0.1이 아닌 주소로 열려면 FANOUT_DASHBOARD_TOKEN 환경 변수로 접속 토큰을 정하세요');
+    throw new UsageError(msg('127.0.0.1이 아닌 주소로 열려면 FANOUT_DASHBOARD_TOKEN 환경 변수로 접속 토큰을 정하세요'));
   }
   const dashboard = new Dashboard({
     ctx,
@@ -602,13 +621,13 @@ async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     assumeLocal,
   });
   const url = await dashboard.start();
-  console.log(`fanout 대시보드: ${url}`);
-  if (!loopback) console.log('외부 접속 허용 중입니다. 페이지에서 FANOUT_DASHBOARD_TOKEN 값을 입력해야 합니다. HTTPS 리버스 프록시 뒤에 두세요.');
+  say(msg('fanout 대시보드: {url}', { url }));
+  if (!loopback) say(msg('외부 접속 허용 중입니다. 페이지에서 FANOUT_DASHBOARD_TOKEN 값을 입력해야 합니다. HTTPS 리버스 프록시 뒤에 두세요.'));
   await new Promise<void>((resolve) => {
     process.once('SIGINT', resolve);
     process.once('SIGTERM', resolve);
   });
-  console.log('\n대시보드 종료 중… 진행 중인 업로드는 다음 실행 때 이어서 처리됩니다');
+  say(msg('\n대시보드 종료 중… 진행 중인 업로드는 다음 실행 때 이어서 처리됩니다'));
   await dashboard.stop();
   return 0;
 }
@@ -622,7 +641,7 @@ async function cmdComments(ctx: ProviderContext, deps: RunnerDeps, args: Args): 
   const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
   if (!post) throw new UsageError('fanout comments <postId> [--limit 20]');
   for (const r of await fetchComments(ctx, deps.providers, post.id, num(args, 'limit') ?? 20)) {
-    console.log(`\n${r.platform}/${r.account}${r.skipped ? ` — ${r.skipped}` : r.error ? ` — ✗ ${r.error}` : ` — ${r.comments!.length}개`}`);
+    console.log(`\n${r.platform}/${r.account}${r.skipped ? ` — ${local(r.skipped)}` : r.error ? ` — ✗ ${local(r.error)}` : ` — ${local(msg('댓글 {count}개', { count: r.comments!.length }))}`}`);
     for (const c of r.comments ?? []) {
       console.log(`  ${c.at.slice(0, 16).replace('T', ' ')}  ${printable(c.author)}${c.likes ? `  ♥${c.likes}` : ''}${c.replies ? `  ↳${c.replies}` : ''}${r.canReply ? `  [${c.id}]` : ''}`);
       console.log(`    ${printable(c.text).slice(0, 200)}`);
@@ -640,10 +659,11 @@ async function cmdEdit(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
     ...(descFile ? { description: readFileSync(descFile, 'utf8') } : str(args, 'description') !== undefined ? { description: str(args, 'description')! } : {}),
     ...(str(args, 'tags') !== undefined ? { tags: str(args, 'tags')!.split(',').map((t) => t.trim()).filter(Boolean) } : {}),
   };
-  if (!Object.keys(patch).length) throw new UsageError('바꿀 것을 하나 이상 주세요 (--title, --description, --tags)');
+  if (!Object.keys(patch).length) throw new UsageError(msg('바꿀 것을 하나 이상 주세요 (--title, --description, --tags)'));
   const icon = { updated: '✓', skipped: '·', failed: '✗' } as const;
   for (const r of await editPost(ctx, deps.providers, post.id, patch)) {
-    console.log(`  ${icon[r.status]} ${`${r.platform}/${r.account}`.padEnd(18)} ${r.status === 'updated' ? '반영함' : (r.detail ?? '')}`);
+    const result = local(r.status === 'updated' ? msg('반영함') : (r.detail ?? ''));
+    console.log(`  ${icon[r.status]} ${`${r.platform}/${r.account}`.padEnd(18)} ${result}`);
   }
   return 0;
 }
@@ -654,7 +674,7 @@ async function cmdCancel(ctx: ProviderContext, args: Args): Promise<number> {
   const only = args.positionals[2];
   const targets = ctx.store.targetsForPost(post.id).filter((t) => (!only || t.platform === only) && ['queued', 'failed', 'needs_reauth'].includes(t.state));
   if (!targets.length) {
-    console.log('취소할 대상이 없습니다 (이미 올라갔거나 처리 중)');
+    say(msg('취소할 대상이 없습니다 (이미 올라갔거나 처리 중)'));
     return 1;
   }
   let failed = 0;
@@ -665,14 +685,14 @@ async function cmdCancel(ctx: ProviderContext, args: Args): Promise<number> {
       } catch (err) {
         // May already be live: only cancel once the user has checked the platform.
         if (!(err instanceof MaybeLiveError) || !process.stdin.isTTY) throw err;
-        console.log(`  ! ${err.message}`);
-        if (!(await confirm(`  ${t.platform}에서 직접 확인했고 올라가지 않았나요?`))) throw new Error('취소하지 않았습니다');
+        console.log(`  ! ${local(err.message)}`);
+        if (!(await confirm(msg('  {platform}에서 직접 확인했고 올라가지 않았나요?', { platform: t.platform })))) throw new Error(msg('취소하지 않았습니다'));
         cancelTarget(ctx.store, t.id, { confirmedNotPosted: true });
       }
-      console.log(`  ⊘ ${t.platform}/${t.account} 취소함`);
+      say(msg('  ⊘ {platform}/{account} 취소함', { platform: t.platform, account: t.account }));
     } catch (err) {
       failed++;
-      console.log(`  ✗ ${t.platform}/${t.account} ${(err as Error).message}`);
+      console.log(`  ✗ ${t.platform}/${t.account} ${local((err as Error).message)}`);
     }
   }
   return failed ? 1 : 0;
@@ -680,20 +700,20 @@ async function cmdCancel(ctx: ProviderContext, args: Args): Promise<number> {
 
 async function cmdReply(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const [, id, platform, commentId, ...words] = args.positionals;
-  const usage = 'fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]';
+  const usage = msg('fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]');
   const post = id ? ctx.store.findPost(id) : undefined;
   const text = words.join(' ').trim();
   if (!post || !platform || !commentId || !text) throw new UsageError(usage);
   const account = str(args, 'account');
   const candidates = ctx.store.targetsForPost(post.id).filter((t) => t.platform === platform && (!account || t.account === account));
-  if (candidates.length !== 1) throw new UsageError(candidates.length ? `계정이 여러 개입니다. --account 로 고르세요: ${candidates.map((t) => t.account).join(', ')}` : `${platform} 대상이 없습니다`);
+  if (candidates.length !== 1) throw new UsageError(candidates.length ? msg('계정이 여러 개입니다. --account 로 고르세요: {candidates}', { candidates: candidates.map((t) => t.account).join(', ') }) : msg('{platform} 대상이 없습니다', { platform }));
   const t = candidates[0]!;
-  console.log(`${t.platform}/${t.account} 댓글 ${commentId}에 답글:\n  ${text}`);
-  if (!args.flags.yes && !(await confirm('이 계정 이름으로 공개 답글을 달까요?'))) return 1;
+  say(msg('{platform}/{account} 댓글 {commentId}에 답글:\n  {text}', { platform: t.platform, account: t.account, commentId, text }));
+  if (!args.flags.yes && !(await confirm(msg('이 계정 이름으로 공개 답글을 달까요?')))) return 1;
   const out = await replyToComment(ctx, deps.providers, t.id, commentId, text).catch((err: Error) => {
     throw err instanceof ProviderError ? err : new UsageError(err.message);
   });
-  console.log(`답글을 달았습니다${out.url ? `: ${out.url}` : ''}`);
+  say(out.url ? msg('답글을 달았습니다: {url}', { url: out.url }) : msg('답글을 달았습니다'));
   return 0;
 }
 
@@ -703,14 +723,14 @@ async function cmdRemove(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
   if (!post || !platform) throw new UsageError('fanout remove <postId> <platform> [--account main] [--yes]');
   const account = str(args, 'account');
   const candidates = ctx.store.targetsForPost(post.id).filter((t) => t.platform === platform && (!account || t.account === account));
-  if (candidates.length !== 1) throw new UsageError(candidates.length ? `계정이 여러 개입니다. --account 로 고르세요: ${candidates.map((t) => t.account).join(', ')}` : `${platform} 대상이 없습니다`);
+  if (candidates.length !== 1) throw new UsageError(candidates.length ? msg('계정이 여러 개입니다. --account 로 고르세요: {candidates}', { candidates: candidates.map((t) => t.account).join(', ') }) : msg('{platform} 대상이 없습니다', { platform }));
   const t = candidates[0]!;
   console.log(`"${post.title}" → ${t.platform}/${t.account} ${t.remoteUrl ?? t.remoteId ?? ''}`);
-  if (!args.flags.yes && !(await confirm('플랫폼에서 이 게시물을 삭제할까요? 되돌릴 수 없습니다'))) return 1;
+  if (!args.flags.yes && !(await confirm(msg('플랫폼에서 이 게시물을 삭제할까요? 되돌릴 수 없습니다')))) return 1;
   const done = await removeTarget(ctx, deps.providers, t.id).catch((err: Error) => {
     throw err instanceof ProviderError ? err : new UsageError(err.message);
   });
-  console.log(`삭제했습니다: ${done.platform}/${done.account}`);
+  say(msg('삭제했습니다: {platform}/{account}', { platform: done.platform, account: done.account }));
   return 0;
 }
 
@@ -718,38 +738,38 @@ async function cmdNotify(ctx: ProviderContext, args: Args): Promise<number> {
   const sub = args.positionals[1];
   if (sub === 'set') {
     const url = args.positionals[2];
-    if (!url || !validWebhookUrl(url)) throw new UsageError('fanout notify set <올바른 https://… webhook URL>');
+    if (!url || !validWebhookUrl(url)) throw new UsageError(msg('fanout notify set <올바른 https://… webhook URL>'));
     const events = str(args, 'events')?.split(',').map((e) => e.trim()) as TargetState[] | undefined;
     const known: readonly string[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed'];
-    if (events?.some((e) => !known.includes(e))) throw new UsageError(`--events 는 ${known.join(', ')} 중에서`);
+    if (events?.some((e) => !known.includes(e))) throw new UsageError(msg('--events 는 {known} 중에서', { known: known.join(', ') }));
     const format = str(args, 'format') as NotifyConfig['format'];
-    if (format && !['slack', 'discord', 'json'].includes(format)) throw new UsageError('--format 은 slack, discord, json');
+    if (format && !['slack', 'discord', 'json'].includes(format)) throw new UsageError(msg('--format 은 slack, discord, json'));
     ctx.store.setApp('notify', { url, ...(events ? { events } : {}), ...(format ? { format } : {}) });
-    console.log(`알림을 켰습니다 (${format ?? detectFormat(url)} 형식, ${(events ?? DEFAULT_EVENTS).join(', ')}). fanout notify test 로 확인하세요`);
+    say(msg('알림을 켰습니다 ({format} 형식, {events}). fanout notify test 로 확인하세요', { format: format ?? detectFormat(url), events: (events ?? DEFAULT_EVENTS).join(', ') }));
     return 0;
   }
   if (sub === 'off') {
     ctx.store.setApp('notify', {});
-    console.log('알림을 껐습니다');
+    say(msg('알림을 껐습니다'));
     return 0;
   }
   const config = notifyConfig(ctx);
   if (sub === 'test') {
-    if (!config) throw new UsageError('알림이 꺼져 있습니다 — fanout notify set <URL>');
+    if (!config) throw new UsageError(msg('알림이 꺼져 있습니다 — fanout notify set <URL>'));
     const format = config.format ?? detectFormat(config.url);
-    const text = '🔔 fanout 알림 테스트입니다';
+    const text = msg('🔔 fanout 알림 테스트입니다');
     await send(ctx, config, format === 'slack' ? { text } : format === 'discord' ? { content: text } : { event: 'test', text });
-    console.log('보냈습니다');
+    say(msg('보냈습니다'));
     return 0;
   }
-  if (!config) console.log('알림 꺼짐');
-  else console.log(`알림 켜짐: ${new URL(config.url).host} (${config.format ?? detectFormat(config.url)}, ${(config.events ?? DEFAULT_EVENTS).join(', ')})${process.env.FANOUT_WEBHOOK_URL ? ' — FANOUT_WEBHOOK_URL' : ''}`);
+  if (!config) say(msg('알림 꺼짐'));
+  else say(msg('알림 켜짐: {host} ({format}, {events}){source}', { host: new URL(config.url).host, format: config.format ?? detectFormat(config.url), events: (config.events ?? DEFAULT_EVENTS).join(', '), source: process.env.FANOUT_WEBHOOK_URL ? ' — FANOUT_WEBHOOK_URL' : '' }));
   return 0;
 }
 
 function cmdBackup(ctx: ProviderContext, args: Args): number {
   const dirArg = args.positionals[1];
-  if (!dirArg) throw new UsageError('fanout backup <폴더> [--without-key]');
+  if (!dirArg) throw new UsageError(msg('fanout backup <폴더> [--without-key]'));
   const stamp = ctx.now().toISOString().replace(/[:.]/g, '-');
   const dir = resolve(dirArg, `fanout-${stamp}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -759,23 +779,23 @@ function cmdBackup(ctx: ProviderContext, args: Args): number {
   if (!args.flags['without-key'] && !process.env.FANOUT_SECRET_KEY && existsSync(keyPath)) {
     writeFileSync(join(dir, 'secret.key'), readFileSync(keyPath), { mode: 0o600 });
   }
-  console.log(`백업했습니다: ${dir}`);
-  if (process.env.FANOUT_SECRET_KEY) console.log('복호화 키는 FANOUT_SECRET_KEY 환경 변수에 있어 백업에 넣지 않았습니다. 따로 보관하세요.');
-  else if (args.flags['without-key']) console.log('⚠ 키 없이 백업했습니다. secret.key 가 없으면 저장된 토큰을 풀 수 없어 계정을 다시 연결해야 합니다.');
-  else console.log('⚠ secret.key 가 함께 들어 있습니다. 이 폴더가 있으면 모든 계정 토큰을 풀 수 있으니 안전한 곳에 두세요.');
+  say(msg('백업했습니다: {dir}', { dir }));
+  if (process.env.FANOUT_SECRET_KEY) say(msg('복호화 키는 FANOUT_SECRET_KEY 환경 변수에 있어 백업에 넣지 않았습니다. 따로 보관하세요.'));
+  else if (args.flags['without-key']) say(msg('⚠ 키 없이 백업했습니다. secret.key 가 없으면 저장된 토큰을 풀 수 없어 계정을 다시 연결해야 합니다.'));
+  else say(msg('⚠ secret.key 가 함께 들어 있습니다. 이 폴더가 있으면 모든 계정 토큰을 풀 수 있으니 안전한 곳에 두세요.'));
   return 0;
 }
 
 async function cmdRestore(args: Args): Promise<number> {
   const dirArg = args.positionals[1];
-  if (!dirArg) throw new UsageError('fanout restore <백업 폴더> [--yes] [--force]');
+  if (!dirArg) throw new UsageError(msg('fanout restore <백업 폴더> [--yes] [--force]'));
   const home = fanoutHome();
-  console.log(`${resolve(dirArg)} 의 백업으로 ${home} 의 데이터를 바꿉니다. 지금 데이터는 지우지 않고 따로 옮겨 둡니다.`);
-  if (!args.flags.yes && !(await confirm('복원할까요?'))) return 1;
+  say(msg('{backup} 의 백업으로 {home} 의 데이터를 바꿉니다. 지금 데이터는 지우지 않고 따로 옮겨 둡니다.', { backup: resolve(dirArg), home }));
+  if (!args.flags.yes && !(await confirm(msg('복원할까요?')))) return 1;
   try {
     const r = restoreBackup({ home, backupDir: resolve(dirArg), now: new Date(), envKey: process.env.FANOUT_SECRET_KEY || undefined, force: Boolean(args.flags.force) });
-    console.log(`복원했습니다: 게시물 ${r.posts}개, 계정 ${r.accounts}개${r.keyRestored ? ', secret.key 포함' : ''}`);
-    if (r.savedTo) console.log(`이전 데이터: ${r.savedTo}`);
+    say(r.keyRestored ? msg('복원했습니다: 게시물 {posts}개, 계정 {accounts}개, secret.key 포함', { posts: r.posts, accounts: r.accounts }) : msg('복원했습니다: 게시물 {posts}개, 계정 {accounts}개', { posts: r.posts, accounts: r.accounts }));
+    if (r.savedTo) say(msg('이전 데이터: {savedTo}', { savedTo: r.savedTo }));
     return 0;
   } catch (err) {
     if (err instanceof RestoreError) throw new UsageError(err.message);
@@ -785,13 +805,13 @@ async function cmdRestore(args: Args): Promise<number> {
 
 function cmdExport(ctx: ProviderContext, args: Args): number {
   const format = str(args, 'format') ?? 'csv';
-  if (format !== 'csv' && format !== 'json') throw new UsageError('--format 은 csv 또는 json');
+  if (format !== 'csv' && format !== 'json') throw new UsageError(msg('--format 은 csv 또는 json'));
   const rows = exportRows(ctx.store);
   const text = format === 'csv' ? toCsv(rows) : `${JSON.stringify(rows, null, 2)}\n`;
   const out = str(args, 'out');
   if (out) {
     writeFileSync(resolve(out), text);
-    console.error(`${rows.length}줄을 ${resolve(out)}에 썼습니다`);
+    sayErr(msg('{count}줄을 {path}에 썼습니다', { count: rows.length, path: resolve(out) }));
   } else {
     process.stdout.write(text);
   }
@@ -802,11 +822,11 @@ async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   const id = args.positionals[1];
   const posts = id ? [ctx.store.findPost(id)].filter((p): p is Post => Boolean(p)) : ctx.store.listPosts(5);
   if (!posts.length) {
-    console.log(id ? `post ${id} 없음` : '게시물 없음');
+    console.log(id ? msg('post {id} 없음', { id }) : msg('게시물 없음'));
     return 1;
   }
-  const fmt = (n?: number) => (n === undefined ? '-' : n.toLocaleString('ko-KR'));
-  const delta = (n?: number) => (n === undefined ? '' : ` (${n >= 0 ? '+' : ''}${n.toLocaleString('ko-KR')})`);
+  const fmt = (n?: number) => (n === undefined ? '-' : n.toLocaleString(LOCALE()));
+  const delta = (n?: number) => (n === undefined ? '' : ` (${n >= 0 ? '+' : ''}${n.toLocaleString(LOCALE())})`);
   for (const p of posts) {
     console.log(`\n${p.id.slice(0, 8)}  "${p.title}"`);
     for (const r of await refreshStats(ctx, deps.providers, p.id, { includePaid: Boolean(args.flags['include-paid']) })) {
@@ -814,19 +834,19 @@ async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
       const history = () => {
         if (!args.flags.history) return;
         for (const h of ctx.store.statsHistory(r.targetId)) {
-          console.log(`  ${''.padEnd(18)} ${h.at.slice(0, 16).replace('T', ' ')}  조회 ${fmt(h.views)} · 좋아요 ${fmt(h.likes)} · 댓글 ${fmt(h.comments)} · 공유 ${fmt(h.shares)}`);
+          console.log(`  ${''.padEnd(18)} ${h.at.slice(0, 16).replace('T', ' ')}  ${counts(fmt(h.views), fmt(h.likes), fmt(h.comments), fmt(h.shares))}`);
         }
       };
       if (r.skipped) {
-        console.log(`  ${name} ${r.skipped}`);
+        console.log(`  ${name} ${local(r.skipped)}`);
         history();
         continue;
       }
       const t = r.trend;
       console.log(
-        `  ${name} 조회 ${fmt(r.stats?.views)}${delta(t?.views)} · 좋아요 ${fmt(r.stats?.likes)}${delta(t?.likes)} · 댓글 ${fmt(r.stats?.comments)}${delta(t?.comments)} · 공유 ${fmt(r.stats?.shares)}${delta(t?.shares)}${r.stats?.note ? `  (${r.stats.note})` : ''}`,
+        `  ${name} ${counts(fmt(r.stats?.views) + delta(t?.views), fmt(r.stats?.likes) + delta(t?.likes), fmt(r.stats?.comments) + delta(t?.comments), fmt(r.stats?.shares) + delta(t?.shares))}${r.stats?.note ? `  (${local(r.stats.note)})` : ''}`,
       );
-      if (t) console.log(`  ${''.padEnd(18)} 괄호는 ${t.since.slice(0, 16).replace('T', ' ')} 이후 변화`);
+      if (t) console.log(''.padEnd(21) + local(msg('괄호는 {since} 이후 변화', { since: t.since.slice(0, 16).replace('T', ' ') })));
       history();
     }
   }
@@ -836,12 +856,12 @@ async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
 function cmdPrune(ctx: ProviderContext, args: Args): number {
   const days = num(args, 'days') ?? 7;
   const items = planPrune(ctx.home, ctx.store, { days, now: ctx.now() });
-  const label = { orphan_upload: '게시 안 된 업로드', posted_original: '게시 끝난 원본', old_variant: '오래된 변환 파일' } as const;
-  for (const i of items) console.log(`  ${label[i.reason].padEnd(12)} ${formatBytes(i.bytes).padStart(8)}  ${i.path}`);
+  const label = { orphan_upload: msg('게시 안 된 업로드'), posted_original: msg('게시 끝난 원본'), old_variant: msg('오래된 변환 파일') } as const;
+  for (const i of items) console.log(`  ${local(label[i.reason]).padEnd(12)} ${formatBytes(i.bytes).padStart(8)}  ${i.path}`);
   const total = items.reduce((n, i) => n + i.bytes, 0);
-  if (!items.length) console.log('정리할 파일이 없습니다');
-  else if (args.flags['dry-run']) console.log(`${items.length}개, ${formatBytes(total)} 정리 가능 (--dry-run이라 지우지 않음)`);
-  else console.log(`${items.length}개, ${formatBytes(applyPrune(items))} 정리했습니다`);
+  if (!items.length) say(msg('정리할 파일이 없습니다'));
+  else if (args.flags['dry-run']) say(msg('{count}개, {size} 정리 가능 (--dry-run이라 지우지 않음)', { count: items.length, size: formatBytes(total) }));
+  else say(msg('{count}개, {size} 정리했습니다', { count: items.length, size: formatBytes(applyPrune(items)) }));
   return 0;
 }
 
@@ -872,7 +892,7 @@ async function cmdRetry(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     }
   }
   if (!ids.length) {
-    console.log('다시 시도할 대상 없음');
+    say(msg('다시 시도할 대상 없음'));
     return 0;
   }
   await settle(deps, ids, settleOpts(ctx));
@@ -885,19 +905,19 @@ export async function main(argv: string[]): Promise<number> {
   const [cmd] = args.positionals;
   const providers = providerMap();
   if (!cmd || cmd === 'help' || args.flags.help) {
-    console.log(HELP);
+    say(HELP);
     return 0;
   }
   const needProvider = (i = 1): Provider => {
     const id = args.positionals[i];
     const p = id === 'meta' ? providers.get('instagram') : id ? providers.get(id) : undefined;
-    if (!p) throw new UsageError(`플랫폼을 지정하세요: ${BUILTIN_PROVIDERS.map((x) => x.id).join(', ')}`);
+    if (!p) throw new UsageError(msg('플랫폼을 지정하세요: {platforms}', { platforms: BUILTIN_PROVIDERS.map((x) => x.id).join(', ') }));
     return p;
   };
 
   if (cmd === 'platforms') return cmdPlatforms(providers).then(() => 0);
   if (cmd === 'setup') {
-    console.log(needProvider().setupGuide());
+    say(needProvider().setupGuide());
     return 0;
   }
   if (cmd === 'check') return cmdCheck(providers, args).then(() => 0);
@@ -919,7 +939,7 @@ export async function main(argv: string[]): Promise<number> {
         const name = str(args, 'name') ?? 'main';
         const account = await p.connect(ctx, name, args.flags);
         ctx.store.saveAccount(account);
-        console.log(`연결됨: ${p.id}/${name} ${JSON.stringify(account.profile)}`);
+        say(msg('연결됨: {id}/{name} {profile}', { id: p.id, name, profile: JSON.stringify(account.profile) }));
         return 0;
       }
       case 'accounts':
@@ -928,7 +948,7 @@ export async function main(argv: string[]): Promise<number> {
       case 'disconnect': {
         const [, platform, name] = args.positionals;
         if (!platform || !name) throw new UsageError('fanout disconnect <platform> <name>');
-        console.log(ctx.store.removeAccount(platform, name) ? '삭제됨' : '해당 계정 없음');
+        console.log(ctx.store.removeAccount(platform, name) ? msg('삭제됨') : msg('해당 계정 없음'));
         return 0;
       }
       case 'doctor':
@@ -938,10 +958,10 @@ export async function main(argv: string[]): Promise<number> {
       case 'status': {
         const id = args.positionals[1];
         const posts = id ? [ctx.store.findPost(id)].filter((p): p is Post => Boolean(p)) : ctx.store.listPosts(10);
-        if (!posts.length) console.log(id ? `post ${id} 없음` : '게시물 없음');
+        if (!posts.length) console.log(id ? msg('post {id} 없음', { id }) : msg('게시물 없음'));
         for (const p of posts) printPost(ctx, p, Boolean(args.flags.events));
         const pending = posts.flatMap((p) => ctx.store.targetsForPost(p.id)).filter((t) => !isTerminal(t.state));
-        if (pending.length) console.log(`\n진행 중 ${pending.length}건 — fanout run 으로 이어서 처리`);
+        if (pending.length) say(msg('\n진행 중 {count}건 — fanout run 으로 이어서 처리', { count: pending.length }));
         return 0;
       }
       case 'prune':
@@ -977,7 +997,7 @@ export async function main(argv: string[]): Promise<number> {
       case 'watch':
         return await cmdWatch(ctx, deps, args);
       default:
-        throw new UsageError(`알 수 없는 명령: ${cmd}\n\n${HELP}`);
+        throw new UsageError(msg('알 수 없는 명령: {cmd}', { cmd }) + '\n\n' + local(HELP));
     }
   } finally {
     await flushNotifications();
@@ -989,8 +1009,9 @@ if (import.meta.main) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (err: unknown) => {
-      if (err instanceof UsageError) console.error(err.message);
-      else if (err instanceof ProviderError) console.error(`✗ ${err.code}${err.platformCode ? ` (${err.platformCode})` : ''}: ${err.message}`);
+      if (err instanceof UsageError) console.error(local(err.message));
+      else if (err instanceof ProviderError) console.error(`✗ ${err.code}${err.platformCode ? ` (${err.platformCode})` : ''}: ${local(err.message)}`);
+      else if (err instanceof Error && currentLang() === 'en') console.error(local(err.message));
       else console.error(err);
       process.exit(2);
     },

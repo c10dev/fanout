@@ -24,6 +24,10 @@ const CONVERTED = [
   'src/providers/bluesky.ts',
   'src/providers/mastodon.ts',
   'src/providers/peertube.ts',
+  'src/cli.ts',
+  'src/mcp/server.ts',
+  'src/core/inbox.ts',
+  'src/core/restore.ts',
 ];
 const LITERAL = /'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
 

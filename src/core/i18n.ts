@@ -6,7 +6,7 @@
 // read them, so English is produced on the way out instead: translate() recognises a rendered Korean
 // message by matching it against the catalogue's templates and renders the English one with the
 // same values. Strings with no matching template stay as they are, so an untranslated message is
-// simply Korean. The CLI and the MCP server never ask for English and are unaffected.
+// simply Korean. The CLI and the MCP server do the same with their output when FANOUT_LANG=en.
 
 import { MESSAGES_EN } from './messages.en.ts';
 
@@ -62,7 +62,17 @@ const HANGUL = /[가-힣]/;
 /** English for a rendered Korean message, or the message itself if no template matches. */
 export function translate(value: string, lang: Lang): string {
   if (lang === 'ko' || !HANGUL.test(value)) return value;
-  return translateWhole(value) ?? translateParts(value);
+  return translateWhole(value) ?? translateLabelled(value) ?? translateParts(value);
+}
+
+/** The terminal's language: English only when asked for with FANOUT_LANG=en (the system locale is not a reliable signal). */
+export function currentLang(): Lang {
+  return process.env.FANOUT_LANG?.trim().toLowerCase().startsWith('en') ? 'en' : 'ko';
+}
+
+/** A message for the terminal (CLI output, logs, MCP results) in FANOUT_LANG. */
+export function local(value: string): string {
+  return translate(value, currentLang());
 }
 
 function translateWhole(value: string): string | undefined {
@@ -79,9 +89,25 @@ function translateWhole(value: string): string | undefined {
   return undefined;
 }
 
+/** A message behind a platform or account label: "youtube/main: …", "- tiktok — …", "x (…)". */
+const LABELLED = /^(\s*(?:- )?[\w.@/-]+)(: | — | \()([\s\S]+)$/;
+
+function translateLabelled(value: string): string | undefined {
+  const m = LABELLED.exec(value);
+  if (!m) return undefined;
+  let rest = m[3]!;
+  const close = m[2] === ' (' ? ')' : '';
+  if (close) {
+    if (!rest.endsWith(')')) return undefined;
+    rest = rest.slice(0, -1);
+  }
+  const english = translate(rest, 'en');
+  return english === rest ? undefined : `${m[1]}${m[2]}${english}${close}`;
+}
+
 /** Messages joined into one string: line by line, then " / "-separated parts. */
 function translateParts(value: string): string {
-  if (value.includes('\n')) return value.split('\n').map((line) => translateWhole(line) ?? (line.includes(' / ') ? splitSlash(line) : line)).join('\n');
+  if (value.includes('\n')) return value.split('\n').map((line) => translateWhole(line) ?? translateLabelled(line) ?? (line.includes(' / ') ? splitSlash(line) : line)).join('\n');
   if (value.includes(' / ')) return splitSlash(value);
   return value;
 }
@@ -89,7 +115,7 @@ function translateParts(value: string): string {
 function splitSlash(value: string): string {
   return value
     .split(' / ')
-    .map((part) => translateWhole(part) ?? part)
+    .map((part) => translateWhole(part) ?? translateLabelled(part) ?? part)
     .join(' / ');
 }
 

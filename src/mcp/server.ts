@@ -10,6 +10,7 @@ import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.
 import type { Worker } from '../core/worker.ts';
 import { defaultAccountName } from '../core/inbox.ts';
 import { isShort } from '../providers/youtube.ts';
+import { currentLang, local, msg, translateDeep } from '../core/i18n.ts';
 
 // Model Context Protocol over stdio: newline-delimited JSON-RPC 2.0.
 // Spec: https://modelcontextprotocol.io/specification
@@ -262,11 +263,12 @@ export class McpServer {
   async #callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
     if (!TOOLS.some((t) => t.name === name)) throw { code: -32602, message: `Unknown tool: ${name}` };
     try {
-      const data = await this.#run(name, args);
+      // Messages are stored and built in Korean; FANOUT_LANG=en turns them into English here.
+      const data = translateDeep(await this.#run(name, args), currentLang());
       return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], structuredContent: data };
     } catch (err) {
       // Tool failures go back to the model as results it can read and act on.
-      return { content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }], isError: true };
+      return { content: [{ type: 'text', text: local(err instanceof Error ? err.message : String(err)) }], isError: true };
     }
   }
 
@@ -302,22 +304,22 @@ export class McpServer {
         const { input, targets, media } = await this.#postArgs(args);
         const preview = previewPost(store, providers, input, targets, media);
         const blocked = preview.filter((p) => p.errors.length);
-        if (blocked.length) throw new ToolError(`올릴 수 없는 대상이 있어 게시하지 않았습니다:\n${blocked.map(describeBlocked).join('\n')}`);
+        if (blocked.length) throw new ToolError(msg('올릴 수 없는 대상이 있어 게시하지 않았습니다:\n{blocked}', { blocked: blocked.map(describeBlocked).join('\n') }));
         const { post, targets: created } = createScheduledPost(store, providers, input, targets);
         this.#deps.worker?.tick();
-        return { postId: post.id, targets: created.map(publicTarget), next: 'get_post_status 로 진행 상황을 확인하세요' };
+        return { postId: post.id, targets: created.map(publicTarget), next: msg('get_post_status 로 진행 상황을 확인하세요') };
       }
       case 'add_to_post': {
         const p = store.findPost(String(args.postId ?? ''));
-        if (!p) throw new ToolError(`게시물 없음: ${String(args.postId)}`);
+        if (!p) throw new ToolError(msg('게시물 없음: {postId}', { postId: String(args.postId) }));
         const targets = this.#targetArgs(args.targets);
         try {
-          if (!existsSync(p.mediaPath)) throw new Error('원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요');
+          if (!existsSync(p.mediaPath)) throw new Error(msg('원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요'));
           const media = await this.#probe(p.mediaPath);
           if (args.dryRun === true) return { postId: p.id, targets: planAddTargets(store, providers, p.id, targets, media).preview };
           const created = addTargets(store, providers, p.id, targets, media);
           this.#deps.worker?.tick();
-          return { postId: p.id, targets: created.map(publicTarget), next: 'get_post_status 로 진행 상황을 확인하세요' };
+          return { postId: p.id, targets: created.map(publicTarget), next: msg('get_post_status 로 진행 상황을 확인하세요') };
         } catch (err) {
           throw new ToolError((err as Error).message);
         }
@@ -325,7 +327,7 @@ export class McpServer {
       case 'get_post_status': {
         const id = typeof args.postId === 'string' ? args.postId : undefined;
         const posts = id ? [store.findPost(id)].filter((p) => p !== undefined) : store.listPosts(10);
-        if (id && !posts.length) throw new ToolError(`게시물 없음: ${id}`);
+        if (id && !posts.length) throw new ToolError(msg('게시물 없음: {id}', { id }));
         return {
           posts: posts.map((p) => ({
             postId: p.id,
@@ -338,19 +340,19 @@ export class McpServer {
       }
       case 'get_post_comments': {
         const p = store.findPost(String(args.postId ?? ''));
-        if (!p) throw new ToolError(`게시물 없음: ${String(args.postId)}`);
+        if (!p) throw new ToolError(msg('게시물 없음: {postId}', { postId: String(args.postId) }));
         const limit = Math.min(Math.max(Number(args.limit ?? 20) || 20, 1), 100);
         return { postId: p.id, results: await fetchComments(this.#deps.ctx, providers, p.id, limit) };
       }
       case 'update_post': {
         const p = store.findPost(String(args.postId ?? ''));
-        if (!p) throw new ToolError(`게시물 없음: ${String(args.postId)}`);
+        if (!p) throw new ToolError(msg('게시물 없음: {postId}', { postId: String(args.postId) }));
         const patch = {
           ...(typeof args.title === 'string' ? { title: args.title } : {}),
           ...(typeof args.description === 'string' ? { description: args.description } : {}),
           ...(Array.isArray(args.tags) ? { tags: args.tags.map(String) } : {}),
         };
-        if (!Object.keys(patch).length) throw new ToolError('바꿀 것(title, description, tags)을 하나 이상 주세요');
+        if (!Object.keys(patch).length) throw new ToolError(msg('바꿀 것(title, description, tags)을 하나 이상 주세요'));
         try {
           return { postId: p.id, results: await editPost(this.#deps.ctx, providers, p.id, patch) };
         } catch (err) {
@@ -359,7 +361,7 @@ export class McpServer {
       }
       case 'get_post_stats': {
         const p = store.findPost(String(args.postId ?? ''));
-        if (!p) throw new ToolError(`게시물 없음: ${String(args.postId)}`);
+        if (!p) throw new ToolError(msg('게시물 없음: {postId}', { postId: String(args.postId) }));
         return { postId: p.id, results: await refreshStats(this.#deps.ctx, providers, p.id, { includePaid: args.includePaid === true }) };
       }
       case 'reply_to_comment': {
@@ -381,7 +383,7 @@ export class McpServer {
         // The user, not the model, has to vouch that a maybe-posted target didn't go out.
         if (current && (current.resume as { posting?: boolean } | undefined)?.posting && args.confirmedNotPosted !== true) {
           throw new ToolError(
-            `이 대상은 이미 게시됐을 수 있습니다 (${current.errorCode ?? 'posting'}). 사용자에게 ${current.platform}에서 확인을 받은 뒤 confirmedNotPosted: true 로 다시 호출하세요`,
+            msg('이 대상은 이미 게시됐을 수 있습니다 ({code}). 사용자에게 {platform}에서 확인을 받은 뒤 confirmedNotPosted: true 로 다시 호출하세요', { code: current.errorCode ?? 'posting', platform: current.platform }),
           );
         }
         let next: Target;
@@ -399,17 +401,17 @@ export class McpServer {
   }
 
   #file(value: unknown, field: string): string {
-    if (typeof value !== 'string' || !value.trim()) throw new ToolError(`${field}: 파일 경로가 필요합니다`);
+    if (typeof value !== 'string' || !value.trim()) throw new ToolError(msg('{field}: 파일 경로가 필요합니다', { field }));
     const path = isAbsolute(value) ? value : resolve(value);
-    if (!existsSync(path)) throw new ToolError(`${field}: 파일이 없습니다: ${path}`);
+    if (!existsSync(path)) throw new ToolError(msg('{field}: 파일이 없습니다: {path}', { field, path }));
     return path;
   }
 
   /** Thumbnail and caption files: same type and size rules as the dashboard's uploads. */
   #asset(value: unknown, field: string, exts: readonly string[], maxBytes: number): string {
     const path = this.#file(value, field);
-    if (!exts.includes(extname(path).toLowerCase())) throw new ToolError(`${field}: ${exts.join(', ')} 파일만 받습니다`);
-    if (statSync(path).size > maxBytes) throw new ToolError(`${field}: ${maxBytes / 1024 / 1024}MB 이하여야 합니다`);
+    if (!exts.includes(extname(path).toLowerCase())) throw new ToolError(msg('{field}: {exts} 파일만 받습니다', { field, exts: exts.join(', ') }));
+    if (statSync(path).size > maxBytes) throw new ToolError(msg('{field}: {maxBytes}MB 이하여야 합니다', { field, maxBytes: maxBytes / 1024 / 1024 }));
     return path;
   }
 
@@ -417,16 +419,16 @@ export class McpServer {
     try {
       return await (this.#deps.probe ?? realProbe)(path);
     } catch (err) {
-      throw new ToolError(`영상으로 읽을 수 없습니다: ${(err as Error).message.trim().split('\n').pop()}`);
+      throw new ToolError(msg('영상으로 읽을 수 없습니다: {err}', { err: (err as Error).message.trim().split('\n').pop() }));
     }
   }
 
   #targetArgs(raw: unknown): TargetInput[] {
-    if (!Array.isArray(raw) || !raw.length) throw new ToolError('targets가 하나 이상 필요합니다');
+    if (!Array.isArray(raw) || !raw.length) throw new ToolError(msg('targets가 하나 이상 필요합니다'));
     const accounts = this.#deps.ctx.store.listAccounts();
     return (raw as Array<Record<string, unknown>>).map((t) => {
       const platform = String(t.platform ?? '');
-      if (!this.#deps.providers.has(platform)) throw new ToolError(`알 수 없는 플랫폼: ${platform}`);
+      if (!this.#deps.providers.has(platform)) throw new ToolError(msg('알 수 없는 플랫폼: {platform}', { platform }));
       const account = typeof t.account === 'string' && t.account ? t.account : defaultAccountName(accounts, platform);
       const options = t.options && typeof t.options === 'object' ? (t.options as Record<string, unknown>) : {};
       return { platform, account, options: platform === 'tiktok' && !options.mode ? { mode: 'inbox', ...options } : options };
@@ -436,8 +438,8 @@ export class McpServer {
   async #postArgs(args: Record<string, unknown>): Promise<{ input: PostInput; targets: TargetInput[]; media: MediaInfo }> {
     const mediaPath = this.#file(args.path, 'path');
     const title = typeof args.title === 'string' ? args.title.trim() : '';
-    if (!title) throw new ToolError('title이 필요합니다');
-    if (args.scheduledAt !== undefined && Number.isNaN(Date.parse(String(args.scheduledAt)))) throw new ToolError('scheduledAt은 ISO-8601 시각이어야 합니다');
+    if (!title) throw new ToolError(msg('title이 필요합니다'));
+    if (args.scheduledAt !== undefined && Number.isNaN(Date.parse(String(args.scheduledAt)))) throw new ToolError(msg('scheduledAt은 ISO-8601 시각이어야 합니다'));
     const targets = this.#targetArgs(args.targets);
     const captions: CaptionFile[] = Array.isArray(args.captions)
       ? (args.captions as Array<Record<string, unknown>>).map((c, i) => ({ language: String(c.language ?? ''), path: this.#asset(c.path, `captions[${i}].path`, CAPTION_EXT, 5 * 1024 * 1024) }))

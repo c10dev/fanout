@@ -62,7 +62,7 @@ node src/cli.ts post video.mp4 --title "제목" --description "설명" --tags �
 node src/cli.ts status
 ```
 
-`npm run fanout -- <명령>`으로도 실행할 수 있습니다. `--to tiktok`처럼 계정 이름을 생략하면 `main`을 쓰고, `main`이 없고 연결된 계정이 하나뿐이면 그 계정을 씁니다. 데이터는 `FANOUT_HOME`(기본 `~/.fanout`)에 저장되고, 토큰과 앱 비밀값은 AES-256-GCM으로 암호화합니다. 키는 `FANOUT_SECRET_KEY` 환경 변수나 `~/.fanout/secret.key`(권한 0600)에 둡니다.
+`npm run fanout -- <명령>`으로도 실행할 수 있습니다. `--to tiktok`처럼 계정 이름을 생략하면 `main`을 쓰고, `main`이 없고 연결된 계정이 하나뿐이면 그 계정을 씁니다. CLI·로그·MCP 서버는 한국어가 기본이고, `FANOUT_LANG=en`을 주면 영어로 출력합니다. 데이터는 `FANOUT_HOME`(기본 `~/.fanout`)에 저장되고, 토큰과 앱 비밀값은 AES-256-GCM으로 암호화합니다. 키는 `FANOUT_SECRET_KEY` 환경 변수나 `~/.fanout/secret.key`(권한 0600)에 둡니다.
 
 ## 쓰는 방법
 

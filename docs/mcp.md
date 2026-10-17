@@ -14,6 +14,8 @@ claude mcp add fanout -- fanout mcp
 { "fanout": { "command": "fanout", "args": ["mcp"] } }
 ```
 
+결과와 오류 메시지는 한국어로 나갑니다. 영어로 받으려면 `"env": { "FANOUT_LANG": "en" }`을 함께 넣거나 `claude mcp add fanout -e FANOUT_LANG=en -- fanout mcp`로 등록하세요. 제목·설명·댓글처럼 사용자가 쓴 내용은 바꾸지 않습니다.
+
 | 도구 | 하는 일 |
 |---|---|
 | `list_accounts` | 지원 플랫폼, 앱 등록 여부, 연결된 계정 |
