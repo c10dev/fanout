@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
-import { CONFIG_FILE, ingest, loadWatchConfig, planPost, render, Scanner, WatchConfigError, type WatchConfig } from '../src/core/inbox.ts';
+import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, planPost, render, Scanner, WatchConfigError, type WatchConfig } from '../src/core/inbox.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { fakeMedia, makeCtx } from './helpers.ts';
 
@@ -171,5 +171,27 @@ describe('ingest', () => {
     const second = await ingest({ dir, config, videoPath: video(dir, 'clip.mp4'), providers, store, probe, now: NOW });
     assert.ok(first.ok && second.ok);
     assert.equal(second.movedTo, join(dir, 'posted', 'clip (2).mp4'));
+  });
+});
+
+describe('watch example config', () => {
+  it('targets the accounts actually connected', () => {
+    const cfg = exampleConfig([
+      { platform: 'youtube', name: 'main' },
+      { platform: 'tiktok', name: 'mainmain' },
+    ]);
+    assert.deepEqual(cfg.to, ['youtube:main', 'tiktok:mainmain']);
+    assert.deepEqual(Object.keys(cfg.options ?? {}), ['youtube', 'tiktok']);
+    assert.equal((cfg.options?.youtube as { privacy: string }).privacy, 'unlisted');
+  });
+
+  it('falls back to every platform with "main" when nothing is connected', () => {
+    assert.deepEqual(exampleConfig([]).to, ['youtube:main', 'tiktok:main', 'instagram:main', 'facebook:main']);
+  });
+
+  it('prefers "main", else the only account', () => {
+    assert.equal(defaultAccountName([{ platform: 'tiktok', name: 'a' }, { platform: 'tiktok', name: 'main' }], 'tiktok'), 'main');
+    assert.equal(defaultAccountName([{ platform: 'tiktok', name: 'solo' }], 'tiktok'), 'solo');
+    assert.equal(defaultAccountName([{ platform: 'tiktok', name: 'a' }, { platform: 'tiktok', name: 'b' }], 'tiktok'), 'main');
   });
 });
