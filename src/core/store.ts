@@ -528,6 +528,12 @@ export class Store {
     );
   }
 
+  /** An account's targets in one state (e.g. its other hand-offs still waiting in the app). */
+  targetsInState(platform: string, account: string, state: TargetState): Target[] {
+    const rows = this.#db.prepare('SELECT * FROM targets WHERE platform = ? AND account = ? AND state = ?').all(platform, account, state) as unknown as TargetRow[];
+    return rows.map(toTarget);
+  }
+
   /** Keep a dated copy of a successful stats read, for trends. */
   recordStats(id: string, stats: PostStats): void {
     this.#db

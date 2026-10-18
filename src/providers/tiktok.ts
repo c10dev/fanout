@@ -329,6 +329,13 @@ export function statusOutcome(publishId: string, data: StatusData, username?: st
   }
 }
 
+/** The post's share link, when video.list allows looking it up (it isn't needed for the id). */
+async function shareUrl(ctx: ProviderContext, account: Account, id: string): Promise<string | undefined> {
+  if (!hasScope(account, 'video.list')) return undefined;
+  const data = await call<{ videos?: Array<{ id?: string; share_url?: string }> }>(ctx, account, '/video/query/?fields=id,share_url', { filters: { video_ids: [id] } }).catch(() => undefined);
+  return tiktokUrl(data?.videos?.find((v) => String(v.id) === id)?.share_url);
+}
+
 async function fetchStatus(ctx: ProviderContext, account: Account, publishId: string): Promise<StatusData> {
   return call<StatusData>(ctx, account, '/post/publish/status/fetch/', { publish_id: publishId });
 }
@@ -644,22 +651,58 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     return checks;
   },
 
-  // Inbox posts: the creator's videos since the hand-off with the same length (video.list scope).
+  /**
+   * Inbox posts. The draft's own status says exactly which post the creator made from it, so that
+   * comes first; the account's video list (video.list scope) is only a fallback for when TikTok no
+   * longer answers for an old publish id, and then only an unambiguous same-length video counts.
+   */
   async findHandedOff({ ctx, account, target, since }) {
+    let status: StatusData | undefined;
+    if (target.remoteId) {
+      try {
+        status = await fetchStatus(ctx, account, target.remoteId);
+      } catch (err) {
+        if (err instanceof ProviderError && err.kind === 'auth') throw err;
+      }
+    }
+    if (status?.status === 'PUBLISH_COMPLETE') {
+      const ids = (status.publicaly_available_post_id ?? []).map(String);
+      if (ids.length > 1) return { matches: [], note: msg('이 초안으로 게시물이 {n}개 만들어져 고르지 않았습니다', { n: ids.length }) };
+      if (!ids.length) return { matches: [], note: msg('앱에서 게시했지만 공개 게시물이 아니라 ID가 없습니다') };
+      return { matches: [{ remoteId: ids[0]!, remoteUrl: await shareUrl(ctx, account, ids[0]!) }] };
+    }
+    if (status?.status === 'FAILED') return { matches: [], note: msg('TikTok 처리 실패: {reason}', { reason: status.fail_reason ?? 'unknown' }) };
+    if (status) return { matches: [], note: msg('아직 앱에서 게시하지 않았습니다 (TikTok 수신함에 있음)') };
+
     if (!hasScope(account, 'video.list')) return { matches: [], note: msg('TikTok 통계는 video.list 권한이 필요합니다 — 앱 scopes에 더하고 다시 연결하세요') };
     const length = (target.resume as { durationSec?: number } | undefined)?.durationSec;
     if (length === undefined) return { matches: [], note: msg('영상 길이 기록이 없어 앱에서 올린 게시물을 찾지 않습니다') };
-    const data = await call<{ videos?: Array<{ id?: string; create_time?: number; duration?: number; share_url?: string }> }>(
-      ctx,
-      account,
-      '/video/list/?fields=id,create_time,duration,share_url',
-      { max_count: 20 },
-    );
-    // A few minutes' slack before the hand-off for clock differences; TikTok reports whole seconds.
+    // Another hand-off of about the same length could be the one posted: then the list can't tell.
+    const twins = ctx.store
+      .targetsInState('tiktok', target.account, 'handed_off')
+      .filter((t) => t.id !== target.id && Math.abs(((t.resume as { durationSec?: number } | undefined)?.durationSec ?? -99) - length) <= 1.5);
+    if (twins.length) return { matches: [], note: msg('같은 길이로 수신함에 넘긴 영상이 더 있어 목록으로는 고르지 않았습니다') };
+    // A few minutes' slack for clock differences; TikTok reports whole seconds, newest first.
     const from = since.getTime() - 10 * 60_000;
-    const matches = (data?.videos ?? [])
-      .filter((v) => v.id && typeof v.create_time === 'number' && v.create_time * 1000 >= from && typeof v.duration === 'number' && Math.abs(v.duration - length) <= 1.5)
-      .map((v) => ({ remoteId: String(v.id), remoteUrl: tiktokUrl(v.share_url) }));
+    const matches: Array<{ remoteId: string; remoteUrl?: string }> = [];
+    let cursor: number | undefined;
+    for (let page = 0; page < 5; page++) {
+      const data = await call<{ videos?: Array<{ id?: string; create_time?: number; duration?: number; share_url?: string }>; cursor?: number; has_more?: boolean }>(
+        ctx,
+        account,
+        '/video/list/?fields=id,create_time,duration,share_url',
+        { max_count: 20, ...(cursor !== undefined ? { cursor } : {}) },
+      );
+      const videos = data?.videos ?? [];
+      for (const v of videos) {
+        if (v.id && typeof v.create_time === 'number' && v.create_time * 1000 >= from && typeof v.duration === 'number' && Math.abs(v.duration - length) <= 1.5) {
+          matches.push({ remoteId: String(v.id), remoteUrl: tiktokUrl(v.share_url) });
+        }
+      }
+      const oldest = videos.at(-1)?.create_time;
+      if (!data?.has_more || data.cursor === undefined || oldest === undefined || oldest * 1000 < from) break;
+      cursor = data.cursor;
+    }
     return { matches };
   },
 

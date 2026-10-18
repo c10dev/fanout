@@ -323,8 +323,10 @@ export async function refreshStats(
  * exactly one of the platform's candidates fits and no other target already has it, else a note.
  */
 async function findHandedOff(ctx: ProviderContext, provider: Provider, t: Target): Promise<{ target?: Target; note: string }> {
-  const since = ctx.store.stateSince(t.id, 'handed_off') ?? new Date(t.updatedAt);
-  if (ctx.now().getTime() - since.getTime() > FIND_HANDED_OFF_DAYS * 86_400_000) {
+  const handedOff = ctx.store.stateSince(t.id, 'handed_off') ?? new Date(t.updatedAt);
+  // The post can't predate the upload; fanout may only have noticed the hand-off later.
+  const since = ctx.store.stateSince(t.id, 'uploading') ?? handedOff;
+  if (ctx.now().getTime() - handedOff.getTime() > FIND_HANDED_OFF_DAYS * 86_400_000) {
     return { note: msg('앱에서 마무리한 게시물을 {days}일 동안 찾지 못해 더 찾지 않습니다', { days: FIND_HANDED_OFF_DAYS }) };
   }
   let account = ctx.store.getAccount(t.platform, t.account);
@@ -335,6 +337,9 @@ async function findHandedOff(ctx: ProviderContext, provider: Provider, t: Target
     const free = matches.filter((m) => !ctx.store.remoteIdInUse(t.platform, t.account, m.remoteId, t.id));
     if (free.length === 1) {
       const m = free[0]!;
+      // Another process may have linked it a moment ago.
+      const now = ctx.store.getTarget(t.id)!;
+      if (now.state !== 'handed_off') return { target: now, note: '' };
       const target = ctx.store.transition(t.id, 'published', { remoteId: m.remoteId, remoteUrl: m.remoteUrl }, 'found the post finished in the app');
       ctx.log.info(msg('{platform}/{account}: 앱에서 마무리한 게시물을 찾았습니다 ({url})', { platform: t.platform, account: t.account, url: m.remoteUrl ?? m.remoteId }));
       return { target, note: '' };

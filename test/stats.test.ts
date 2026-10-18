@@ -275,51 +275,97 @@ describe('finding a TikTok post finished in the app', () => {
   const POST: PostInput = { mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
   const T0 = Date.parse('2026-10-17T03:00:00Z');
   const video = (id: string, at: number, duration = 30) => ({ id, create_time: Math.floor(at / 1000), duration, share_url: `https://www.tiktok.com/@c10e2/video/${id}?is_from_webapp=1` });
-  function setup(videos: () => unknown[], now = T0 + 3600_000) {
+  type Status = { status: string; publicaly_available_post_id?: string[] } | 'gone';
+  function setup(opts: { status?: () => Status; pages?: () => Array<{ videos: unknown[]; has_more?: boolean; cursor?: number }>; now?: number; durations?: number[] } = {}) {
     let clock = T0;
+    const status = opts.status ?? (() => 'gone' as Status);
     const { fetch, calls } = mockFetch([
-      ['POST', '/v2/video/list/', () => json({ data: { videos: videos(), has_more: false }, error: { code: 'ok' } })],
-      ['POST', '/v2/video/query/', () => json({ data: { videos: [{ id: '7400000000000000002', view_count: 10, like_count: 2, comment_count: 1, share_count: 0 }] }, error: { code: 'ok' } })],
+      // Raw text so a 19-digit id arrives as a JSON number, as TikTok sends it.
+      ['POST', '/v2/post/publish/status/fetch/', () => {
+        const st = status();
+        if (st === 'gone') return json({ error: { code: 'invalid_params', message: 'publish id not found' } }, 400);
+        const ids = (st.publicaly_available_post_id ?? []).join(',');
+        return new Response(`{"data":{"status":"${st.status}","publicaly_available_post_id":[${ids}]},"error":{"code":"ok"}}`);
+      }],
+      ['POST', '/v2/video/list/', (c) => {
+        const pages = (opts.pages ?? (() => [{ videos: [] }]))();
+        const cursor = JSON.parse(String(c.body)).cursor;
+        const page: { videos: unknown[]; has_more?: boolean; cursor?: number } = pages[cursor === undefined ? 0 : Number(cursor)] ?? { videos: [] };
+        return json({ data: { videos: page.videos, has_more: page.has_more ?? false, cursor: page.cursor }, error: { code: 'ok' } });
+      }],
+      ['POST', '/v2/video/query/', (c) => {
+        const id = JSON.parse(String(c.body)).filters.video_ids[0];
+        return json({ data: { videos: [{ id, share_url: `https://www.tiktok.com/@c10e2/video/${id}`, view_count: 10, like_count: 2, comment_count: 1, share_count: 0 }] }, error: { code: 'ok' } });
+      }],
     ]);
     const env = makeCtx(fetch, () => new Date(clock));
     env.store.saveAccount({ platform: 'tiktok', name: 'main', credentials: { accessToken: 'A', refreshToken: 'R', expiresAt: T0 + 1e10, refreshExpiresAt: T0 + 1e11, openId: 'o', scope: 'user.info.basic,video.upload,video.list' }, profile: {} });
-    const { post, targets } = env.store.createPost(POST, [{ platform: 'tiktok', account: 'main', options: {} }]);
-    const id = targets[0]!.id;
-    env.store.transition(id, 'uploading', { resume: { publishId: 'v_inbox_file~1', durationSec: 30.4 } });
-    env.store.transition(id, 'handed_off', { remoteId: 'v_inbox_file~1' });
-    clock = now;
-    return { ...env, calls, post, id };
+    const ids: string[] = [];
+    let post!: { id: string };
+    for (const [n, d] of (opts.durations ?? [30.4]).entries()) {
+      const created = env.store.createPost(POST, [{ platform: 'tiktok', account: 'main', options: {} }]);
+      if (n === 0) post = created.post;
+      const id = created.targets[0]!.id;
+      env.store.transition(id, 'uploading', { resume: { publishId: `v_inbox_file~${n}`, durationSec: d } });
+      // fanout notices the hand-off a while after the upload (the worker was busy).
+      clock = T0 + 20 * 60_000;
+      env.store.transition(id, 'handed_off', { remoteId: `v_inbox_file~${n}` });
+      clock = T0;
+      ids.push(id);
+    }
+    clock = opts.now ?? T0 + 3600_000;
+    return { ...env, calls, post, id: ids[0]!, ids };
   }
 
-  it('links the one video posted after the hand-off with the same length, then reads its stats', async () => {
-    const { ctx, store, post, id } = setup(() => [video('7400000000000000001', T0 - 86_400_000), video('7400000000000000002', T0 + 1800_000), video('7400000000000000003', T0 + 1900_000, 12)]);
+  it('links exactly the post the draft became, from its own status (19 digits intact)', async () => {
+    // Two hand-offs of the same length: the status still names the right one.
+    const { ctx, store, post, id, calls } = setup({ status: () => ({ status: 'PUBLISH_COMPLETE', publicaly_available_post_id: ['7412345678901234567'] }), durations: [30, 30] });
     const [r] = await refreshStats(ctx, providerMap(), post.id);
     const t = store.getTarget(id)!;
-    assert.deepEqual([t.state, t.remoteId, t.remoteUrl], ['published', '7400000000000000002', 'https://www.tiktok.com/@c10e2/video/7400000000000000002?is_from_webapp=1']);
-    assert.deepEqual([r!.stats!.views, r!.stats!.likes], [10, 2]);
+    assert.deepEqual([t.state, t.remoteId, t.remoteUrl], ['published', '7412345678901234567', 'https://www.tiktok.com/@c10e2/video/7412345678901234567']);
+    assert.equal(r!.stats!.views, 10);
+    assert.ok(!calls.some((c) => c.url.includes('/video/list/')), 'no guessing from the list');
   });
 
-  it('picks nothing when two could be it, or when the only one is already linked elsewhere', async () => {
-    const two = setup(() => [video('7400000000000000002', T0 + 60_000), video('7400000000000000004', T0 + 120_000)]);
-    const [r] = await refreshStats(two.ctx, providerMap(), two.post.id);
-    assert.match(r!.skipped!, /2개/);
-    assert.equal(two.store.getTarget(two.id)!.state, 'handed_off');
+  it('waits while the draft is still in the inbox, and refuses a draft that made several posts', async () => {
+    const inbox = setup({ status: () => ({ status: 'SEND_TO_USER_INBOX' }), pages: () => [{ videos: [video('7400000000000000002', T0 + 60_000)] }] });
+    const [r] = await refreshStats(inbox.ctx, providerMap(), inbox.post.id);
+    assert.match(r!.skipped!, /수신함/);
+    assert.equal(inbox.store.getTarget(inbox.id)!.state, 'handed_off');
+    assert.ok(!inbox.calls.some((c) => c.url.includes('/video/list/')));
+    const many = setup({ status: () => ({ status: 'PUBLISH_COMPLETE', publicaly_available_post_id: ['7400000000000000002', '7400000000000000003'] }) });
+    assert.match((await refreshStats(many.ctx, providerMap(), many.post.id))[0]!.skipped!, /2개 만들어져/);
+  });
 
-    const taken = setup(() => [video('7400000000000000002', T0 + 60_000)]);
-    const { targets } = taken.store.createPost(POST, [{ platform: 'tiktok', account: 'main', options: {} }]);
-    taken.store.transition(targets[0]!.id, 'uploading');
-    taken.store.transition(targets[0]!.id, 'published', { remoteId: '7400000000000000002' });
-    const [r2] = await refreshStats(taken.ctx, providerMap(), taken.post.id);
-    assert.match(r2!.skipped!, /찾지 못했습니다/);
+  it('falls back to the video list only when the status is gone, and only without a same-length twin', async () => {
+    // Posted 5 minutes after the upload, i.e. before fanout noticed the hand-off: still found.
+    const one = setup({ pages: () => [{ videos: [video('7400000000000000002', T0 + 5 * 60_000), video('7400000000000000001', T0 - 86_400_000)] }] });
+    await refreshStats(one.ctx, providerMap(), one.post.id);
+    assert.equal(one.store.getTarget(one.id)!.remoteId, '7400000000000000002');
+
+    const twins = setup({ durations: [30, 30.8], pages: () => [{ videos: [video('7400000000000000002', T0 + 60_000)] }] });
+    assert.match((await refreshStats(twins.ctx, providerMap(), twins.post.id))[0]!.skipped!, /같은 길이/);
+    assert.equal(twins.store.getTarget(twins.id)!.state, 'handed_off');
+  });
+
+  it('pages through the list until it is past the upload', async () => {
+    const newer = Array.from({ length: 20 }, (_, i) => video(`75000000000000000${String(i).padStart(2, '0')}`, T0 + 7200_000 - i * 1000, 12));
+    const { ctx, store, post, id, calls } = setup({
+      now: T0 + 3 * 3600_000,
+      pages: () => [{ videos: newer, has_more: true, cursor: 1 }, { videos: [video('7400000000000000002', T0 + 60_000), video('7400000000000000001', T0 - 86_400_000)], has_more: true, cursor: 2 }],
+    });
+    await refreshStats(ctx, providerMap(), post.id);
+    assert.equal(store.getTarget(id)!.remoteId, '7400000000000000002');
+    assert.equal(calls.filter((c) => c.url.includes('/video/list/')).length, 2, 'stops once past the upload');
   });
 
   it('stops looking after two weeks, and the background refresh includes hand-offs', async () => {
-    const old = setup(() => [video('7400000000000000002', T0 + 60_000)], T0 + 15 * 86_400_000);
+    const old = setup({ now: T0 + 15 * 86_400_000 });
     const [r] = await refreshStats(old.ctx, providerMap(), old.post.id);
     assert.match(r!.skipped!, /14일/);
     assert.equal(old.calls.length, 0);
 
-    const fresh = setup(() => [video('7400000000000000002', T0 + 60_000)]);
+    const fresh = setup();
     const seen: string[] = [];
     await refreshDueStats(fresh.ctx, providerMap(), async (p, platform) => void seen.push(`${p}/${platform}`), { everyMs: 6 * 3600_000 });
     assert.deepEqual(seen, [`${fresh.post.id}/tiktok`]);
