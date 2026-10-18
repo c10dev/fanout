@@ -94,6 +94,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
   const drop = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
   switch (platform) {
     case 'youtube':
+      if (bool(args, 'paid-partnership')) console.error('⚠ ' + local(msg('--paid-partnership은 {platform} API로 표시할 수 없습니다. 앱에서 직접 설정하세요', { platform: 'YouTube' })));
       for (const gone of ['yt-paid-promo', 'yt-audio-lang']) {
         if (args.flags[gone] !== undefined) console.error('⚠ ' + local(msg('--{flag}는 YouTube API로 설정할 수 없어 무시합니다. YouTube Studio에서 직접 설정하세요', { flag: gone })));
       }
@@ -138,6 +139,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         userTags: str(args, 'ig-tag')?.split(',').map((u) => u.trim()).filter(Boolean),
       });
     case 'facebook':
+      if (bool(args, 'paid-partnership')) console.error('⚠ ' + local(msg('--paid-partnership은 {platform} API로 표시할 수 없습니다. 앱에서 직접 설정하세요', { platform: 'Facebook' })));
       return drop({ caption: str(args, 'fb-caption'), title: str(args, 'fb-title'), draft: args.flags['fb-draft'] ? true : undefined, collaborators: str(args, 'fb-collab')?.split(',').map((p) => p.trim()).filter(Boolean) });
     case 'x':
       return drop({ text: str(args, 'x-text'), paidPartnership: bool(args, 'x-paid-partnership') ?? bool(args, 'paid-partnership'), replySettings: str(args, 'x-reply'), alt: str(args, 'x-alt'), tagUsers: str(args, 'x-tag')?.split(',').map((u) => u.trim()).filter(Boolean) });

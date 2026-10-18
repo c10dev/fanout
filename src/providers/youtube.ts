@@ -73,10 +73,13 @@ const RECORDING_DATE = /^\d{4}-\d{2}-\d{2}$/;
 export function chapterProblems(description: string): string[] {
   const times = description
     .split('\n')
-    .map((line) => /^\s*[(\[]?((?:\d{1,2}:)?\d{1,2}:\d{2})\b/.exec(line)?.[1])
+    // A timestamp at the start or the end of a line (": 0:00 Intro", "Intro - 0:00"), seconds 00-59.
+    .map((line) => /^\s*[(\[]?((?:\d{1,2}:)?\d{1,2}:[0-5]\d)(?![\d:])/.exec(line)?.[1] ?? /(?:^|\s)[(\[]?((?:\d{1,2}:)?\d{1,2}:[0-5]\d)[)\]]?\s*$/.exec(line)?.[1])
     .filter((t): t is string => Boolean(t))
     .map((t) => t.split(':').reduce((sum, part) => sum * 60 + Number(part), 0));
-  if (!times.length) return [];
+  // Times of day in a schedule ("19:30 doors") aren't chapters; a list meant as chapters starts at or
+  // near 0:00 (0:05 is the usual slip), so one with no 0:00 that starts a minute in is left alone.
+  if (!times.length || (!times.includes(0) && times[0]! >= 60)) return [];
   const problems: string[] = [];
   if (times[0] !== 0) problems.push(msg('첫 타임스탬프가 0:00이어야 합니다'));
   if (times.length < 3) problems.push(msg('타임스탬프가 3개 이상이어야 합니다 (지금 {n}개)', { n: times.length }));
@@ -746,7 +749,9 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     // (a paid-promotion disclosure has legal weight).
     const chapters = chapterProblems(post.description);
     if (chapters.length) issues.push({ severity: 'warning', code: 'chapters', message: msg('설명의 타임스탬프로는 YouTube 챕터가 만들어지지 않습니다: {problems}', { problems: chapters.join(' / ') }) });
-    if (o.recordingDate !== undefined && !(typeof o.recordingDate === 'string' && RECORDING_DATE.test(o.recordingDate) && !Number.isNaN(Date.parse(o.recordingDate)))) {
+    // A real calendar day (Date.parse would take 2026-02-30 as 2 March).
+    const realDay = (d: string) => RECORDING_DATE.test(d) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d);
+    if (o.recordingDate !== undefined && !(typeof o.recordingDate === 'string' && realDay(o.recordingDate))) {
       issues.push({ severity: 'error', code: 'recording_date', message: msg('recordingDate는 YYYY-MM-DD 날짜') });
     }
     const unsettable = ['paidPromotion', 'audioLanguage'].filter((k) => k in (target.options ?? {}));

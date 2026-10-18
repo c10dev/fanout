@@ -256,3 +256,11 @@ describe('tiktok post ids', () => {
     });
   });
 });
+
+describe('tiktok disclosure in inbox mode', () => {
+  it('says the branded label must be set in the app', () => {
+    const codes = tiktok.validate(post, target({ mode: 'inbox', brandedContent: true }), fakeMedia()).map((i) => i.code);
+    assert.ok(codes.includes('branded_inbox'));
+    assert.ok(!tiktok.validate(post, target({ mode: 'inbox' }), fakeMedia()).some((i) => i.code === 'branded_inbox'));
+  });
+});

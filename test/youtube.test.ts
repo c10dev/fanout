@@ -284,6 +284,9 @@ describe('youtube chapters and recording date', () => {
     assert.match(chapterProblems('0:00 a\n0:05 b\n1:00 c')[0]!, /10/);
     assert.match(chapterProblems('0:00 a\n1:00 b\n0:30 c')[0]!, /커져야/);
     assert.deepEqual(chapterProblems('0:00 a\n1:02:03 b\n1:05:00 c'), [], 'hours too');
+    assert.deepEqual(chapterProblems('19:30 입장\n20:00 공연\n22:00 종료'), [], 'times of day are not chapters');
+    assert.deepEqual(chapterProblems('Intro 0:00\nVerse - 0:45\nChorus (1:30)'), [], 'timestamps at the end of a line count');
+    assert.deepEqual(chapterProblems('0:00 a\n0:99 b\n1:30 c\n2:00 d').length, 0, '0:99 is not a timestamp');
   });
 
   it('sends the recording date and asks for its part; refuses a bad date', async () => {
@@ -293,6 +296,7 @@ describe('youtube chapters and recording date', () => {
     assert.equal(insertParts(opts), 'snippet,status,recordingDetails');
     const codes = (o: Record<string, unknown>) => youtube.validate(post(), target({ privacy: 'public', madeForKids: false, ...o }), fakeMedia()).map((i) => i.code);
     assert.ok(codes({ recordingDate: '10/01/2026' }).includes('recording_date'));
+    assert.ok(codes({ recordingDate: '2026-02-30' }).includes('recording_date'), 'not a real day');
     assert.ok(!codes({ recordingDate: '2026-10-01' }).includes('recording_date'));
   });
 });

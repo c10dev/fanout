@@ -515,6 +515,10 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
       }
     } else {
       issues.push({ severity: 'warning', code: 'inbox', message: msg('TikTok inbox 모드: 업로드 후 TikTok 앱에서 직접 게시를 마무리해야 합니다') });
+      // The inbox upload carries no post settings: a disclosure has to be switched on in the app.
+      if (o.brandedContent || o.brandOrganic) {
+        issues.push({ severity: 'warning', code: 'branded_inbox', message: msg('inbox 모드에서는 브랜디드·광고 표시가 전달되지 않습니다 — 앱에서 게시할 때 "콘텐츠 공개" 설정을 직접 켜세요') });
+      }
     }
     if (post.scheduledAt) {
       issues.push({ severity: 'warning', code: 'schedule', message: msg('TikTok은 API 예약 게시가 없어 fanout이 예약 시각에 업로드합니다 (fanout worker 필요)') });
