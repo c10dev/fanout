@@ -636,8 +636,9 @@ export class Dashboard {
 
   async #disconnect(platform: string, name: string) {
     this.#provider(platform);
-    if (!(await disconnectAccount(this.#opts.ctx, this.#opts.providers, platform, name))) throw new HttpError(404, msg('해당 계정이 없습니다'));
-    return { ok: true };
+    const done = await disconnectAccount(this.#opts.ctx, this.#opts.providers, platform, name);
+    if (!done) throw new HttpError(404, msg('해당 계정이 없습니다'));
+    return { ok: true, ...done };
   }
 
   async #doctor(platform: string, body: { account?: string; live?: boolean }) {

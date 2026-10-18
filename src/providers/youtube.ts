@@ -492,16 +492,22 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     // Revoking ends Google's grant to the app for that user, which the other account shares.
     if (twin) {
       ctx.log.warn(msg('youtube/{name}과(와) 같은 채널이라 토큰은 철회하지 않았습니다 (youtube/{twin}이 계속 씁니다)', { name: account.name, twin: twin.name }));
-      return;
+      return false;
     }
     const c = creds(account);
     const token = c.refreshToken || c.accessToken;
-    if (!token) return;
-    const res = await ctx.fetch(REVOKE_URL, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token }) });
-    if (res.ok) return;
+    if (!token) return false;
+    const res = await ctx.fetch(REVOKE_URL, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token }),
+      // A dashboard request waits on this: don't hang it on a stuck endpoint.
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (res.ok) return true;
     const body = (await res.json().catch(() => ({}))) as GoogleError;
     // Already expired or revoked: nothing left to revoke.
-    if (res.status === 400 && body.error === 'invalid_token') return;
+    if (res.status === 400 && body.error === 'invalid_token') return true;
     throw new ProviderError(kindForStatus(res.status), 'youtube.revoke', describeGoogle(body).message ?? `HTTP ${res.status}`, describeGoogle(body).code);
   },
 

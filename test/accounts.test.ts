@@ -33,25 +33,25 @@ describe('YouTube account upkeep (Developer Policies III.D.2, III.E.4)', () => {
     const env = setup();
     const { fetch, calls } = mockFetch([['POST', 'oauth2.googleapis.com/revoke', () => new Response('{}', { status: 200 })]]);
     env.ctx.fetch = fetch;
-    assert.equal(await disconnectAccount(env.ctx, providerMap(), 'youtube', 'main'), true);
+    assert.deepEqual(await disconnectAccount(env.ctx, providerMap(), 'youtube', 'main'), { revoked: true, forgot: true });
     assert.equal(new URLSearchParams(String(calls[0]!.body)).get('token'), 'RT');
     assert.equal(env.store.getAccount('youtube', 'main'), undefined);
     assert.deepEqual(statsOf(env.store, env.yt.id), { latest: undefined, history: 0 });
     assert.equal(env.store.getTarget(env.yt.id)!.state, 'queued', 'the post record stays');
     assert.deepEqual(statsOf(env.store, env.md.id), { latest: { views: 5, fetchedAt: '2026-10-17T00:00:00Z' }, history: 1 }, 'other platforms keep theirs');
-    assert.equal(await disconnectAccount(env.ctx, providerMap(), 'youtube', 'main'), false);
+    assert.equal(await disconnectAccount(env.ctx, providerMap(), 'youtube', 'main'), undefined);
   });
 
   it('a failed revoke still deletes the data and the account; an already revoked token is fine', async () => {
     const env = setup();
     env.ctx.fetch = mockFetch([['POST', '/revoke', () => new Response('down', { status: 503 })]]).fetch;
-    assert.equal(await disconnectAccount(env.ctx, providerMap(), 'youtube', 'main'), true);
+    assert.deepEqual(await disconnectAccount(env.ctx, providerMap(), 'youtube', 'main'), { revoked: false, forgot: true });
     assert.equal(statsOf(env.store, env.yt.id).history, 0);
     assert.ok(env.logs.some((l) => l.startsWith('WARN youtube/main: 토큰을 철회하지 못했습니다')));
 
     const again = setup();
     again.ctx.fetch = mockFetch([['POST', '/revoke', () => json({ error: 'invalid_token' }, 400)]]).fetch;
-    assert.equal(await disconnectAccount(again.ctx, providerMap(), 'youtube', 'main'), true);
+    assert.deepEqual(await disconnectAccount(again.ctx, providerMap(), 'youtube', 'main'), { revoked: true, forgot: true });
     assert.ok(!again.logs.some((l) => l.startsWith('WARN')));
   });
 
@@ -60,7 +60,7 @@ describe('YouTube account upkeep (Developer Policies III.D.2, III.E.4)', () => {
     env.store.saveAccount({ platform: 'youtube', name: 'alt', credentials: { accessToken: 'A2', refreshToken: 'R2', expiresAt: 0 }, profile: { channelId: 'UC1' } });
     const { fetch, calls } = mockFetch([]);
     env.ctx.fetch = fetch;
-    assert.equal(await disconnectAccount(env.ctx, providerMap(), 'youtube', 'main'), true);
+    assert.deepEqual(await disconnectAccount(env.ctx, providerMap(), 'youtube', 'main'), { revoked: false, forgot: true });
     assert.equal(calls.length, 0);
     assert.ok(env.store.getAccount('youtube', 'alt'));
   });
@@ -121,6 +121,45 @@ describe('YouTube account upkeep (Developer Policies III.D.2, III.E.4)', () => {
     await verifyDueAccounts(env.ctx, providerMap());
     const creds = env.store.getAccount('youtube', 'main')!.credentials as Record<string, unknown>;
     assert.equal(creds.authFailedAt, undefined);
-    assert.equal(creds.checkedAt, undefined, 'tried again on the next round');
+    assert.equal(creds.nextCheckAt, env.ctx.now().getTime() + 3 * 3600_000, 'tried again a few hours later, not every round');
+    assert.equal(await verifyDueAccounts(env.ctx, providerMap()), 0);
+  });
+
+  it('never starts the deletion clock for fanout setup problems', async () => {
+    const env = setup();
+    env.advance(2 * 3600_000);
+    env.ctx.fetch = mockFetch([['POST', 'oauth2.googleapis.com/token', () => json({ error: 'invalid_client', error_description: 'The OAuth client was not found.' }, 401)]]).fetch;
+    await verifyDueAccounts(env.ctx, providerMap());
+    env.store.setApp('youtube', {});
+    env.advance(4 * 3600_000);
+    await verifyDueAccounts(env.ctx, providerMap());
+    const creds = env.store.getAccount('youtube', 'main')!.credentials as Record<string, unknown>;
+    assert.equal(creds.authFailedAt, undefined);
+    assert.equal(env.logs.filter((l) => l.startsWith('WARN verify(youtube/main)')).length, 2);
+  });
+
+  it('says so at the first refusal', async () => {
+    const env = setup();
+    env.advance(2 * 3600_000);
+    env.ctx.fetch = mockFetch([['POST', 'oauth2.googleapis.com/token', () => json({ error: 'invalid_grant' }, 400)]]).fetch;
+    await verifyDueAccounts(env.ctx, providerMap());
+    assert.ok(env.logs.some((l) => l.startsWith('WARN youtube/main: 접근이 거부됐습니다') && l.includes('21일 안에')));
+  });
+
+  it('a check still running when the account is removed or reconnected changes nothing', async () => {
+    for (const change of ['remove', 'reconnect'] as const) {
+      const env = setup();
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      env.ctx.fetch = mockFetch([['GET', '/channels', async () => (await gate, json({ items: [{ id: 'UC1', snippet: { title: 'Stale' } }] }))]]).fetch;
+      const running = verifyDueAccounts(env.ctx, providerMap());
+      await new Promise((r) => setImmediate(r));
+      const fresh = { platform: 'youtube', name: 'main', credentials: { accessToken: 'NEW', refreshToken: 'RT_NEW', expiresAt: 0 }, profile: { channelId: 'UC2', channelTitle: 'Other' } };
+      if (change === 'remove') env.store.removeAccount('youtube', 'main');
+      else env.store.saveAccount(fresh);
+      release();
+      await running;
+      assert.deepEqual(env.store.getAccount('youtube', 'main'), change === 'remove' ? undefined : fresh, change);
+    }
   });
 });
