@@ -45,6 +45,8 @@
 
 TikTok·Facebook·X·Mastodon은 읽을 수 있는 한도가 API에 없어 표시하지 않습니다.
 
+미리보기(대시보드, `fanout post`·`add`의 확인 화면, MCP `preview_post`·`add_to_post` `dryRun`)도 이 한도를 읽어, 남은 한도가 없거나 10% 아래로 남았거나 영상이 남은 용량보다 크면 경고합니다. 24시간 창은 예약 시각까지 비워질 수 있고 YouTube 수치는 로컬 집계라서 막지는 않고 경고만 합니다. 한도를 읽지 못하면(네트워크, 8초 초과) 경고 없이 넘어갑니다.
+
 ## 댓글 모아보기
 
 `fanout comments <postId>`, 대시보드 "댓글", MCP `get_post_comments`가 게시물별 최근 최상위 댓글을 가져옵니다. 저장하지 않고 그때그때 읽습니다.
