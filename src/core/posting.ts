@@ -435,6 +435,8 @@ export interface CommentsResult {
   comments?: Comment[];
   /** The platform lets fanout reply to these comments. */
   canReply?: boolean;
+  /** The platform lets fanout hide these comments. */
+  canHide?: boolean;
   skipped?: string;
   error?: string;
 }
@@ -458,7 +460,7 @@ export async function fetchComments(baseCtx: ProviderContext, providers: Map<str
       let account = ctx.store.getAccount(t.platform, t.account);
       if (!account) throw new Error(msg('연결된 계정이 없습니다'));
       account = await provider.refresh(ctx, account);
-      out.push({ ...base, comments: await provider.comments({ ctx, account, target: { ...t, remoteId: t.remoteId }, limit }), canReply: Boolean(provider.reply) });
+      out.push({ ...base, comments: await provider.comments({ ctx, account, target: { ...t, remoteId: t.remoteId }, limit }), canReply: Boolean(provider.reply), canHide: Boolean(provider.hideComment) });
     } catch (err) {
       out.push({ ...base, error: err instanceof Error ? err.message : String(err) });
     }
@@ -507,6 +509,30 @@ export async function replyToComment(
     if (!sent || (err instanceof ProviderError && (err.kind === 'rejected' || err.kind === 'auth'))) throw err;
     throw new Error(msg('답글 응답을 받지 못했습니다({err}). 이미 달렸을 수 있으니 댓글을 다시 불러와 확인한 뒤 필요하면 다시 쓰세요', { err: err instanceof Error ? err.message : String(err) }));
   }
+}
+
+/**
+ * Hide (or show again) one of a published post's comments, after checking it is among the post's
+ * recent comments: an id from anywhere else (a prompt-injected agent) is refused.
+ */
+export async function hideComment(baseCtx: ProviderContext, providers: Map<string, Provider>, targetId: string, commentId: string, hidden = true): Promise<void> {
+  const ctx = withTimeout(baseCtx);
+  const t = ctx.store.getTarget(targetId);
+  if (!t) throw new Error(msg('대상 없음: {targetId}', { targetId }));
+  if (t.state !== 'published' || !t.remoteId) throw new Error(msg('게시된 대상의 댓글만 숨길 수 있습니다'));
+  const provider = providers.get(t.platform);
+  if (!provider?.hideComment || !provider.comments) throw new Error(msg('{provider}는 API로 댓글을 숨길 수 없습니다', { provider: provider?.displayName ?? t.platform }));
+  let account = ctx.store.getAccount(t.platform, t.account);
+  if (!account) throw new Error(msg('연결된 계정이 없습니다: {platform}/{account}', { platform: t.platform, account: t.account }));
+  account = await provider.refresh(ctx, account);
+  const target = { ...t, remoteId: t.remoteId };
+  // Showing again needs no lookup: a hidden comment may not be listed any more.
+  if (hidden && !(await provider.comments({ ctx, account, target, limit: REPLY_LOOKBACK })).some((c) => c.id === commentId)) {
+    throw new Error(msg('이 게시물의 최근 댓글 중에 그 댓글이 없습니다. 댓글을 다시 불러온 뒤 시도하세요'));
+  }
+  await provider.hideComment({ ctx, account, target, commentId, hidden });
+  const vars = { platform: t.platform, account: t.account, commentId };
+  ctx.log.info(hidden ? msg('{platform}/{account}: 댓글 {commentId}을(를) 숨겼습니다', vars) : msg('{platform}/{account}: 댓글 {commentId}을(를) 다시 보이게 했습니다', vars));
 }
 
 /** Resume keys that mean something was created on the platform, or the final request was sent. */

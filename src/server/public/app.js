@@ -538,6 +538,24 @@ function exitAddMode() {
   renderTargets();
 }
 
+/** Hide a comment (reversible: YouTube holds it for review, Meta hides it), with an undo right there. */
+function hideButton(targetId, c) {
+  const set = async (button, hidden) => {
+    if (hidden && !confirm(tr('이 댓글을 숨길까요? 나중에 다시 보이게 할 수 있습니다.'))) return;
+    button.disabled = true;
+    try {
+      await api(`/targets/${targetId}/hide-comment`, { method: 'POST', body: JSON.stringify({ commentId: c.id, hidden }) });
+      const comment = button.closest('.comment');
+      comment.classList.toggle('hidden-comment', hidden);
+      button.replaceWith(hidden ? h('button', { class: 'small link', type: 'button', onclick: (e) => set(e.target, false) }, tr('다시 보이기')) : hideButton(targetId, c));
+    } catch (err) {
+      alert(err.message);
+      button.disabled = false;
+    }
+  };
+  return h('button', { class: 'small link', type: 'button', onclick: (e) => set(e.target, true) }, tr('숨기기'));
+}
+
 /** The playlist id field, with the account's playlists offered once it gets focus. */
 function playlistInput() {
   const list = h('datalist', { id: `playlists-${Math.random().toString(36).slice(2)}` });
@@ -1107,6 +1125,7 @@ function commentsPanel(postId) {
                       tr('답글'),
                     )
                   : null,
+                r.canHide ? hideButton(r.targetId, c) : null,
               ),
             ),
           ),

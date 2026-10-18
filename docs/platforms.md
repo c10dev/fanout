@@ -87,6 +87,10 @@ TikTok·Facebook·X·Mastodon은 읽을 수 있는 한도가 API에 없어 표�
 | Mastodon | `in_reply_to_id`. 댓글 쓴 사람을 멘션하고, 댓글이나 원래 글보다 넓은 공개 범위로는 달지 않음 | 이미 받은 토큰 |
 | PeerTube | `POST /videos/:id/comments/:commentId` | 로그인 토큰 |
 
+### 댓글 숨기기
+
+YouTube·Instagram·Facebook 댓글은 숨길 수 있고, 다시 보이게 할 수도 있습니다(대시보드 댓글 패널의 "숨기기", `fanout hide-comment <postId> <platform> <commentId> [--show]`, MCP `hide_comment`). YouTube는 "검토 대기"로 돌리는 방식이라(할당량 50) 나중에 다시 게시할 수 있고, Instagram은 `hide`, Facebook은 `is_hidden`(페이지 토큰에 `pages_manage_engagement`)을 씁니다. 답글처럼 그 게시물의 최근 댓글인지 먼저 확인한 뒤에만 숨깁니다.
+
 ## 게시 후 수정
 
 `fanout edit <postId> --title … --description … --tags …`, 대시보드 "수정", MCP `update_post`로 고칩니다.

@@ -895,6 +895,12 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
 
   // videos.update replaces the whole snippet, so start from the current one (title and categoryId are
   // required) and change only what fanout owns.
+  // Held for review rather than rejected: a held comment can be published again, a rejected one can't.
+  async hideComment({ ctx, account, commentId, hidden }) {
+    const status = hidden ? 'heldForReview' : 'published';
+    await api(ctx, account, `/comments/setModerationStatus?${new URLSearchParams({ id: commentId, moderationStatus: status })}`, { method: 'POST' });
+  },
+
   visibilities: ['public', 'unlisted', 'private'],
 
   async setVisibility({ ctx, account, target, visibility, publishAt }) {

@@ -15,6 +15,7 @@ import {
   createScheduledPost,
   editPost,
   fetchComments,
+  hideComment,
   MaybeLiveError,
   planAddTargets,
   previewPost,
@@ -345,6 +346,17 @@ export class Dashboard {
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'remove') {
       try {
         return send(res, 200, this.#publicTarget(await removeTarget(this.#opts.ctx, this.#opts.providers, parts[1])));
+      } catch (err) {
+        if (err instanceof ProviderError) throw err;
+        throw new HttpError(409, err instanceof Error ? err.message : String(err));
+      }
+    }
+    if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'hide-comment') {
+      const body = await readJson<{ commentId?: unknown; hidden?: unknown }>(req);
+      if (typeof body.commentId !== 'string') throw new HttpError(400, msg('commentId가 필요합니다'));
+      try {
+        await hideComment(this.#opts.ctx, this.#opts.providers, parts[1], body.commentId, body.hidden !== false);
+        return send(res, 200, { ok: true });
       } catch (err) {
         if (err instanceof ProviderError) throw err;
         throw new HttpError(409, err instanceof Error ? err.message : String(err));
