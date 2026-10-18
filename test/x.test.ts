@@ -3,9 +3,9 @@ import { describe, it } from 'node:test';
 import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
-import { retryTarget } from '../src/core/posting.ts';
+import { retryTarget, withTimeout } from '../src/core/posting.ts';
 import { SEGMENT, tweetText, weightedLength, x } from '../src/providers/x.ts';
-import { fakeMedia, json, makeCtx, mockFetch, tempFile } from './helpers.ts';
+import { fakeMedia, json, makeCtx, mockFetch, slowFetch, tempFile } from './helpers.ts';
 
 const NOW = new Date('2026-10-17T03:00:00Z');
 const account: Account = {
@@ -171,6 +171,15 @@ describe('x refresh race', () => {
     env.store.saveAccount(expired);
     const next = await x.refresh(env.ctx, expired);
     assert.equal((next.credentials as { accessToken: string }).accessToken, 'AT2');
+  });
+
+  it('a short deadline on the caller never cuts the rotation off', async () => {
+    const { ctx, store } = makeCtx(slowFetch({ access_token: 'AT2', refresh_token: 'RT2', expires_in: 7200 }, 80), () => NOW);
+    store.setApp('x', { clientId: 'cid' });
+    const expired = { ...account, credentials: { ...account.credentials, expiresAt: 0 } };
+    store.saveAccount(expired);
+    await x.refresh(withTimeout(ctx, 30), expired);
+    assert.equal((store.getAccount('x', account.name)!.credentials as { refreshToken: string }).refreshToken, 'RT2');
   });
 
   it('an account already refreshed elsewhere is used without spending the token again', async () => {

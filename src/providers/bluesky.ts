@@ -2,7 +2,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { rotationContext } from '../core/http.ts';
+import { jsonOr, rotationContext } from '../core/http.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
@@ -85,7 +85,7 @@ async function xrpc<T>(
     body = init.body;
   }
   const res = await ctx.fetch(url, { method: body || init.post ? 'POST' : 'GET', headers, body });
-  const data = (await res.json().catch(() => ({}))) as T & { error?: string; message?: string };
+  const data = (await jsonOr(res, {})) as T & { error?: string; message?: string };
   if (!res.ok) {
     const code = data.error ?? `http_${res.status}`;
     const auth = res.status === 401 || code === 'ExpiredToken' || code === 'InvalidToken' || code === 'AuthenticationRequired';

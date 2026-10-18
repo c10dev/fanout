@@ -176,18 +176,35 @@ describe('watch-folder files are copied when the post is made', () => {
   });
 
   it('leaves no copies behind when the post is not made', async () => {
+    // Both failures happen after the copies are made: inside the transaction that creates the post.
+    const tomorrow = new Date(Date.now() + 86_400_000);
+    const now = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 9);
+    const setup = (config: WatchConfig) => {
+      const dir = folder(config);
+      writeFileSync(join(dir, 'a.vtt'), 'WEBVTT\n');
+      writeFileSync(join(dir, 'a.json'), JSON.stringify({ captions: { ko: 'a.vtt' } }));
+      video(dir, 'a.mp4');
+      return { dir, media: mkdtempSync(join(tmpdir(), 'fanout-media-')) };
+    };
+    // A slot makes the YouTube post scheduled, which YouTube allows only for public videos.
+    const refused: WatchConfig = { to: ['youtube'], options: { youtube: { privacy: 'unlisted', madeForKids: false } }, slots: ['19:00'], onBlocked: 'fail' };
+    const a = setup(refused);
+    const r = await ingest({ mediaDir: a.media, dir: a.dir, config: refused, videoPath: join(a.dir, 'a.mp4'), providers, store: makeCtx().store, probe: async () => fakeMedia(), now });
+    assert.ok(!r.ok && r.movedTo.includes('failed'));
+    assert.deepEqual(readdirSync(a.media), []);
+
+    // A busy database: the video stays for the next scan, and each try cleans up after itself.
+    const plain: WatchConfig = { to: ['youtube'], options: { youtube: { privacy: 'unlisted', madeForKids: false } } };
+    const b = setup(plain);
     const { store } = makeCtx();
-    const config: WatchConfig = { to: ['youtube'], options: { youtube: { privacy: 'unlisted', madeForKids: false } } };
-    const dir = folder(config);
-    writeFileSync(join(dir, 'a.vtt'), 'WEBVTT\n');
-    writeFileSync(join(dir, 'a.json'), JSON.stringify({ captions: { ko: 'a.vtt' } }));
-    mkdirSync(join(dir, 'posted'), { mode: 0o500 }); // can't move the video there
-    video(dir, 'a.mp4');
-    const media = mkdtempSync(join(tmpdir(), 'fanout-media-'));
+    store.transaction = () => {
+      throw new Error('database is locked');
+    };
     for (let i = 0; i < 3; i++) {
-      await assert.rejects(ingest({ mediaDir: media, dir, config, videoPath: join(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: NOW }));
+      await assert.rejects(ingest({ mediaDir: b.media, dir: b.dir, config: plain, videoPath: join(b.dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now }), /locked/);
     }
-    assert.deepEqual(readdirSync(media), []);
+    assert.deepEqual(readdirSync(b.media), []);
+    assert.ok(existsSync(join(b.dir, 'a.mp4')));
   });
 
   it('keeps the original file name in the copy', () => {

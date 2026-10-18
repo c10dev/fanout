@@ -12,11 +12,6 @@ export interface ProviderContext {
   log: Logger;
   /** Overridable for tests. */
   fetch: typeof fetch;
-  /**
-   * The fetch before any short per-call deadline was put on it (see posting.withTimeout). Token
-   * rotations use it via http.rotationContext: cutting one off would lose a single-use refresh token.
-   */
-  baseFetch?: typeof fetch;
   now: () => Date;
   home: string;
 }

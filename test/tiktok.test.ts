@@ -3,8 +3,9 @@ import { describe, it } from 'node:test';
 import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
+import { withTimeout } from '../src/core/posting.ts';
 import { captionFor, chunkPlan, statusOutcome, tiktok, tiktokError } from '../src/providers/tiktok.ts';
-import { fakeMedia, json, makeCtx, mockFetch, tempFile } from './helpers.ts';
+import { fakeMedia, json, makeCtx, mockFetch, slowFetch, tempFile } from './helpers.ts';
 
 const MB = 1024 * 1024;
 const NOW = new Date('2026-10-17T03:00:00Z');
@@ -155,6 +156,16 @@ describe('tiktok refresh', () => {
     const next = await tiktok.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
     assert.equal(calls.length, 1);
     assert.equal((next.credentials as { accessToken: string }).accessToken, 'AT2');
+  });
+
+  it('a short deadline on the caller never cuts the rotation off', async () => {
+    const tok = { access_token: 'AT2', refresh_token: 'RT2', expires_in: 86400, refresh_expires_in: 31536000, open_id: 'o', scope: 'video.upload' };
+    const { ctx, store } = makeCtx(slowFetch(tok, 80), () => NOW);
+    store.setApp('tiktok', { clientKey: 'k', clientSecret: 's' });
+    const expired = { ...account, credentials: { ...account.credentials, expiresAt: 0 } };
+    store.saveAccount(expired);
+    await tiktok.refresh(withTimeout(ctx, 30), expired);
+    assert.equal((store.getAccount('tiktok', account.name)!.credentials as { refreshToken: string }).refreshToken, 'RT2');
   });
 
   it('uses the pair another process stored when it already rotated the refresh token', async () => {

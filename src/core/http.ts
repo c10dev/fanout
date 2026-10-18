@@ -148,6 +148,18 @@ const ROTATION_TIMEOUT_MS = 120_000;
  * the token but before its answer is stored loses the new pair, and the account must be reconnected.
  */
 export function rotationContext(ctx: ProviderContext): ProviderContext {
-  const base = ctx.baseFetch ?? ctx.fetch;
-  return { ...ctx, fetch: ((input, init) => base(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(ROTATION_TIMEOUT_MS) })) as typeof fetch };
+  // Its own signal takes precedence over the caller's short one (posting.withTimeout only adds a
+  // signal to requests that bring none).
+  return { ...ctx, fetch: ((input, init) => ctx.fetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(ROTATION_TIMEOUT_MS) })) as typeof fetch };
+}
+
+/**
+ * A response body as JSON, or `fallback` when it isn't JSON. An error from reading the body itself
+ * (a body over the size cap) is not "not JSON": it is thrown, so it doesn't pass for an empty answer.
+ */
+export async function jsonOr<T>(res: Response, fallback: T): Promise<unknown> {
+  return res.json().catch((err: unknown) => {
+    if (err instanceof ProviderError) throw err;
+    return fallback;
+  });
 }

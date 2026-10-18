@@ -2,6 +2,7 @@
 // daily cap is seen before an upload runs into it rather than after.
 
 import { msg } from './i18n.ts';
+import { withTimeout } from './posting.ts';
 import { formatBytes } from './prune.ts';
 import type { Limit, Provider, ProviderContext } from './provider.ts';
 
@@ -13,21 +14,6 @@ export interface AccountLimits {
   error?: string;
 }
 
-/**
- * Stop waiting after `ms`, without aborting the requests: a limits read may refresh a token first,
- * and a token rotation cut off mid-way (PeerTube, Bluesky) would lose the new pair. The read
- * finishes in the background and saves what it got.
- */
-function within<T>(work: Promise<T>, ms: number): Promise<T> {
-  let timer: NodeJS.Timeout | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(msg('{seconds}초 안에 답이 없습니다', { seconds: ms / 1000 }))), ms);
-    timer.unref();
-  });
-  work.catch(() => undefined);
-  return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
-}
-
 /** Read the limits of every account (or one platform's) whose provider can tell them, one at a time. */
 export async function readLimits(ctx: ProviderContext, providers: Map<string, Provider>, platform?: string, timeoutMs = 20_000): Promise<AccountLimits[]> {
   const out: AccountLimits[] = [];
@@ -37,8 +23,9 @@ export async function readLimits(ctx: ProviderContext, providers: Map<string, Pr
     const account = ctx.store.getAccount(p, name);
     if (!provider?.limits || !account) continue;
     try {
-      // One stuck host must not hold up the rest (or the dashboard card) for minutes.
-      out.push({ platform: p, account: name, limits: await within(provider.limits({ ctx, account }), timeoutMs) });
+      // One stuck host must not hold up the rest (or the dashboard card) for minutes. A token
+      // refresh inside keeps its own longer deadline (http.rotationContext), so it isn't cut off.
+      out.push({ platform: p, account: name, limits: await provider.limits({ ctx: withTimeout(ctx, timeoutMs), account }) });
     } catch (err) {
       out.push({ platform: p, account: name, limits: [], error: err instanceof Error ? err.message : String(err) });
     }
@@ -65,7 +52,7 @@ export async function addLimitWarnings(
     const provider = providers.get(p.platform);
     const account = ctx.store.getAccount(p.platform, p.account);
     if (!provider?.limits || !account || read.has(key)) continue;
-    read.set(key, within(provider.limits({ ctx, account }), timeoutMs).catch(() => []));
+    read.set(key, provider.limits({ ctx: withTimeout(ctx, timeoutMs), account }).catch(() => []));
   }
   for (const p of previews) {
     const limits = await (read.get(`${p.platform}/${p.account}`) ?? Promise.resolve([]));

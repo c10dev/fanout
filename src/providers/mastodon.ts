@@ -3,7 +3,7 @@ import { openAsBlob, statSync } from 'node:fs';
 import { basename } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { imageMime } from '../core/http.ts';
+import { imageMime, jsonOr } from '../core/http.ts';
 import { liveRoundTrip } from '../core/livecheck.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
@@ -102,7 +102,7 @@ async function api<T>(
     ...init,
     headers: { authorization: `Bearer ${c.token}`, ...(init.headers as Record<string, string>) },
   });
-  const body = (await res.json().catch(() => ({}))) as T & { error?: string };
+  const body = (await jsonOr(res, {})) as T & { error?: string };
   if (!res.ok && !(init.allow ?? []).includes(res.status)) {
     const msg = body.error ?? `HTTP ${res.status}`;
     throw new ProviderError(kindForStatus(res.status), `mastodon.http_${res.status}`, `Mastodon: ${msg}`, String(res.status));

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { capResponses } from '../src/core/http.ts';
+import { capResponses, jsonOr } from '../src/core/http.ts';
 
 const stream = (chunks: number, size: number) =>
   new ReadableStream<Uint8Array>({
@@ -24,8 +24,15 @@ describe('response size cap', () => {
     const declared = capResponses(async () => new Response(stream(1, 10), { headers: { 'content-length': String(5000) } }), 1024);
     await assert.rejects(declared('https://evil.example/'), /너무 큽니다/);
     // An endless body without a length: reading fails once past the cap instead of filling memory.
-    const endless = capResponses(async () => new Response(stream(Infinity, 512)), 1024);
+    // Bounded, so a regression fails the assertion instead of hanging.
+    const endless = capResponses(async () => new Response(stream(64, 512)), 1024);
     const res = await endless('https://evil.example/');
     await assert.rejects(res.text(), /너무 큽니다/);
+  });
+
+  it('an oversized body is an error, not an empty answer', async () => {
+    const res = await capResponses(async () => new Response(stream(64, 512)), 1024)('https://evil.example/');
+    await assert.rejects(jsonOr(res, {}), /너무 큽니다/);
+    assert.deepEqual(await jsonOr(new Response('not json'), { fallback: true }), { fallback: true });
   });
 });
