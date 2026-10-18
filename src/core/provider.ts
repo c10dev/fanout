@@ -109,6 +109,18 @@ export interface Provider {
   /** Exchange the callback params (state already checked by the caller) for an account. */
   oauthFinish?(ctx: ProviderContext, name: string, params: URLSearchParams, redirectUri: string, verifier: string): Promise<Account>;
 
+  /** Disconnecting through fanout: revoke the account's tokens at the platform. */
+  disconnect?(ctx: ProviderContext, account: Account): Promise<void>;
+
+  /**
+   * Prove the account is still authorized and return it with its stored profile re-read, for
+   * platforms whose terms ask for both regularly (YouTube: every 30 days). Throws a ProviderError
+   * of kind 'auth' when access is gone. See core/accounts.ts for the schedule.
+   */
+  verify?(ctx: ProviderContext, account: Account): Promise<Account>;
+  /** Delete the data the platform's terms don't let fanout keep once access ends (YouTube: reactions). */
+  forget?(ctx: ProviderContext, account: Account): void;
+
   /** Ensure credentials are fresh; persist and return the refreshed account if they changed. */
   refresh(ctx: ProviderContext, account: Account): Promise<Account>;
 

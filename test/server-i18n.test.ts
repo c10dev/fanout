@@ -28,6 +28,7 @@ const CONVERTED = [
   'src/mcp/server.ts',
   'src/core/inbox.ts',
   'src/core/restore.ts',
+  'src/core/accounts.ts',
 ];
 const LITERAL = /'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
 

@@ -1,6 +1,7 @@
 import { refreshStats } from './posting.ts';
 import { settle, type RunnerDeps } from './runner.ts';
 import { refreshDueStats } from './stats.ts';
+import { verifyDueAccounts } from './accounts.ts';
 
 export const DEFAULT_STATS_EVERY_MS = 6 * 3600_000;
 const STATS_CHECK_MS = 30 * 60_000;
@@ -27,6 +28,9 @@ export class Worker {
   #statsTimer?: NodeJS.Timeout;
   #statsFirst?: NodeJS.Timeout;
   #statsRun?: Promise<number>;
+  #upkeepTimer?: NodeJS.Timeout;
+  #upkeepFirst?: NodeJS.Timeout;
+  #upkeepRun?: Promise<number>;
 
   constructor(deps: RunnerDeps, opts: WorkerOptions = {}) {
     this.#deps = deps;
@@ -43,12 +47,19 @@ export class Worker {
       this.#statsTimer = setInterval(() => void this.statsTick(), STATS_CHECK_MS);
       this.#statsTimer.unref();
     }
+    // Account checks some platforms' terms require (core/accounts.ts); each account at most daily.
+    this.#upkeepFirst = setTimeout(() => void this.upkeepTick(), STATS_FIRST_MS);
+    this.#upkeepFirst.unref();
+    this.#upkeepTimer = setInterval(() => void this.upkeepTick(), STATS_CHECK_MS);
+    this.#upkeepTimer.unref();
   }
 
   stop(): void {
     clearInterval(this.#timer);
     clearInterval(this.#statsTimer);
     clearTimeout(this.#statsFirst);
+    clearInterval(this.#upkeepTimer);
+    clearTimeout(this.#upkeepFirst);
   }
 
   #statsEvery(): number {
@@ -70,10 +81,26 @@ export class Worker {
     return this.#statsRun;
   }
 
+  /** Verify accounts that are due; one run at a time. Resolves to how many were checked. */
+  upkeepTick(): Promise<number> {
+    if (this.#upkeepRun) return this.#upkeepRun;
+    const { ctx, providers } = this.#deps;
+    this.#upkeepRun = verifyDueAccounts(ctx, providers)
+      .catch((err: unknown) => {
+        ctx.log.warn(`verify: ${String(err)}`);
+        return 0;
+      })
+      .finally(() => {
+        this.#upkeepRun = undefined;
+      });
+    return this.#upkeepRun;
+  }
+
   /** Wait for in-flight runner work (tests, shutdown). */
   async idle(): Promise<void> {
     while (this.#running.size) await Promise.all(this.#running);
     await this.#statsRun;
+    await this.#upkeepRun;
   }
 
   tick(): void {

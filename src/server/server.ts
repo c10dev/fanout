@@ -34,6 +34,7 @@ import { statsTrend } from '../core/stats.ts';
 import type { PostInput, Target, TargetInput, TargetState } from '../core/types.ts';
 import { isShort } from '../providers/youtube.ts';
 import { ACCOUNT_NAME } from '../core/store.ts';
+import { disconnectAccount } from '../core/accounts.ts';
 
 export interface DashboardOptions {
   ctx: ProviderContext;
@@ -382,7 +383,7 @@ export class Dashboard {
     if (method === 'GET' && parts[0] === 'settings') return send(res, 200, this.#settings(req));
     if (method === 'PUT' && parts[0] === 'apps' && parts[1]) return send(res, 200, this.#saveApp(parts[1], await readJson(req)));
     if (method === 'POST' && parts[0] === 'connect' && parts[1]) return send(res, 200, await this.#connect(req, parts[1], await readJson(req)));
-    if (method === 'DELETE' && parts[0] === 'accounts' && parts[1] && parts[2]) return send(res, 200, this.#disconnect(parts[1], decodeURIComponent(parts[2])));
+    if (method === 'DELETE' && parts[0] === 'accounts' && parts[1] && parts[2]) return send(res, 200, await this.#disconnect(parts[1], decodeURIComponent(parts[2])));
     if (method === 'POST' && parts[0] === 'doctor' && parts[1]) return send(res, 200, await this.#doctor(parts[1], await readJson(req)));
     throw new HttpError(404, 'not found');
   }
@@ -631,9 +632,9 @@ export class Dashboard {
     throw new HttpError(404, 'not found');
   }
 
-  #disconnect(platform: string, name: string) {
+  async #disconnect(platform: string, name: string) {
     this.#provider(platform);
-    if (!this.#opts.ctx.store.removeAccount(platform, name)) throw new HttpError(404, msg('해당 계정이 없습니다'));
+    if (!(await disconnectAccount(this.#opts.ctx, this.#opts.providers, platform, name))) throw new HttpError(404, msg('해당 계정이 없습니다'));
     return { ok: true };
   }
 

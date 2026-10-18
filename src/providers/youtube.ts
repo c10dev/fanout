@@ -16,6 +16,7 @@ const API = 'https://www.googleapis.com/youtube/v3';
 const UPLOAD_API = 'https://www.googleapis.com/upload/youtube/v3';
 const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
+const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 /** Covers upload, read, captions, playlists and delete (used by `doctor --live` cleanup). */
 const SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
 /** Multiple of 256 KiB, as the resumable protocol requires for non-final chunks. */
@@ -467,9 +468,45 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       client_secret: clientSecret,
       grant_type: 'refresh_token',
     });
-    const next: Account = { ...account, credentials: { ...credsFromToken(tok, ctx.now().getTime(), c) } };
+    // Spread the old credentials first: they also carry fanout's upkeep marks (core/accounts.ts).
+    const next: Account = { ...account, credentials: { ...account.credentials, ...credsFromToken(tok, ctx.now().getTime(), c) } };
     ctx.store.saveAccount(next);
     return next;
+  },
+
+  // Developer Policies III.D.2: a disconnect through the client revokes the token right away.
+  async disconnect(ctx, account) {
+    const channelId = account.profile.channelId;
+    const twin = channelId === undefined ? undefined : ctx.store.listAccounts().find((a) => a.platform === 'youtube' && a.name !== account.name && a.profile.channelId === channelId);
+    // Revoking ends Google's grant to the app for that user, which the other account shares.
+    if (twin) {
+      ctx.log.warn(msg('youtube/{name}과(와) 같은 채널이라 토큰은 철회하지 않았습니다 (youtube/{twin}이 계속 씁니다)', { name: account.name, twin: twin.name }));
+      return;
+    }
+    const c = creds(account);
+    const token = c.refreshToken || c.accessToken;
+    if (!token) return;
+    const res = await ctx.fetch(REVOKE_URL, { method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ token }) });
+    if (res.ok) return;
+    const body = (await res.json().catch(() => ({}))) as GoogleError;
+    // Already expired or revoked: nothing left to revoke.
+    if (res.status === 400 && body.error === 'invalid_token') return;
+    throw new ProviderError(kindForStatus(res.status), 'youtube.revoke', describeGoogle(body).message ?? `HTTP ${res.status}`, describeGoogle(body).code);
+  },
+
+  // III.E.4.b–c: statistics may be kept while authorization is re-checked every 30 days, and the
+  // channel title re-read within 30 days. One channels.list call (1 quota unit) does both.
+  async verify(ctx, account) {
+    const acct = await youtube.refresh(ctx, account);
+    const ch = await api<{ items?: Array<{ id: string; snippet: { title: string } }> }>(ctx, acct, '/channels?part=snippet&mine=true');
+    const channel = ch.items?.[0];
+    if (!channel) throw new ProviderError('rejected', 'youtube.no_channel', msg('이 Google 계정에 YouTube 채널이 없습니다'));
+    return { ...acct, profile: { channelId: channel.id, channelTitle: channel.snippet.title } };
+  },
+
+  // III.D.2 / III.E.4.g: once access ends, the reactions read through the API go.
+  forget(ctx, account) {
+    ctx.store.purgeAccountStats('youtube', account.name);
   },
 
   validate(post, target, media) {

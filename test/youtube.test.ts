@@ -43,11 +43,13 @@ describe('youtube metadata', () => {
   });
 
   it('uploads scheduled posts as private with publishAt', () => {
-    const m = buildMetadata(post({ scheduledAt: '2026-10-20T00:00:00.000Z' }), { privacy: 'public', madeForKids: false }) as {
+    // buildMetadata compares with the real clock: the time must really be ahead.
+    const at = new Date(Date.now() + 3 * 86_400_000).toISOString();
+    const m = buildMetadata(post({ scheduledAt: at }), { privacy: 'public', madeForKids: false }) as {
       status: Record<string, unknown>;
     };
     assert.equal(m.status.privacyStatus, 'private');
-    assert.equal(m.status.publishAt, '2026-10-20T00:00:00.000Z');
+    assert.equal(m.status.publishAt, at);
   });
 
   it('parses resumable Range headers', () => {
