@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
 import { retryTarget, withTimeout } from '../src/core/posting.ts';
-import { SEGMENT, tweetText, weightedLength, x, xPostBody } from '../src/providers/x.ts';
+import { SEGMENT, subtitleLanguage, tweetText, weightedLength, x, xPostBody } from '../src/providers/x.ts';
 import { fakeMedia, json, makeCtx, mockFetch, slowFetch, tempFile } from './helpers.ts';
 
 const NOW = new Date('2026-10-17T03:00:00Z');
@@ -209,5 +212,87 @@ describe('x refresh race', () => {
     const next = await x.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
     assert.equal((next.credentials as { accessToken: string }).accessToken, 'AT3');
     assert.equal(calls.length, 0);
+  });
+});
+
+describe('x alt text and subtitles', () => {
+  const sub = (name: string, text = '1\n00:00:00,000 --> 00:00:01,000\nhi\n') => {
+    const path = join(mkdtempSync(join(tmpdir(), 'fanout-sub-')), name);
+    writeFileSync(path, text);
+    return path;
+  };
+
+  it('checks alt length and which subtitle tracks X can take', () => {
+    const codes = (p: Partial<Post>, o: Record<string, unknown> = {}) => x.validate(post(p), target(o), fakeMedia()).map((i) => `${i.severity}:${i.code}`);
+    assert.deepEqual(codes({}, { alt: 'a'.repeat(1000) }), []);
+    assert.deepEqual(codes({}, { alt: 'a'.repeat(1001) }), ['error:alt_text']);
+    assert.deepEqual(codes({ captions: [{ language: 'ko', path: '/s.srt' }, { language: 'en-US', path: '/s.VTT' }] }), []);
+    assert.deepEqual(codes({ captions: [{ language: 'ko', path: '/s.ass' }, { language: 'fil', path: '/s.srt' }] }), ['warning:subtitles', 'warning:subtitles']);
+    assert.deepEqual(codes({ thumbnailPath: '/t.jpg' }), ['warning:extras']);
+    assert.deepEqual([subtitleLanguage('ko'), subtitleLanguage('en-US'), subtitleLanguage('pt_BR'), subtitleLanguage('fil')], ['KO', 'EN', 'PT', undefined]);
+  });
+
+  it('sends alt text and each subtitle track once the video has processed, then posts', async () => {
+    let n = 0;
+    const { fetch, calls } = mockFetch([
+      ['GET', '/2/media/upload?', () => json({ data: { id: 'M1', processing_info: { state: 'succeeded' } } })],
+      ['POST', '/2/media/metadata', () => json({ data: { associated_metadata: true } })],
+      ['POST', '/2/media/upload/initialize', () => json({ data: { id: `S${++n}` } })],
+      ['POST', '/append', () => new Response(null, { status: 204 })],
+      ['POST', '/finalize', () => json({ data: {} })],
+      ['POST', '/2/media/subtitles', () => json({ data: {} })],
+      ['POST', '/2/tweets', () => json({ data: { id: 'T1' } }, 201)],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    const p = post({ captions: [{ language: 'ko', path: sub('ko.srt') }, { language: 'en-US', path: sub('en.vtt'), name: 'English (US)' }, { language: 'ja', path: sub('ja.ass') }] });
+    const { targets } = store.createPost(p, [{ platform: 'x', account: 'main', options: { alt: ' 고양이가 춤춘다 ' } }]);
+    const t = { ...store.getTarget(targets[0]!.id)!, remoteId: 'M1', resume: { mediaId: 'M1', finalized: true } };
+    const out = await x.poll({ ctx, post: p, target: t, account });
+    assert.equal(out.state, 'published');
+    assert.deepEqual(out.warnings, undefined);
+    const path = (c: { url: string }) => new URL(c.url).pathname;
+    assert.deepEqual(calls.map(path), [
+      '/2/media/upload',
+      '/2/media/metadata',
+      '/2/media/upload/initialize', '/2/media/upload/S1/append', '/2/media/upload/S1/finalize', '/2/media/subtitles',
+      '/2/media/upload/initialize', '/2/media/upload/S2/append', '/2/media/upload/S2/finalize', '/2/media/subtitles',
+      '/2/tweets',
+    ]);
+    const bodies = calls.filter((c) => typeof c.body === 'string').map((c) => JSON.parse(String(c.body)));
+    assert.deepEqual(bodies[0], { id: 'M1', metadata: { alt_text: { text: '고양이가 춤춘다' } } });
+    assert.deepEqual(bodies[1], { media_type: 'text/srt', total_bytes: 35, media_category: 'subtitles' });
+    assert.deepEqual(bodies[2], { id: 'M1', media_category: 'TweetVideo', subtitles: { id: 'S1', language_code: 'KO', display_name: 'Korean' } });
+    assert.equal(bodies[3].media_type, 'text/vtt');
+    assert.deepEqual(bodies[4].subtitles, { id: 'S2', language_code: 'EN', display_name: 'English (US)' });
+  });
+
+  it('turns a failed extra into a warning, never sends it twice, and stops on a sign-in problem', async () => {
+    let tweet = 400;
+    let metadata = 400;
+    const { fetch, calls } = mockFetch([
+      ['GET', '/2/media/upload?', () => json({ data: { id: 'M1', processing_info: { state: 'succeeded' } } })],
+      ['POST', '/2/media/metadata', () => json({ detail: 'alt text not supported' }, metadata)],
+      ['POST', '/2/tweets', () => (tweet === 201 ? json({ data: { id: 'T1' } }, 201) : json({ detail: 'Duplicate content' }, tweet))],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    const mk = () => {
+      const { targets } = store.createPost(post(), [{ platform: 'x', account: 'main', options: { alt: 'cat' } }]);
+      return targets[0]!.id;
+    };
+    const id = mk();
+    const poll = () => x.poll({ ctx, post: post(), target: { ...store.getTarget(id)!, remoteId: 'M1', resume: { mediaId: 'M1', ...store.getTarget(id)!.resume } }, account });
+    await assert.rejects(poll(), (e: ProviderError) => e.kind === 'rejected');
+    tweet = 201;
+    const out = await poll();
+    assert.equal(out.state, 'published');
+    assert.deepEqual(out.warnings, ['X 대체 텍스트 실패: X: alt text not supported']);
+    assert.equal(calls.filter((c) => c.url.endsWith('/2/media/metadata')).length, 1, 'alt text is not sent again');
+
+    // An expired sign-in is not a "failed extra": it stops before the post, for reconnecting.
+    metadata = 401;
+    const id2 = mk();
+    await assert.rejects(x.poll({ ctx, post: post(), target: { ...store.getTarget(id2)!, remoteId: 'M1', resume: { mediaId: 'M1' } }, account }), (e: ProviderError) => e.kind === 'auth');
+    assert.equal(calls.filter((c) => c.url.endsWith('/2/tweets')).length, 2);
+    assert.deepEqual((store.getTarget(id2)!.resume as { extras?: string[] }).extras, [], 'tried again after reconnecting');
   });
 });
