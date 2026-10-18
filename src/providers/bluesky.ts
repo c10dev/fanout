@@ -97,8 +97,19 @@ async function xrpc<T>(
 
 function pdsFromDidDoc(doc: unknown): string | undefined {
   const services = (doc as { service?: Array<{ id?: string; type?: string; serviceEndpoint?: string }> } | undefined)?.service;
-  const endpoint = services?.find((s) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer')?.serviceEndpoint;
-  return endpoint === undefined ? undefined : httpsOnly(endpoint);
+  return services?.find((s) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer')?.serviceEndpoint;
+}
+
+/** Where the account's PDS is, per its DID document, if that is a server tokens may go to. */
+function securePds(ctx: ProviderContext, doc: unknown): string | undefined {
+  const endpoint = pdsFromDidDoc(doc);
+  if (endpoint === undefined) return undefined;
+  try {
+    return httpsOnly(endpoint);
+  } catch (err) {
+    ctx.log.warn((err as Error).message);
+    return undefined;
+  }
 }
 
 /** Session tokens go to this server on every call: never over plain http (except a local test server). */
@@ -109,7 +120,7 @@ export function httpsOnly(raw: string): string {
   } catch {
     throw new ProviderError('rejected', 'bluesky.bad_service', msg('Bluesky 서버 주소가 올바르지 않습니다: {url}', { url: raw }));
   }
-  if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+  if (url.protocol !== 'https:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
     throw new ProviderError('rejected', 'bluesky.insecure', msg('Bluesky 서버 주소는 https여야 합니다: {url}', { url: raw }));
   }
   return raw;
@@ -283,7 +294,7 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
       'com.atproto.server.createSession',
       { json: { identifier: handle, password } },
     );
-    const credentials: BlueskyCredentials = { pds: pdsFromDidDoc(s.didDoc) ?? service, did: s.did, handle: s.handle, accessJwt: s.accessJwt, refreshJwt: s.refreshJwt };
+    const credentials: BlueskyCredentials = { pds: securePds(ctx, s.didDoc) ?? service, did: s.did, handle: s.handle, accessJwt: s.accessJwt, refreshJwt: s.refreshJwt };
     if (s.emailConfirmed === false) ctx.log.warn(msg('Bluesky 계정 이메일이 인증되지 않아 영상을 올릴 수 없습니다. 앱에서 이메일 인증을 마치세요.'));
     return { platform: 'bluesky', name, credentials: { ...credentials }, profile: { handle: s.handle, username: s.handle, did: s.did } };
   },
@@ -291,6 +302,13 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
   async refresh(ctx, account) {
     const c = creds(account);
     if (jwtExpiry(c.accessJwt) - ctx.now().getTime() > 5 * 60_000) return account;
+    // Accounts connected before https was required may still point at a plain-http server: don't
+    // send the refresh token there, have the account reconnected instead.
+    try {
+      httpsOnly(c.pds);
+    } catch {
+      throw new ProviderError('auth', 'bluesky.insecure', msg('Bluesky 서버 주소가 https가 아닙니다({url}). https 주소로 다시 연결하세요', { url: c.pds }));
+    }
     const s = await xrpc<{ accessJwt: string; refreshJwt: string; handle: string; didDoc?: unknown }>(ctx, c.pds, 'com.atproto.server.refreshSession', {
       token: c.refreshJwt,
       post: true,
@@ -301,7 +319,8 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
     });
     const next: Account = {
       ...account,
-      credentials: { ...c, pds: pdsFromDidDoc(s.didDoc) ?? c.pds, accessJwt: s.accessJwt, refreshJwt: s.refreshJwt, handle: s.handle ?? c.handle },
+      // An insecure endpoint in the DID document keeps the known server; the new tokens are kept either way.
+      credentials: { ...c, pds: securePds(ctx, s.didDoc) ?? c.pds, accessJwt: s.accessJwt, refreshJwt: s.refreshJwt, handle: s.handle ?? c.handle },
     };
     // Only over the same session: the account may have been disconnected or reconnected meanwhile.
     ctx.store.saveAccountIf(next, (stored) => creds(stored).refreshJwt === c.refreshJwt);

@@ -81,6 +81,24 @@ describe('bluesky connect and refresh', () => {
     const env2 = makeCtx(bad.fetch, () => NOW);
     await assert.rejects(bluesky.refresh(env2.ctx, expiring), (e: ProviderError) => e.kind === 'auth' && e.code === 'bluesky.session_expired');
   });
+
+  it('never refreshes against a plain-http server, and keeps new tokens when the DID document points to one', async () => {
+    const expiring = { ...account, credentials: { ...account.credentials, accessJwt: jwt(NOW.getTime() + 60_000) } };
+    const none = mockFetch([]);
+    const old = { ...expiring, credentials: { ...expiring.credentials, pds: 'http://pds.lan:3000' } };
+    await assert.rejects(bluesky.refresh(makeCtx(none.fetch, () => NOW).ctx, old), (e: ProviderError) => e.kind === 'auth' && e.code === 'bluesky.insecure');
+    assert.equal(none.calls.length, 0, 'the refresh token never went out');
+
+    const didDoc = { service: [{ id: '#atproto_pds', type: 'AtprotoPersonalDataServer', serviceEndpoint: 'http://evil.example' }] };
+    const ok = mockFetch([['POST', 'com.atproto.server.refreshSession', () => json({ accessJwt: 'A2', refreshJwt: 'R2', handle: 'me.bsky.social', didDoc })]]);
+    const env = makeCtx(ok.fetch, () => NOW);
+    env.store.saveAccount(expiring);
+    const next = await bluesky.refresh(env.ctx, expiring);
+    const saved = env.store.getAccount('bluesky', expiring.name)!.credentials as { pds: string; refreshJwt: string };
+    assert.deepEqual([saved.pds, saved.refreshJwt], [(account.credentials as { pds: string }).pds, 'R2']);
+    assert.equal((next.credentials as { pds: string }).pds, saved.pds);
+    assert.ok(env.logs.some((l) => l.includes('https')));
+  });
 });
 
 describe('bluesky upload', () => {

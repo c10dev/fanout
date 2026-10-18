@@ -1,14 +1,16 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { importAsset } from '../src/core/assets.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, nextFreeSlot, planPost, render, Scanner, WatchConfigError, type WatchConfig } from '../src/core/inbox.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { fakeMedia, makeCtx } from './helpers.ts';
 
 const providers = providerMap();
 const NOW = new Date('2026-10-17T03:00:00Z');
+const MEDIA = mkdtempSync(join(tmpdir(), 'fanout-media-'));
 
 function folder(config?: WatchConfig): string {
   const dir = mkdtempSync(join(tmpdir(), 'fanout-watch-'));
@@ -153,6 +155,38 @@ describe('watch-folder captions and thumbnails', () => {
   });
 });
 
+describe('watch-folder files are copied when the post is made', () => {
+  it('uploads read fanout\'s copy, so swapping the original afterwards changes nothing', async () => {
+    const { store } = makeCtx();
+    const config: WatchConfig = { to: ['youtube'], options: { youtube: { privacy: 'unlisted', madeForKids: false } } };
+    const dir = folder(config);
+    writeFileSync(join(dir, 'a.vtt'), 'WEBVTT\n');
+    writeFileSync(join(dir, 'a.json'), JSON.stringify({ captions: { ko: 'a.vtt' } }));
+    const media = mkdtempSync(join(tmpdir(), 'fanout-media-'));
+    const r = await ingest({ mediaDir: media, dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: NOW });
+    assert.ok(r.ok);
+    const caption = store.getPost(r.postId)!.captions[0]!.path;
+    assert.ok(caption.startsWith(media), caption);
+    // The writer swaps the caption for a link to a private file while the upload waits.
+    const secret = join(mkdtempSync(join(tmpdir(), 'fanout-secret-')), 'id_rsa');
+    writeFileSync(secret, 'PRIVATE KEY');
+    rmSync(join(dir, 'a.vtt'));
+    symlinkSync(secret, join(dir, 'a.vtt'));
+    assert.equal(readFileSync(caption, 'utf8'), 'WEBVTT\n');
+  });
+
+  it('refuses a symlink or a hard link at the moment of copying', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fanout-assets-'));
+    const media = join(dir, 'media');
+    const outside = join(mkdtempSync(join(tmpdir(), 'fanout-secret-')), 'id_rsa');
+    writeFileSync(outside, 'PRIVATE KEY');
+    symlinkSync(outside, join(dir, 'link.vtt'));
+    linkSync(outside, join(dir, 'hard.vtt'));
+    assert.throws(() => importAsset('caption', join(dir, 'link.vtt'), media), /심볼릭 링크는 쓸 수 없습니다/);
+    assert.throws(() => importAsset('caption', join(dir, 'hard.vtt'), media), /하드 링크된 파일은 쓸 수 없습니다/);
+  });
+});
+
 describe('Scanner', () => {
   it('waits until a file is unchanged across two scans and old enough', () => {
     const dir = folder();
@@ -178,7 +212,7 @@ describe('ingest', () => {
     const dir = folder(BASE);
     const path = video(dir, 'ditto.mp4');
     writeFileSync(join(dir, 'ditto.json'), JSON.stringify({ vars: { song: 'Ditto' } }));
-    const r = await ingest({ dir, config: BASE, videoPath: path, providers, store, probe: async () => fakeMedia(), now: NOW });
+    const r = await ingest({ mediaDir: MEDIA, dir, config: BASE, videoPath: path, providers, store, probe: async () => fakeMedia(), now: NOW });
     assert.ok(r.ok);
     assert.equal(r.movedTo, join(dir, 'posted', 'ditto.mp4'));
     assert.ok(existsSync(join(dir, 'posted', 'ditto.json')));
@@ -193,7 +227,7 @@ describe('ingest', () => {
     const { store } = makeCtx();
     const dir = folder(BASE);
     const path = video(dir, 'nosong.mp4');
-    const r = await ingest({ dir, config: BASE, videoPath: path, providers, store, probe: async () => fakeMedia(), now: NOW });
+    const r = await ingest({ mediaDir: MEDIA, dir, config: BASE, videoPath: path, providers, store, probe: async () => fakeMedia(), now: NOW });
     assert.ok(!r.ok);
     assert.equal(r.movedTo, join(dir, 'failed', 'nosong.mp4'));
     assert.match(readFileSync(`${r.movedTo}.error.txt`, 'utf8'), /\{song\}/);
@@ -205,8 +239,8 @@ describe('ingest', () => {
     const config: WatchConfig = { to: ['youtube'], options: { youtube: { privacy: 'private', madeForKids: false } } };
     const dir = folder(config);
     const probe = async () => fakeMedia();
-    const first = await ingest({ dir, config, videoPath: video(dir, 'clip.mp4'), providers, store, probe, now: NOW });
-    const second = await ingest({ dir, config, videoPath: video(dir, 'clip.mp4', 60_000, 2), providers, store, probe, now: NOW });
+    const first = await ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, 'clip.mp4'), providers, store, probe, now: NOW });
+    const second = await ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, 'clip.mp4', 60_000, 2), providers, store, probe, now: NOW });
     assert.ok(first.ok && second.ok);
     assert.equal(second.movedTo, join(dir, 'posted', 'clip (2).mp4'));
   });
@@ -219,9 +253,9 @@ describe('duplicate videos', () => {
   it('skips platform accounts that already got the same video', async () => {
     const { store } = makeCtx();
     const dir = folder(config);
-    const first = await ingest({ dir, config: { ...config, to: ['youtube'] }, videoPath: video(dir, 'a.mp4'), providers, store, probe, now: NOW });
+    const first = await ingest({ mediaDir: MEDIA, dir, config: { ...config, to: ['youtube'] }, videoPath: video(dir, 'a.mp4'), providers, store, probe, now: NOW });
     assert.ok(first.ok);
-    const copy = await ingest({ dir, config, videoPath: video(dir, 'a-copy.mp4'), providers, store, probe, now: NOW });
+    const copy = await ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, 'a-copy.mp4'), providers, store, probe, now: NOW });
     assert.ok(copy.ok);
     if (copy.ok) {
       assert.deepEqual(copy.plan.targets.map((t) => t.platform), ['tiktok']);
@@ -232,22 +266,22 @@ describe('duplicate videos', () => {
   it('moves a video that went everywhere already to failed/, unless onDuplicate is "post"', async () => {
     const { store } = makeCtx();
     const dir = folder(config);
-    assert.ok((await ingest({ dir, config, videoPath: video(dir, 'b.mp4'), providers, store, probe, now: NOW })).ok);
-    const again = await ingest({ dir, config, videoPath: video(dir, 'b2.mp4'), providers, store, probe, now: NOW });
+    assert.ok((await ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, 'b.mp4'), providers, store, probe, now: NOW })).ok);
+    const again = await ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, 'b2.mp4'), providers, store, probe, now: NOW });
     assert.equal(again.ok, false);
     assert.match(again.movedTo, /failed/);
     assert.match(readFileSync(`${again.movedTo}.error.txt`, 'utf8'), /이미 올린 영상/);
-    const forced = await ingest({ dir, config: { ...config, onDuplicate: 'post' }, videoPath: video(dir, 'b3.mp4'), providers, store, probe, now: NOW });
+    const forced = await ingest({ mediaDir: MEDIA, dir, config: { ...config, onDuplicate: 'post' }, videoPath: video(dir, 'b3.mp4'), providers, store, probe, now: NOW });
     assert.ok(forced.ok);
   });
 
   it('ignores earlier attempts that failed', async () => {
     const { store } = makeCtx();
     const dir = folder(config);
-    const first = await ingest({ dir, config, videoPath: video(dir, 'c.mp4'), providers, store, probe, now: NOW });
+    const first = await ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, 'c.mp4'), providers, store, probe, now: NOW });
     assert.ok(first.ok);
     if (first.ok) for (const t of store.targetsForPost(first.postId)) store.transition(t.id, 'failed');
-    assert.ok((await ingest({ dir, config, videoPath: video(dir, 'c2.mp4'), providers, store, probe, now: NOW })).ok);
+    assert.ok((await ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, 'c2.mp4'), providers, store, probe, now: NOW })).ok);
   });
 });
 
@@ -293,7 +327,7 @@ describe('posting slots', () => {
     let fill = 0;
     const at = async (name: string) => {
       // Different bytes each time, or the duplicate check would skip them.
-      const r = await ingest({ dir, config, videoPath: video(dir, name, 60_000, ++fill), providers, store, probe, now });
+      const r = await ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, name, 60_000, ++fill), providers, store, probe, now });
       assert.ok(r.ok);
       return store.getPost(r.postId)!.scheduledAt;
     };
@@ -308,7 +342,7 @@ describe('posting slots', () => {
     const { store } = makeCtx();
     const config: WatchConfig = { to: ['youtube'], options: { youtube: { privacy: 'public', madeForKids: false } }, slots: ['19:00'] };
     const dir = folder(config);
-    const r = await ingest({ dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: local(17, 9) });
+    const r = await ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: local(17, 9) });
     assert.ok(r.ok);
     for (const t of store.targetsForPost(r.postId)) store.transition(t.id, 'canceled');
     assert.deepEqual(store.scheduledTimes(local(17, 0).toISOString()), []);
@@ -337,7 +371,7 @@ describe('posting slots, tenth review fixes', () => {
     // YouTube checks the schedule against the real clock, so the slot must really be ahead: tomorrow.
     const tomorrow = new Date(Date.now() + 86_400_000);
     const now = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 9);
-    const r = await ingest({ dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now });
+    const r = await ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now });
     assert.ok(r.ok);
     if (r.ok) {
       assert.deepEqual(r.plan.targets.map((t) => t.platform), ['tiktok']);
@@ -351,7 +385,7 @@ describe('posting slots, tenth review fixes', () => {
     const dir = folder(config);
     const taken = { mediaPath: '/x', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
     for (let d = 0; d < 121; d++) store.createPost({ ...taken, scheduledAt: new Date(2026, 9, 17 + d, 19).toISOString() }, [{ platform: 'tiktok', account: 'main', options: {} }]);
-    const r = await ingest({ dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: local(17, 9) });
+    const r = await ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: local(17, 9) });
     assert.ok(!r.ok);
     assert.match(readFileSync(`${r.movedTo}.error.txt`, 'utf8'), /빈 예약 슬롯/);
   });
@@ -384,7 +418,7 @@ describe('watch folder ingest, eleventh review fixes', () => {
     store.createPost = () => {
       throw new Error('SQLITE_FULL: database or disk is full');
     };
-    await assert.rejects(ingest({ dir, config, videoPath: path, providers, store, probe: async () => fakeMedia(), now: NOW }), /disk is full/);
+    await assert.rejects(ingest({ mediaDir: MEDIA, dir, config, videoPath: path, providers, store, probe: async () => fakeMedia(), now: NOW }), /disk is full/);
     assert.ok(existsSync(path) && existsSync(join(dir, 'clip.json')));
     assert.ok(!existsSync(join(dir, 'posted', 'clip.json')));
   });
@@ -400,7 +434,7 @@ describe('watch folder ingest, twelfth review fixes', () => {
     mkdirSync(join(dir, 'posted'));
     chmodSync(join(dir, 'posted'), 0o500);
     try {
-      await assert.rejects(ingest({ dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: NOW }), /쓸 수 없습니다/);
+      await assert.rejects(ingest({ mediaDir: MEDIA, dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: NOW }), /쓸 수 없습니다/);
       assert.equal(store.listPosts(10).length, 0);
     } finally {
       chmodSync(join(dir, 'posted'), 0o700);
@@ -418,7 +452,7 @@ describe('watch folder ingest, twelfth review fixes', () => {
       rmSync(path, { force: true }); // a sync client takes the file away right after the post is saved
       return out;
     }) as typeof store.transaction;
-    await assert.rejects(ingest({ dir, config, videoPath: path, providers, store, probe: async () => fakeMedia(), now: NOW }), /취소했습니다/);
+    await assert.rejects(ingest({ mediaDir: MEDIA, dir, config, videoPath: path, providers, store, probe: async () => fakeMedia(), now: NOW }), /취소했습니다/);
     const [post] = store.listPosts(10);
     assert.deepEqual(store.targetsForPost(post!.id).map((t) => t.state), ['canceled']);
   });

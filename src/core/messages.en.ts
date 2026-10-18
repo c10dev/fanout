@@ -583,4 +583,7 @@ export const MESSAGES_EN: Record<string, string> = {
   "{what}: 남은 한도가 없습니다. 지금 올리면 거부될 수 있습니다": "{what}: nothing left. Posting now may be refused",
   "{what}: 영상({size})이 남은 {remaining}보다 큽니다": "{what}: the video ({size}) is bigger than the {remaining} left",
   "{what}: 한도가 얼마 남지 않았습니다 ({used}/{total})": "{what}: nearly used up ({used}/{total})",
+  "심볼릭 링크는 쓸 수 없습니다: {path}": "Symbolic links can't be used: {path}",
+  "다른 곳에 하드 링크된 파일은 쓸 수 없습니다: {path}": "Files hard-linked elsewhere can't be used: {path}",
+  "Bluesky 서버 주소가 https가 아닙니다({url}). https 주소로 다시 연결하세요": "The Bluesky server address isn't https ({url}). Reconnect with an https address",
 };
