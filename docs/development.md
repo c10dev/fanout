@@ -79,4 +79,4 @@ scripts/it/mastodon.sh
 
 GitHub Actions의 `Integration` 워크플로가 매주, 수동 실행 때, 그리고 이 provider나 관련 코드가 바뀐 PR에서 두 스크립트를 돌립니다.
 
-`npm run build`는 `dist/`로 컴파일하고 대시보드 정적 파일을 복사합니다. `npm install` 때도 자동으로 실행됩니다(`prepare`). PR과 `main` 푸시마다 GitHub Actions([`.github/workflows/ci.yml`](../.github/workflows/ci.yml))가 ffmpeg를 설치한 Ubuntu·Node 24에서 typecheck, 테스트, 패키지 설치 확인, Docker 이미지 빌드를 실행합니다.
+`npm run build`는 `dist/`로 컴파일하고 대시보드 정적 파일을 복사합니다. `npm install` 때도 자동으로 실행됩니다(`prepare`). PR과 `main` 푸시마다 GitHub Actions([`.github/workflows/ci.yml`](../.github/workflows/ci.yml))가 ffmpeg를 설치한 Ubuntu·Node 24에서 typecheck, 테스트, 패키지 설치 확인, Docker 이미지 빌드를 실행합니다. 테스트는 시계를 400일 앞당겨 한 번 더 돌립니다(`scripts/shift-clock.mjs`). "미래" 날짜를 박아 두고 실제 시계와 비교하는 테스트는 그 날짜가 지나면 깨지기 때문입니다. 날짜는 `ctx.now()`나 지금 기준 상대값으로 쓰세요. 직접 돌리려면 `SHIFT_DAYS=400 NODE_OPTIONS=--import=./scripts/shift-clock.mjs npm test`.
