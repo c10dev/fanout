@@ -111,8 +111,10 @@ describe('tiktok publish', () => {
     ]);
     const { ctx } = makeCtx(fetch, () => NOW);
     const t = target({ mode: 'inbox' });
-    const out = await tiktok.publish({ ctx, post, target: t, account, mediaPath: file, media: fakeMedia(), saveResume: () => {} });
+    const saved: Array<Record<string, unknown>> = [];
+    const out = await tiktok.publish({ ctx, post, target: t, account, mediaPath: file, media: fakeMedia({ durationSec: 30.4 }), saveResume: (r) => saved.push(r) });
     assert.deepEqual(out, { state: 'processing', remoteId: 'v_inbox~1' });
+    assert.equal(saved.at(-1)!.durationSec, 30.4, 'kept to recognise the post if it is finished in the app');
     const initBody = JSON.parse(String(calls[0]!.body)) as { source_info: Record<string, unknown>; post_info?: unknown };
     assert.deepEqual(initBody.source_info, { source: 'FILE_UPLOAD', video_size: 2 * MB, chunk_size: 2 * MB, total_chunk_count: 1 });
     assert.equal(initBody.post_info, undefined);
