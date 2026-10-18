@@ -11,7 +11,8 @@ import type { Worker } from '../core/worker.ts';
 import { defaultAccountName } from '../core/inbox.ts';
 import { isShort } from '../providers/youtube.ts';
 import { currentLang, local, msg, translateDeep } from '../core/i18n.ts';
-import { addLimitWarnings, readLimits } from '../core/limits.ts';
+import { readLimits } from '../core/limits.ts';
+import { addLiveChecks } from '../core/livepreview.ts';
 import { assetProblem, type AssetKind } from '../core/assets.ts';
 
 // Model Context Protocol over stdio: newline-delimited JSON-RPC 2.0.
@@ -44,7 +45,7 @@ const TARGETS_SCHEMA = {
   minItems: 1,
   description:
     'Where to post. options per platform — youtube: {privacy: "public"|"unlisted"|"private" (required), madeForKids: boolean (required), categoryId?, playlistId?, notifySubscribers?}; ' +
-    'tiktok: {mode: "inbox"|"direct", and for direct: privacyLevel (required, from list_accounts), musicConsent: true (required), allowComment?, allowDuet?, allowStitch?, brandOrganic?, brandedContent?, caption?}; ' +
+    'tiktok: {mode: "inbox"|"direct", and for direct: privacyLevel (required; one the account allows — preview_post reports the allowed values, the max duration and interactions the account turned off), musicConsent: true (required), allowComment?, allowDuet?, allowStitch?, brandOrganic?, brandedContent?, caption?}; ' +
     'instagram: {caption?, shareToFeed?, thumbOffsetMs?, collaborators? (≤3 usernames), audioName?}; facebook: {caption?}; x: {text? (≤280 weighted; Korean counts double), paidPartnership?, replySettings?: "following"|"mentionedUsers"|"subscribers"|"verified"}; bluesky: {text? (≤300 chars), alt?, langs?}; mastodon: {visibility: "public"|"unlisted"|"private" (required), text?, alt?, language?, spoilerText?}; ' +
     'peertube: {privacy: "public"|"unlisted"|"private"|"internal" (required), channel? (name or id; default first channel), commentsPolicy?: "enabled"|"disabled"|"approval", nsfw?, downloadEnabled?, language?}.',
   items: {
@@ -304,7 +305,7 @@ export class McpServer {
       case 'preview_post': {
         const { input, targets, media } = await this.#postArgs(args);
         const previews = previewPost(store, providers, input, targets, media);
-        await addLimitWarnings(this.#deps.ctx, providers, previews, media.sizeBytes);
+        await addLiveChecks(this.#deps.ctx, providers, previews, { input, targets, media });
         return {
           targets: previews,
           // Shown so the user sees exactly which local files go out with the post.
@@ -314,6 +315,8 @@ export class McpServer {
       case 'create_post': {
         const { input, targets, media } = await this.#postArgs(args);
         const preview = previewPost(store, providers, input, targets, media);
+        // The account's live rules too (TikTok creator_info), so an agent can't create a post they refuse.
+        await addLiveChecks(this.#deps.ctx, providers, preview, { input, targets, media });
         const blocked = preview.filter((p) => p.errors.length);
         if (blocked.length) throw new ToolError(msg('올릴 수 없는 대상이 있어 게시하지 않았습니다:\n{blocked}', { blocked: blocked.map(describeBlocked).join('\n') }));
         const { post, targets: created } = createScheduledPost(store, providers, input, targets);
@@ -329,7 +332,7 @@ export class McpServer {
           const media = await this.#probe(p.mediaPath);
           if (args.dryRun === true) {
             const { preview } = planAddTargets(store, providers, p.id, targets, media);
-            await addLimitWarnings(this.#deps.ctx, providers, preview, media.sizeBytes);
+            await addLiveChecks(this.#deps.ctx, providers, preview, { input: p, targets, media });
             return { postId: p.id, targets: preview };
           }
           const created = addTargets(store, providers, p.id, targets, media);

@@ -180,6 +180,22 @@ async function creatorInfo(ctx: ProviderContext, account: Account): Promise<Crea
   return call<CreatorInfo>(ctx, account, '/post/publish/creator_info/query/', {});
 }
 
+/** The direct-post problems creator_info shows before anything is uploaded. */
+export function creatorIssues(info: CreatorInfo, opts: TikTokOptions, durationSec: number): Issue[] {
+  const issues: Issue[] = [];
+  if (opts.mode !== 'direct') return issues;
+  if (opts.privacyLevel && info.privacy_level_options && !info.privacy_level_options.includes(opts.privacyLevel)) {
+    issues.push({ severity: 'error', code: 'privacy', message: msg('이 계정이 허용하는 공개 범위: {allowed} (요청: {privacyLevel})', { allowed: info.privacy_level_options.join(', '), privacyLevel: opts.privacyLevel }) });
+  }
+  const max = info.max_video_post_duration_sec;
+  if (max !== undefined && durationSec > max) {
+    issues.push({ severity: 'error', code: 'duration', message: msg('이 크리에이터의 최대 길이는 {max}초입니다 (영상 {length}초)', { max, length: durationSec.toFixed(0) }) });
+  }
+  const off = [info.comment_disabled && opts.allowComment && msg('댓글'), info.duet_disabled && opts.allowDuet && msg('듀엣'), info.stitch_disabled && opts.allowStitch && msg('이어찍기')].filter(Boolean);
+  if (off.length) issues.push({ severity: 'warning', code: 'interactions', message: msg('계정 설정에서 꺼져 있어 적용되지 않습니다: {off}', { off: off.join(', ') }) });
+  return issues;
+}
+
 async function init(
   ctx: ProviderContext,
   account: Account,
@@ -481,6 +497,23 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
   async poll({ ctx, target, account }): Promise<PollOutcome> {
     const resume = (target.resume ?? {}) as { username?: string };
     return statusOutcome(target.remoteId, await fetchStatus(ctx, account, target.remoteId), resume.username);
+  },
+
+  async accountRules({ ctx, account }) {
+    const info = await creatorInfo(ctx, await tiktok.refresh(ctx, account));
+    return {
+      username: info.creator_username,
+      nickname: info.creator_nickname,
+      privacyOptions: info.privacy_level_options,
+      disabled: [info.comment_disabled && 'allowComment', info.duet_disabled && 'allowDuet', info.stitch_disabled && 'allowStitch'].filter((x): x is string => Boolean(x)),
+      maxDurationSec: info.max_video_post_duration_sec,
+    };
+  },
+
+  async previewChecks({ ctx, account, target, media }) {
+    const opts = target.options as unknown as TikTokOptions;
+    if (opts.mode !== 'direct') return [];
+    return creatorIssues(await creatorInfo(ctx, await tiktok.refresh(ctx, account)), opts, media.durationSec);
   },
 
   async doctor({ ctx, account, live }): Promise<DoctorCheck[]> {

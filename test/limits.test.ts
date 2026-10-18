@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import { openContext } from '../src/core/context.ts';
 import { rotationContext } from '../src/core/http.ts';
 import { addLimitWarnings, readLimits } from '../src/core/limits.ts';
+import { addLiveChecks } from '../src/core/livepreview.ts';
 import type { ProviderContext } from '../src/core/provider.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { nextPacificMidnight, pacificDay } from '../src/providers/youtube.ts';
@@ -158,6 +159,30 @@ describe('posting limits', () => {
     const unread = previews();
     await addLimitWarnings(ctx, providerMap(), unread, 1e6);
     assert.deepEqual(unread.map((p) => p.warnings), [[], [], []]);
+  });
+
+  it('previews add the account\'s live rule checks, and ignore ones that can\'t be read', async () => {
+    const strict = {
+      async previewChecks() {
+        return [{ severity: 'error', code: 'privacy', message: 'not allowed' }, { severity: 'warning', code: 'x', message: 'heads up' }];
+      },
+    };
+    const broken = {
+      async previewChecks() {
+        throw new Error('offline');
+      },
+    };
+    const { ctx, store } = makeCtx();
+    store.saveAccount({ platform: 'strict', name: 'main', credentials: {}, profile: {} });
+    store.saveAccount({ platform: 'broken', name: 'main', credentials: {}, profile: {} });
+    const previews = [
+      { platform: 'strict', account: 'main', warnings: [] as string[], errors: [] as string[], verdict: 'as_is' },
+      { platform: 'broken', account: 'main', warnings: [] as string[], errors: [] as string[], verdict: 'as_is' },
+    ];
+    const input = { mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
+    const targets = previews.map((p) => ({ platform: p.platform, account: p.account, options: {} }));
+    await addLiveChecks(ctx, new Map([['strict', strict as never], ['broken', broken as never]]), previews, { input, targets, media: { ...({} as never), sizeBytes: 1 } as never });
+    assert.deepEqual(previews.map((p) => [p.verdict, p.errors, p.warnings]), [['blocked', ['not allowed'], ['heads up']], ['as_is', [], []]]);
   });
 
   it('fanout limits prints them in FANOUT_LANG', () => {

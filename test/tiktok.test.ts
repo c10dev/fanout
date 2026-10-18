@@ -4,7 +4,7 @@ import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
 import { withTimeout } from '../src/core/posting.ts';
-import { captionFor, chunkPlan, statusOutcome, tiktok, tiktokError } from '../src/providers/tiktok.ts';
+import { creatorIssues, captionFor, chunkPlan, statusOutcome, tiktok, tiktokError } from '../src/providers/tiktok.ts';
 import { fakeMedia, json, makeCtx, mockFetch, slowFetch, tempFile } from './helpers.ts';
 
 const MB = 1024 * 1024;
@@ -44,6 +44,15 @@ describe('tiktok options', () => {
     const caption = (text: string) => tiktok.validate(post, target({ mode: 'direct', privacyLevel: 'SELF_ONLY', musicConsent: true, caption: text }), fakeMedia()).filter((i) => i.code === 'caption');
     assert.deepEqual(caption('😀'.repeat(1100)), [], '2200 units');
     assert.equal(caption('😀'.repeat(1101)).length, 1, '2202 units, though only 1101 characters');
+  });
+
+  it('checks a direct post against the account\'s own rules before anything uploads', () => {
+    const info = { privacy_level_options: ['SELF_ONLY', 'FOLLOWER_OF_CREATOR'] as never, max_video_post_duration_sec: 60, comment_disabled: true };
+    const direct = { mode: 'direct' as const, privacyLevel: 'PUBLIC_TO_EVERYONE' as never, allowComment: true };
+    const issues = creatorIssues(info, direct, 90);
+    assert.deepEqual(issues.map((i) => [i.code, i.severity]), [['privacy', 'error'], ['duration', 'error'], ['interactions', 'warning']]);
+    assert.deepEqual(creatorIssues(info, { ...direct, privacyLevel: 'SELF_ONLY' as never, allowComment: false }, 30), []);
+    assert.deepEqual(creatorIssues(info, { mode: 'inbox' } as never, 90), [], 'inbox uploads are finished in the app');
   });
 
   it('waits out the daily post cap instead of failing', () => {

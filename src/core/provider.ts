@@ -56,6 +56,16 @@ export interface StatsArgs {
   target: Target & { remoteId: string };
 }
 
+export interface AccountRules {
+  username?: string;
+  nickname?: string;
+  /** Visibility values this account may post with (platform values, e.g. TikTok privacy levels). */
+  privacyOptions?: string[];
+  /** Option names the account's own settings turn off (e.g. allowComment). */
+  disabled?: string[];
+  maxDurationSec?: number;
+}
+
 /** One posting limit of an account, as far as the platform (or fanout's own count) tells. */
 export interface Limit {
   /** What is counted, as a message ("하루 업로드 (프로젝트 전체)"). */
@@ -149,6 +159,15 @@ export interface Provider {
   publish(args: PublishArgs): Promise<PublishOutcome>;
   poll(args: PollArgs): Promise<PollOutcome>;
   doctor(args: DoctorArgs): Promise<DoctorCheck[]>;
+
+  /**
+   * The account's own posting rules as the platform reports them (TikTok creator_info): who it
+   * posts as, which visibility values it allows, which interactions its settings turn off, how
+   * long a video may be. The dashboard shapes its form from them.
+   */
+  accountRules?(args: { ctx: ProviderContext; account: Account }): Promise<AccountRules>;
+  /** Checks of a planned post that need the account's live settings; run at preview, like limits. */
+  previewChecks?(args: { ctx: ProviderContext; account: Account; post: Post; target: Target; media: MediaInfo }): Promise<Issue[]>;
 
   /** Posting limits of the account right now (daily uploads, storage). Omit when the platform has none to read. */
   limits?(args: { ctx: ProviderContext; account: Account }): Promise<Limit[]>;
