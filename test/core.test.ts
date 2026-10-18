@@ -11,6 +11,13 @@ import { makeCtx } from './helpers.ts';
 const POST: PostInput = { mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
 
 describe('state machine', () => {
+  it('keeps the database file to its owner', async () => {
+    const { statSync } = await import('node:fs');
+    const { home, store } = makeCtx();
+    store.saveAccount({ platform: 'x', name: 'main', credentials: {}, profile: {} });
+    assert.equal(statSync(join(home, 'fanout.db')).mode & 0o777, 0o600);
+  });
+
   it('allows the happy path and handoff', () => {
     assert.ok(canTransition('queued', 'transcoding'));
     assert.ok(canTransition('transcoding', 'uploading'));

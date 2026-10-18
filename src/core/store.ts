@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { chmodSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import type { SecretBox } from './crypto.ts';
 import { assertTransition } from './state.ts';
@@ -131,6 +132,15 @@ export class Store {
     // Other fanout processes (dashboard, CLI, watch, MCP) write to the same file: wait for their
     // write transactions instead of failing right after a platform side effect.
     this.#db = new DatabaseSync(path, { timeout: 10_000 });
+    // Post records and upload session URLs aren't encrypted: keep the file (and the WAL and SHM
+    // files SQLite creates with the same mode) to the owner, even in a home that already existed.
+    if (path !== ':memory:') {
+      try {
+        chmodSync(path, 0o600);
+      } catch {
+        // Not ours to change (e.g. a read-only mount); the home directory is still 0700.
+      }
+    }
     this.#db.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     this.#db.exec(SCHEMA);
     this.#migrate();

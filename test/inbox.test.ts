@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -113,6 +113,43 @@ describe('planPost', () => {
     assert.throws(() => planPost({ ...base, config: BASE, sidecar: {} }), /\{song\}/);
     assert.throws(() => planPost({ ...base, config: { to: ['myspace'] }, sidecar: {} }), /myspace/);
     assert.throws(() => planPost({ ...base, config: { to: ['youtube'], captions: { ko: 'nope.srt' } }, sidecar: {} }), WatchConfigError);
+  });
+});
+
+describe('watch-folder captions and thumbnails', () => {
+  // Sidecars come from whoever can write to the folder: only small caption/image files inside it.
+  const plan = (dir: string, sidecar: Record<string, unknown>) =>
+    planPost({ videoPath: video(dir, 'a.mp4'), dir, config: { to: ['youtube'], options: { youtube: { privacy: 'unlisted', madeForKids: false } } }, sidecar, media: fakeMedia(), providers, now: NOW });
+
+  it('takes files inside the folder', () => {
+    const dir = folder();
+    mkdirSync(join(dir, 'subs'));
+    writeFileSync(join(dir, 'subs', 'a.ko.srt'), '1\n00:00:00,000 --> 00:00:01,000\n안녕\n');
+    writeFileSync(join(dir, 'cover.jpg'), Buffer.alloc(100));
+    const p = plan(dir, { captions: { ko: 'subs/a.ko.srt' }, thumbnail: 'cover.jpg' });
+    assert.equal(p.input.captions[0]!.path, join(realpathSync(dir), 'subs', 'a.ko.srt'));
+    assert.equal(p.input.thumbnailPath, join(realpathSync(dir), 'cover.jpg'));
+  });
+
+  it('refuses paths outside the folder, however they get there', () => {
+    const dir = folder();
+    const outside = mkdtempSync(join(tmpdir(), 'fanout-secret-'));
+    writeFileSync(join(outside, 'id_rsa.srt'), 'PRIVATE KEY');
+    symlinkSync(join(outside, 'id_rsa.srt'), join(dir, 'link.srt'));
+    assert.throws(() => plan(dir, { captions: { en: join(outside, 'id_rsa.srt') } }), /captions\.en: 감시 폴더 안의 상대 경로만/);
+    assert.throws(() => plan(dir, { captions: { en: `../${outside.split('/').pop()}/id_rsa.srt` } }), /captions\.en: 감시 폴더 밖의 파일은/);
+    assert.throws(() => plan(dir, { captions: { en: 'link.srt' } }), /감시 폴더 밖의 파일은/, 'a symlink out');
+    assert.throws(() => plan(dir, { thumbnail: '/etc/hostname' }), /thumbnail: 감시 폴더 안의 상대 경로만/);
+  });
+
+  it('refuses files that are not what they claim', () => {
+    const dir = folder();
+    writeFileSync(join(dir, 'id_rsa'), 'PRIVATE KEY');
+    writeFileSync(join(dir, 'big.png'), Buffer.alloc(3 * 1024 * 1024));
+    mkdirSync(join(dir, 'dir.srt'));
+    assert.throws(() => plan(dir, { captions: { en: 'id_rsa' } }), /captions\.en: \.srt, \.vtt.* 파일만 받습니다/);
+    assert.throws(() => plan(dir, { thumbnail: 'big.png' }), /thumbnail: 2MB 이하여야/);
+    assert.throws(() => plan(dir, { captions: { en: 'dir.srt' } }), /일반 파일이 아닙니다/);
   });
 });
 

@@ -283,6 +283,13 @@ describe('dashboard server', () => {
     assert.match(((await res.json()) as { error: string }).error, /대상 없음/);
   });
 
+  it('answers malformed percent-encoding with 400, and a wrong token with 401', async () => {
+    const res = await fetch(`${base}/api/media`, { method: 'POST', headers: { ...auth, 'x-filename': '%E0%A4%A' }, body: Buffer.alloc(16) });
+    assert.equal(res.status, 400);
+    assert.equal((await fetch(`${base}/api/posts`, { headers: { 'x-fanout-token': 'x' } })).status, 401);
+    assert.equal((await fetch(`${base}/api/posts`, { headers: { 'x-fanout-token': `${auth['x-fanout-token']}x` } })).status, 401);
+  });
+
   it('saves, lists and deletes presets', async () => {
     const put = (name: string, body: unknown) => fetch(`${base}/api/presets/${encodeURIComponent(name)}`, { method: 'PUT', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify(body) });
     assert.equal((await put('빈 것', { targets: [] })).status, 400);

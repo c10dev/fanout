@@ -31,7 +31,7 @@ npm 12 blocks installs from git by default, hence `--allow-git=all` (not needed 
 docker compose up -d
 ```
 
-The dashboard opens at http://127.0.0.1:8780/ and data lives in the `fanout-data` volume. The compose file publishes the port on the host's 127.0.0.1 only and sets `FANOUT_ASSUME_LOCAL=1`, which keeps the settings tab available inside the container. Don't set it if the port is reachable from other machines; use `FANOUT_DASHBOARD_TOKEN` instead.
+The dashboard opens at http://127.0.0.1:8780/ and data lives in the `fanout-data` volume. The compose file publishes the port on the host's 127.0.0.1 only and sets `FANOUT_ASSUME_LOCAL=1`, which keeps the settings tab available inside the container. Don't set it if the port is reachable from other machines; use `FANOUT_DASHBOARD_TOKEN` instead. With it set, other containers on the same Docker network can also reach the dashboard without a token, so keep fanout on its own network as the compose file does.
 
 **From source**
 
@@ -61,7 +61,7 @@ The CLI, its logs and the MCP server speak Korean by default; set `FANOUT_LANG=e
 
 ## Ways to use it
 
-- **Web dashboard** (`fanout serve`): drag-and-drop upload with per-platform verdicts, a preview of exactly which account and visibility each post will use before anything uploads, a live status board with retry, per-platform reactions (views, likes, comments), a combined comments panel with replies, editing and deletion, and a settings tab for app registration, account connection and checks. Loopback-only by default, per-start API token, Host-header check against DNS rebinding. The dashboard follows your browser language (English or Korean) with a switch in the header, and the server's messages (platform errors, preview warnings, checks, setup guides) follow it too.
+- **Web dashboard** (`fanout serve`): drag-and-drop upload with per-platform verdicts, a preview of exactly which account and visibility each post will use before anything uploads, a live status board with retry, per-platform reactions (views, likes, comments), a combined comments panel with replies, editing and deletion, a remaining-limits card (uploads per day, posts per 24 hours, storage), and a settings tab for app registration, account connection and checks. Loopback-only by default, per-start API token, Host-header check against DNS rebinding. The dashboard follows your browser language (English or Korean) with a switch in the header, and the server's messages (platform errors, preview warnings, checks, setup guides) follow it too.
 - **Watch folder** (`fanout watch <dir>`): drop videos into a folder and they're posted according to `fanout.watch.json`, with per-video overrides in a sidecar JSON.
 - **AI agents over MCP** (`fanout mcp`): tools `list_accounts`, `check_video`, `preview_post`, `create_post`, `add_to_post`, `get_post_status`, `get_post_stats`, `get_limits`, `get_post_comments`, `reply_to_comment`, `update_post`, `cancel_target`, `retry_target`. Register with `claude mcp add fanout -- fanout mcp`.
 - **CLI**: everything above from the terminal (`fanout help`).

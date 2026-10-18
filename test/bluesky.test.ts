@@ -6,7 +6,7 @@ import { describe, it } from 'node:test';
 import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
-import { bluesky, facets, graphemes, jwtExpiry, postText } from '../src/providers/bluesky.ts';
+import { bluesky, facets, graphemes, httpsOnly, jwtExpiry, postText } from '../src/providers/bluesky.ts';
 import { fakeMedia, json, makeCtx, mockFetch, tempFile } from './helpers.ts';
 
 const NOW = new Date('2026-10-17T03:00:00Z');
@@ -22,6 +22,13 @@ const post = (o: Partial<Post> = {}): Post => ({ id: 'p', createdAt: '', mediaPa
 const target = (options: Record<string, unknown> = {}, resume?: Record<string, unknown>): Target => ({ id: 't', postId: 'p', platform: 'bluesky', account: 'main', options, state: 'uploading', warnings: [], attempts: 1, updatedAt: '', resume });
 
 describe('bluesky text', () => {
+  it('sends session tokens only over https (or to a local test server)', () => {
+    assert.equal(httpsOnly('https://pds.example'), 'https://pds.example');
+    assert.equal(httpsOnly('http://localhost:2583'), 'http://localhost:2583');
+    assert.throws(() => httpsOnly('http://pds.example'), /https/);
+    assert.throws(() => httpsOnly('not a url'), /올바르지 않습니다/);
+  });
+
   it('counts graphemes, not code units', () => {
     assert.equal(graphemes('👍🏽한글'), 3);
   });
