@@ -97,12 +97,12 @@ const ERROR_HINTS: Record<string, string> = {
   duration_exceeded: msg('이 크리에이터가 올릴 수 있는 최대 길이를 넘었습니다.'),
 };
 
-export function tiktokError(status: number, body: TikTokEnvelope<unknown> | undefined): ProviderError {
+export function tiktokError(status: number, body: TikTokEnvelope<unknown> | undefined, now = new Date()): ProviderError {
   const code = body?.error?.code ?? `http_${status}`;
   const kind = ERROR_KINDS[code] ?? (status >= 400 ? kindForStatus(status) : 'rejected');
   const hint = ERROR_HINTS[code];
   // The account's daily cap (all apps together): try again in a few hours rather than fail.
-  const retryAt = code === 'spam_risk_too_many_posts' ? new Date(Date.now() + 3 * 3600_000) : undefined;
+  const retryAt = code === 'spam_risk_too_many_posts' ? new Date(now.getTime() + 3 * 3600_000) : undefined;
   return new ProviderError(kind, `tiktok.${code}`, `${body?.error?.message || code}${hint ? ` — ${hint}` : ''}`, code, { retryAt });
 }
 
@@ -114,7 +114,7 @@ async function call<T>(ctx: ProviderContext, account: Account, path: string, bod
     body: JSON.stringify(body),
   });
   const parsed = (await jsonOr(res, undefined)) as TikTokEnvelope<T> | undefined;
-  if (!res.ok || (parsed?.error?.code && parsed.error.code !== 'ok')) throw tiktokError(res.status, parsed);
+  if (!res.ok || (parsed?.error?.code && parsed.error.code !== 'ok')) throw tiktokError(res.status, parsed, ctx.now());
   return parsed?.data as T;
 }
 

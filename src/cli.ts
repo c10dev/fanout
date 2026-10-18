@@ -470,8 +470,11 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
     const before = prior.get(`${t.platform}/${t.account}`)?.[0];
     if (before) console.log(`      ⚠ ${local(describePrior(before))}`);
   }
-  for (const e of limitNotes.flatMap((n) => n.errors.map((e) => `${n.platform}/${n.account}: ${e}`))) console.log(`  ✗ ${local(e)}`);
+  const blockers = limitNotes.flatMap((n) => n.errors.map((e) => `${n.platform}/${n.account}: ${e}`));
+  for (const e of blockers) console.log(`  ✗ ${local(e)}`);
   for (const w of new Set(limitNotes.flatMap((n) => n.warnings.map((w) => `${n.platform}/${n.account}: ${w}`)))) console.log(`  ⚠ ${local(w)}`);
+  // The account itself refuses these (e.g. a TikTok privacy level it doesn't allow): don't create the post.
+  if (blockers.length) return 1;
   if (!args.flags.yes && !(await confirm(msg('이대로 업로드할까요?')))) return 1;
 
   const { post } = createScheduledPost(ctx.store, deps.providers, input, targets);

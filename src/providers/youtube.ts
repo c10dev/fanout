@@ -157,11 +157,22 @@ async function api<T>(ctx: ProviderContext, account: Account, path: string, init
     ...init,
     headers: { authorization: `Bearer ${creds(account).accessToken}`, ...(init.headers as Record<string, string>) },
   });
-  return jsonOrThrow<T>(res, 'youtube', describeGoogle);
+  return jsonOrThrow<T>(res, 'youtube', describeGoogle).catch((err: unknown) => {
+    // The daily quota covers every call (status checks included): say when it comes back.
+    if (err instanceof ProviderError && err.platformCode === 'quotaExceeded') {
+      throw new ProviderError(err.kind, err.code, err.message, err.platformCode, { retryAt: quotaReset(ctx.now()) });
+    }
+    throw err;
+  });
+}
+
+/** Five minutes after YouTube's daily quota resets (midnight Pacific). */
+function quotaReset(now: Date): Date {
+  return new Date(nextPacificMidnight(now).getTime() + 5 * 60_000);
 }
 
 /** Classify a failed upload response; quota and per-channel limits are not retryable today. */
-async function uploadError(res: Response): Promise<ProviderError> {
+async function uploadError(res: Response, now = new Date()): Promise<ProviderError> {
   const text = await res.text();
   let parsed: GoogleError | undefined;
   try {
@@ -172,7 +183,7 @@ async function uploadError(res: Response): Promise<ProviderError> {
   const { code, message } = describeGoogle(parsed);
   if (code === 'quotaExceeded' || code === 'uploadLimitExceeded') {
     // Daily caps reset at midnight Pacific time: try again just after.
-    const retryAt = new Date(nextPacificMidnight(new Date()).getTime() + 5 * 60_000);
+    const retryAt = quotaReset(now);
     return new ProviderError('rejected', 'youtube.quota', msg('YouTube 업로드 한도 초과 ({code}). 태평양 시간 자정에 초기화됩니다.', { code }), code, { retryAt });
   }
   if (code === 'rateLimitExceeded') return new ProviderError('retryable', 'youtube.rate_limit', message ?? code, code);
@@ -243,7 +254,7 @@ async function querySession(
   if (res.status === 308) return { offset: nextOffset(res.headers.get('range')) };
   if (res.status === 200 || res.status === 201) return { video: (await res.json()) as VideoResource };
   if (res.status === 404 || res.status === 410) return { expired: true };
-  throw await uploadError(res);
+  throw await uploadError(res, ctx.now());
 }
 
 /** `Range: bytes=0-524287` → 524288. No header means nothing was stored yet. */
@@ -265,7 +276,7 @@ async function startSession(ctx: ProviderContext, account: Account, post: Post, 
     },
     body: JSON.stringify(buildMetadata(post, opts)),
   });
-  if (!res.ok) throw await uploadError(res);
+  if (!res.ok) throw await uploadError(res, ctx.now());
   const location = res.headers.get('location');
   if (!location) throw new ProviderError('retryable', 'youtube.no_session', msg('YouTube가 업로드 세션 URI를 돌려주지 않았습니다'));
   return location;
@@ -298,7 +309,7 @@ async function uploadBytes(
       continue;
     }
     if (res.status === 200 || res.status === 201) return (await res.json()) as VideoResource;
-    throw await uploadError(res);
+    throw await uploadError(res, ctx.now());
   }
   // All bytes acknowledged but no final response: ask the session.
   const state = await querySession(ctx, account, sessionUri, size);
@@ -645,7 +656,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
           const used = ctx.store.getUsage('youtube', 'project', day);
           if (used >= DAILY_UPLOADS) {
             throw new ProviderError('rejected', 'youtube.quota', msg('오늘 업로드 {used}/{DAILY_UPLOADS}회를 이미 썼습니다 (로컬 집계)', { used, DAILY_UPLOADS }), undefined, {
-              retryAt: new Date(nextPacificMidnight(ctx.now()).getTime() + 5 * 60_000),
+              retryAt: quotaReset(ctx.now()),
             });
           }
           sessionUri = await startSession(ctx, account, post, opts, size);
@@ -814,7 +825,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
   async remove({ ctx, account, target }) {
     const res = await ctx.fetch(`${API}/videos?id=${target.remoteId}`, { method: 'DELETE', headers: { authorization: `Bearer ${creds(account).accessToken}` } });
     if (res.ok || res.status === 404) return;
-    throw await uploadError(res);
+    throw await uploadError(res, ctx.now());
   },
 
   // videos.update replaces the whole snippet, so start from the current one (title and categoryId are

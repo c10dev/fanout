@@ -21,6 +21,13 @@ const COLLABORATORS_MAX = 3;
 const MENTIONS_MAX = 20;
 const USERNAME = /^[A-Za-z0-9._]{1,30}$/;
 
+/** Collaborators as a list, also when given as "alice, bob" (MCP, watch-folder JSON). */
+function collaboratorsOf(o: InstagramOptions): string[] {
+  const raw = o.collaborators as unknown;
+  const list = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? raw.split(',') : [];
+  return list.map((u) => u.trim().replace(/^@/, '')).filter(Boolean);
+}
+
 const CAPTION_MAX = 2200;
 const HASHTAG_MAX = 30;
 
@@ -79,9 +86,9 @@ export const instagram: Provider = {
     if (hashtags > HASHTAG_MAX) issues.push({ severity: 'error', code: 'hashtags', message: msg('Instagram 해시태그는 {HASHTAG_MAX}개 이하 (현재 {hashtags})', { HASHTAG_MAX, hashtags }) });
     const mentions = caption.match(/(^|[^\w@])@[A-Za-z0-9._]+/g)?.length ?? 0;
     if (mentions > MENTIONS_MAX) issues.push({ severity: 'error', code: 'mentions', message: msg('Instagram 캡션의 @멘션은 {MENTIONS_MAX}개 이하 (현재 {mentions})', { MENTIONS_MAX, mentions }) });
-    const collaborators = o.collaborators ?? [];
+    const collaborators = collaboratorsOf(o);
     if (collaborators.length > COLLABORATORS_MAX) issues.push({ severity: 'error', code: 'collaborators', message: msg('Instagram 공동 작업자는 {COLLABORATORS_MAX}명까지', { COLLABORATORS_MAX }) });
-    const bad = collaborators.filter((u) => !USERNAME.test(u.replace(/^@/, '')));
+    const bad = collaborators.filter((u) => !USERNAME.test(u));
     if (bad.length) issues.push({ severity: 'error', code: 'collaborators', message: msg('Instagram 사용자 이름이 아닙니다: {names}', { names: bad.join(', ') }) });
     const ratio = media.video.width / media.video.height;
     if (Math.abs(ratio - 9 / 16) > 0.02) {
@@ -112,7 +119,7 @@ export const instagram: Provider = {
       caption: metaCaption(post, o.caption),
       share_to_feed: o.shareToFeed,
       thumb_offset: o.thumbOffsetMs,
-      collaborators: o.collaborators?.length ? JSON.stringify(o.collaborators.map((u) => u.replace(/^@/, ''))) : undefined,
+      collaborators: collaboratorsOf(o).length ? JSON.stringify(collaboratorsOf(o)) : undefined,
       audio_name: o.audioName,
       // Self-disclosure of AI-generated or altered content, as --ai does on YouTube and TikTok.
       is_ai_generated: post.containsSyntheticMedia ? true : undefined,

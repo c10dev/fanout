@@ -253,7 +253,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       // Long posts need a Premium tier. Known to be without one: stop here, before the upload is paid for.
       const tier = account ? creds(account).subscriptionType : undefined;
       if (tier === 'None') {
-        issues.push({ severity: 'error', code: 'text', message: msg('X 글이 {len}(가중치) / {TEXT_MAX}입니다. 이 계정은 X Premium이 아니라 거부됩니다 — options.text로 줄이세요', { len, TEXT_MAX }) });
+        issues.push({ severity: 'error', code: 'text', message: msg('X 글이 {len}(가중치) / {TEXT_MAX}입니다. 이 계정은 X Premium이 아니라 거부됩니다 — options.text로 줄이세요 (Premium으로 바꿨다면 fanout doctor x로 다시 확인)', { len, TEXT_MAX }) });
       } else if (tier === undefined) {
         issues.push({ severity: 'warning', code: 'text', message: msg('X 글이 {len}(가중치) / {TEXT_MAX}입니다. Premium이 아니면 거부됩니다 — options.text로 줄이세요', { len, TEXT_MAX }) });
       }
