@@ -88,12 +88,34 @@ describe('runner', () => {
   it('waits for a daily limit to reset instead of failing, without counting an attempt', async () => {
     const reset = new Date('2026-10-18T07:05:00Z');
     const limit = new ProviderError('rejected', 'youtube.quota', 'used up', 'quotaExceeded', { retryAt: reset });
-    const { deps, id } = setup(fakeProvider({ publish: async () => Promise.reject(limit) }));
+    const { deps, store, id } = setup(fakeProvider({ publish: async () => Promise.reject(limit) }));
     const t = await step(deps, id);
     assert.equal(t.state, 'queued');
     assert.equal(t.notBefore, reset.toISOString());
-    assert.equal(t.attempts, 1, 'the uploading attempt stays as it was, not one more');
+    assert.equal(t.attempts, 0, 'the attempt entering uploading counted is given back');
     assert.equal(t.errorCode, 'youtube.quota (quotaExceeded)');
+    // Days of waiting never use up the retries a later network error needs.
+    for (let day = 0; day < 4; day++) {
+      store.updateTarget(id, { notBefore: undefined });
+      assert.equal((await step(deps, id)).attempts, 0);
+    }
+  });
+
+  it('keeps the uploaded video when only its status check hits the limit', async () => {
+    const limit = new ProviderError('rejected', 'youtube.http_403', 'quota', 'quotaExceeded', { retryAt: new Date('2026-10-18T07:05:00Z') });
+    const { deps, id } = setup(fakeProvider({ poll: async () => Promise.reject(limit) }));
+    const t = await step(deps, await step(deps, id).then((x) => x.id));
+    assert.equal(t.state, 'processing');
+    assert.equal(t.remoteId, 'R1', 'a retry must not upload it again');
+  });
+
+  it('does not wait past its deadline for a target parked until later', async () => {
+    const later = new Date(Date.now() + 3 * 3600_000).toISOString();
+    const { deps, store, id } = setup(fakeProvider({}));
+    store.updateTarget(id, { notBefore: later });
+    const started = Date.now();
+    await settle(deps, [id], { pollIntervalMs: 5, timeoutMs: 2_000 });
+    assert.ok(Date.now() - started < 1_000, `${Date.now() - started} ms`);
   });
 
   it('marks auth errors as needs_reauth and keeps the platform code', async () => {

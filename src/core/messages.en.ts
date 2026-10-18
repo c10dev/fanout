@@ -590,7 +590,7 @@ export const MESSAGES_EN: Record<string, string> = {
   "{seconds}초 안에 답이 없습니다": "No answer within {seconds} s",
   "{what}: 남은 한도가 없습니다 ({note}). 지금 올리면 거부될 수 있습니다": "{what}: nothing left ({note}). Posting now may be refused",
   "영상 파일이 없습니다: {path}": "The video file is missing: {path}",
-  "X 글이 {len}(가중치) / {TEXT_MAX}입니다. 이 계정은 X Premium이 아니라 거부됩니다 — options.text로 줄이세요": "The X post is {len} (weighted) / {TEXT_MAX}. This account has no X Premium, so it would be refused — shorten it with options.text",
+  "X 글이 {len}(가중치) / {TEXT_MAX}입니다. 이 계정은 X Premium이 아니라 거부됩니다 — options.text로 줄이세요 (Premium으로 바꿨다면 fanout doctor x로 다시 확인)": "The X post is {len} (weighted) / {TEXT_MAX}. This account has no X Premium, so it would be refused — shorten it with options.text (if you have upgraded, run fanout doctor x to check again)",
   "없음 (글은 280 가중치까지)": "none (posts up to 280 weighted)",
   "{platform}: {message} — {notBefore}에 다시 시도합니다": "{platform}: {message} — trying again at {notBefore}",
   "Instagram 캡션의 @멘션은 {MENTIONS_MAX}개 이하 (현재 {mentions})": "Instagram captions take at most {MENTIONS_MAX} @mentions (now {mentions})",

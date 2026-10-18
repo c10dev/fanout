@@ -570,7 +570,20 @@ function wireTikTokRules(block, body) {
   const apply = async () => {
     const name = accountName();
     if (!name) return;
-    if (!tiktokRules.has(name)) tiktokRules.set(name, api(`/accounts/tiktok/${encodeURIComponent(name)}/rules`).then((r) => r.rules).catch(() => null));
+    // Another account's rules (or none) must never stay on screen: start from the plain form.
+    info.textContent = '';
+    for (const o of body.querySelector('[name="privacyLevel"]')?.options ?? []) o.hidden = o.disabled = false;
+    for (const n of ['allowComment', 'allowDuet', 'allowStitch']) {
+      const box = body.querySelector(`[name="${n}"]`);
+      if (box) {
+        box.disabled = false;
+        box.closest('label').title = '';
+      }
+    }
+    if (!tiktokRules.has(name)) {
+      // A failed read isn't kept: the next pick of direct mode or of the account asks again.
+      tiktokRules.set(name, api(`/accounts/tiktok/${encodeURIComponent(name)}/rules`).then((r) => r.rules).catch(() => (tiktokRules.delete(name), null)));
+    }
     const rules = await tiktokRules.get(name);
     if (!rules || accountName() !== name) return;
     info.textContent = [

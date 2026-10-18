@@ -73,6 +73,7 @@ describe('instagram reels', () => {
       instagram.validate({ ...post, title: caption || post.title }, { ...target('instagram'), options }, fakeMedia({}, { width: 1080, height: 1920 })).map((i) => i.code);
     assert.ok(codes({ collaborators: ['a', 'b', 'c', 'd'] }).includes('collaborators'), 'more than 3');
     assert.ok(codes({ collaborators: ['not a name!'] }).includes('collaborators'));
+    assert.deepEqual(codes({ collaborators: 'alice, @bob' }), codes({}), 'a comma-separated string (MCP, watch JSON) works too');
     assert.ok(codes({}, Array.from({ length: 21 }, (_, i) => `@u${i}`).join(' ')).includes('mentions'));
     assert.ok(!codes({}, 'mail me at a@b.co @one').includes('mentions'));
   });
