@@ -264,3 +264,6 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 /* Language switch: end of the first header row; the account chips wrap below. */
 #lang-toggle { margin-left: auto; }
 .top .chips { flex-basis: 100%; }
+details.unconnected { margin-top: 8px; }
+details.unconnected > summary { cursor: pointer; color: var(--muted); padding: 6px 0; }
+details.unconnected > .target { margin-top: 8px; }

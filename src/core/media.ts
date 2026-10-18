@@ -4,6 +4,7 @@ import { createReadStream } from 'node:fs';
 import { existsSync, mkdirSync, renameSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import { ProviderError } from './errors.ts';
 import { msg } from './i18n.ts';
 
 const run = promisify(execFile);
@@ -114,6 +115,8 @@ export function parseProbe(path: string, probe: ProbeOutput): MediaInfo {
 }
 
 export async function probe(path: string): Promise<MediaInfo> {
+  // The usual case (an original pruned or moved away) says so, instead of ffprobe's command line.
+  if (!existsSync(path)) throw new ProviderError('rejected', 'media.missing', msg('영상 파일이 없습니다: {path}', { path }));
   const { stdout } = await run('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', path], {
     maxBuffer: 16 * 1024 * 1024,
   });

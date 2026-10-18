@@ -113,3 +113,13 @@ describe('ensureVariant (ffmpeg)', { skip: !hasFfmpeg && 'ffmpeg not installed' 
     assert.equal(again.path, v.path);
   });
 });
+
+describe('probe', () => {
+  it('says plainly that the video file is missing, as a final error', async () => {
+    await assert.rejects(probe('/nowhere/clip.mp4'), (err: Error & { kind?: string; code?: string }) => {
+      assert.equal(err.message, '영상 파일이 없습니다: /nowhere/clip.mp4');
+      assert.deepEqual([err.kind, err.code], ['rejected', 'media.missing']);
+      return true;
+    });
+  });
+});

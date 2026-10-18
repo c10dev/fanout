@@ -326,10 +326,12 @@ let overview = { platforms: [] };
 let media = null; // { id, name, media, isShort, assessments }
 
 function renderAccounts() {
+  // Connected platforms only; the rest fold into one chip so the header stays about what you use.
+  const connected = overview.platforms.filter((p) => p.accounts.length);
+  const others = overview.platforms.filter((p) => !p.accounts.length);
   $('#accounts').replaceChildren(
-    ...overview.platforms.map((p) =>
-      h('li', { class: `chip${p.accounts.length ? ' on' : ''}`, title: p.accounts.length ? '' : `fanout connect ${p.id}` }, p.displayName, p.accounts.length ? ` · ${p.accounts.map((a) => a.label).join(', ')}` : tr(' · 연결 안 됨')),
-    ),
+    ...connected.map((p) => h('li', { class: 'chip on' }, p.displayName, ` · ${p.accounts.map((a) => a.label).join(', ')}`)),
+    others.length ? h('li', { class: 'chip', title: others.map((p) => p.displayName).join(', ') }, tr('연결 안 됨 {count}곳', { count: others.length })) : null,
   );
 }
 
@@ -364,8 +366,7 @@ function restoreTargets(snap) {
 
 function renderTargets() {
   const snap = snapshotTargets();
-  $('#targets').replaceChildren(
-    ...overview.platforms.map((p) => {
+  const blocks = overview.platforms.map((p) => {
       const connected = p.accounts.length > 0;
       const assessment = media?.assessments.find((a) => a.platform === p.id);
       const blocked = assessment?.verdict === 'blocked';
@@ -394,8 +395,13 @@ function renderTargets() {
         : null;
       const block = h('div', { class: `target${connected && !blocked ? '' : ' disabled'}`, 'data-platform': p.id }, head, reasons, body);
       if (p.id === 'tiktok') wireTikTokMode(body);
-      return block;
-    }),
+      return { block, connected };
+  });
+  // Platforms you can post to come first; the ones not connected yet fold away below them.
+  const unconnected = blocks.filter((b) => !b.connected).map((b) => b.block);
+  $('#targets').replaceChildren(
+    ...blocks.filter((b) => b.connected).map((b) => b.block),
+    unconnected.length ? h('details', { class: 'unconnected' }, h('summary', {}, tr('연결 안 된 플랫폼 {count}곳', { count: unconnected.length })), ...unconnected) : null,
   );
   restoreTargets(snap);
   if (addingTo) lockCoveredTargets();
