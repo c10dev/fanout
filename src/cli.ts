@@ -131,6 +131,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         thumbOffsetMs: num(args, 'ig-thumb-ms'),
         collaborators: str(args, 'ig-collab')?.split(',').map((u) => u.trim()).filter(Boolean),
         audioName: str(args, 'ig-audio'),
+        trialReel: str(args, 'ig-trial'),
       });
     case 'facebook':
       return drop({ caption: str(args, 'fb-caption'), title: str(args, 'fb-title'), draft: args.flags['fb-draft'] ? true : undefined });
@@ -333,6 +334,7 @@ post 공통 옵션
              --tt-music-consent yes (필수)  --tt-allow-comment/--tt-allow-duet/--tt-allow-stitch yes
              --tt-brand-organic yes  --tt-branded yes  --tt-caption 텍스트  --tt-cover-ms 1000
   Instagram  --ig-caption 텍스트  --ig-no-feed  --ig-thumb-ms 1000  --ig-collab 사용자1,사용자2 (공동 작업자, 3명까지)  --ig-audio 오디오이름
+             --ig-trial manual|auto (시험 릴스: 팔로워가 아닌 사람에게 먼저, auto면 반응이 좋을 때 자동 공유)
   Facebook   --fb-caption 텍스트  --fb-title 제목  --fb-draft (게시하지 않고 초안으로)
   X          --x-text 텍스트 (가중치 280 이하, 한글은 2로 셈)  --x-paid-partnership yes  --x-reply following|mentionedUsers|subscribers|verified
              --x-alt 대체텍스트 (1000자 이하)

@@ -81,6 +81,28 @@ describe('instagram reels', () => {
     assert.ok(!codes({}, 'mail me at a@b.co @one').includes('mentions'));
   });
 
+  it('trial reels: graduation strategy sent, unknown values refused, and a refusal says what to drop', async () => {
+    let refuse = false;
+    const { fetch, calls } = mockFetch([
+      ['GET', '/IG/content_publishing_limit', () => json({ data: [{ quota_usage: 0, config: { quota_total: 100 } }] })],
+      ['POST', '/IG/media', () => (refuse ? json({ error: { message: '(#100) Invalid parameter', type: 'OAuthException', code: 100 } }, 400) : json({ id: 'CONT1', uri: 'https://rupload.facebook.com/ig-api-upload/v24.0/CONT1' }))],
+      ['POST', 'rupload.facebook.com', () => json({ success: true })],
+    ]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const publish = (trialReel?: string) =>
+      instagram.publish({ ctx, post, target: { ...target('instagram'), options: { trialReel } }, account: account('instagram'), mediaPath: tempFile(10), media: fakeMedia(), saveResume: () => {} });
+    await publish('auto');
+    assert.deepEqual(JSON.parse(new URLSearchParams(String(calls[1]!.body)).get('trial_params')!), { graduation_strategy: 'SS_PERFORMANCE' });
+    await publish();
+    assert.equal(new URLSearchParams(String(calls.filter((c) => c.url.endsWith('/IG/media')).at(-1)!.body)).get('trial_params'), null);
+    refuse = true;
+    await assert.rejects(publish('manual'), /trialReel/);
+    const codes = (o: Record<string, unknown>) => instagram.validate(post, { ...target('instagram'), options: o }, fakeMedia({}, { width: 1080, height: 1920 })).map((i) => `${i.severity}:${i.code}`);
+    assert.ok(codes({ trialReel: 'manual' }).includes('warning:trial'), 'experimental: said up front');
+    assert.ok(codes({ trialReel: 'sometimes' }).includes('error:trial'));
+  });
+
   it('refuses when the 24h limit is used up', async () => {
     const { fetch } = mockFetch([['GET', 'content_publishing_limit', () => json({ data: [{ quota_usage: 50, config: { quota_total: 50 } }] })]]);
     const { ctx, store } = makeCtx(fetch);

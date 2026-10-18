@@ -68,6 +68,8 @@ export interface Comment {
   url?: string;
   /** Hidden from the public (Meta's hide, YouTube's held for review). */
   hidden?: boolean;
+  /** false when the platform won't hide it (Instagram: the media owner's own comments always show). */
+  hideable?: boolean;
 }
 
 /** Audience reaction to a published post, as far as the platform API and granted scopes allow. */

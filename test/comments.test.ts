@@ -184,6 +184,18 @@ describe('hiding comments', () => {
     assert.deepEqual(r!.comments, []);
   });
 
+  it('Instagram: refuses to "hide" the account\'s own comment, which would stay visible', async () => {
+    const { ctx, calls, id } = setup('instagram', [
+      ['GET', '/V/comments', () => json({ data: [{ id: 'MINE', text: 'thanks!', username: 'vocado', timestamp: '2026-10-17T00:00:00+0000', from: { id: 'IG' } }, { id: 'C2', text: 'spam', username: 'u', timestamp: '2026-10-17T00:00:00+0000', from: { id: '999' } }] })],
+      ['POST', '/C2', () => json({ success: true })],
+    ]);
+    const [r] = await fetchComments(ctx, providerMap(), ctx.store.getTarget(id)!.postId);
+    assert.deepEqual(r!.comments!.map((c) => [c.id, c.hideable]), [['MINE', false], ['C2', true]]);
+    await assert.rejects(hideComment(ctx, providerMap(), id, 'MINE'), /숨겨지지 않습니다/);
+    assert.ok(!calls.some((c) => c.method === 'POST'));
+    await hideComment(ctx, providerMap(), id, 'C2');
+  });
+
   it('Instagram and Facebook hide with their own flags', async () => {
     for (const [platform, flag] of [['instagram', 'hide'], ['facebook', 'is_hidden']] as const) {
       const { ctx, calls, id } = setup(platform, [

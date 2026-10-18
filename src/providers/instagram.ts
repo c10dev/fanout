@@ -15,7 +15,14 @@ export interface InstagramOptions {
   collaborators?: string[];
   /** Name of the Reel's original audio (can be renamed once). */
   audioName?: string;
+  /**
+   * A trial reel, shown to non-followers first: 'manual' to share it with followers later in the
+   * app, 'auto' to let Instagram do it when it performs well (trial_params.graduation_strategy).
+   */
+  trialReel?: 'manual' | 'auto';
 }
+
+const TRIAL = { manual: 'MANUAL', auto: 'SS_PERFORMANCE' } as const;
 
 const COLLABORATORS_MAX = 3;
 const MENTIONS_MAX = 20;
@@ -93,6 +100,11 @@ export const instagram: Provider = {
     if (collaborators.length > COLLABORATORS_MAX) issues.push({ severity: 'error', code: 'collaborators', message: msg('Instagram 공동 작업자는 {COLLABORATORS_MAX}명까지', { COLLABORATORS_MAX }) });
     const bad = collaborators.filter((u) => !USERNAME.test(u));
     if (bad.length) issues.push({ severity: 'error', code: 'collaborators', message: msg('Instagram 사용자 이름이 아닙니다: {names}', { names: bad.join(', ') }) });
+    if (o.trialReel !== undefined) {
+      if (!(o.trialReel in TRIAL)) issues.push({ severity: 'error', code: 'trial', message: msg('trialReel은 manual 또는 auto') });
+      // Meta documents trial_params for URL uploads; fanout uploads the file itself (resumable).
+      else issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스는 팔로워가 아닌 사람에게 먼저 보입니다. fanout의 파일 업로드 방식에서 Meta가 받아 주는지는 아직 확인되지 않았습니다') });
+    }
     const ratio = media.video.width / media.video.height;
     if (Math.abs(ratio - 9 / 16) > 0.02) {
       issues.push({ severity: 'warning', code: 'aspect', message: msg('Instagram Reels 권장 화면비는 9:16 (현재 {width}x{height}) — 잘리거나 여백이 생길 수 있습니다', { width: media.video.width, height: media.video.height }) });
@@ -117,6 +129,7 @@ export const instagram: Provider = {
 
     const o = target.options as InstagramOptions;
     const container = await graph<{ id: string; uri?: string }>(ctx, 'POST', `/${c.igUserId}/media`, {
+      trial_params: o.trialReel && o.trialReel in TRIAL ? JSON.stringify({ graduation_strategy: TRIAL[o.trialReel] }) : undefined,
       media_type: 'REELS',
       upload_type: 'resumable',
       caption: metaCaption(post, o.caption),
@@ -127,6 +140,9 @@ export const instagram: Provider = {
       // Self-disclosure of AI-generated or altered content, as --ai does on YouTube and TikTok.
       is_ai_generated: post.containsSyntheticMedia ? true : undefined,
       access_token: c.pageToken,
+    }).catch((err: unknown) => {
+      if (!o.trialReel || !(err instanceof ProviderError) || err.kind !== 'rejected') throw err;
+      throw new ProviderError('rejected', err.code, msg('{err} — 시험 릴스(trialReel)를 빼고 다시 시도해 보세요', { err: err.message }), err.platformCode);
     });
     saveResume({ containerId: container.id, uploaded: false });
     const version = metaApp(ctx).graphVersion ?? 'v24.0';
@@ -234,13 +250,13 @@ export const instagram: Provider = {
   // Needs the instagram_manage_comments permission on the token (see the Meta setup guide).
   async comments({ ctx, account, target, limit }) {
     const c = pageCreds(account);
-    const res = await graph<{ data?: Array<{ id: string; text?: string; username?: string; timestamp: string; like_count?: number; hidden?: boolean }> }>(
+    const res = await graph<{ data?: Array<{ id: string; text?: string; username?: string; timestamp: string; like_count?: number; hidden?: boolean; from?: { id?: string } }> }>(
       ctx,
       'GET',
       `/${target.remoteId}/comments`,
-      { fields: 'id,text,username,timestamp,like_count,hidden', limit: Math.min(limit, 50), access_token: c.pageToken },
+      { fields: 'id,text,username,timestamp,like_count,hidden,from', limit: Math.min(limit, 50), access_token: c.pageToken },
     );
-    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '', text: m.text ?? '', at: m.timestamp, likes: m.like_count, hidden: m.hidden === true }));
+    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '', text: m.text ?? '', at: m.timestamp, likes: m.like_count, hidden: m.hidden === true, hideable: !(m.from?.id && m.from.id === c.igUserId) }));
   },
 
   async reply({ ctx, account, comment, text, sending }) {
