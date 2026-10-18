@@ -26,6 +26,13 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
+      # Catches tests that hard-code a "future" date the real clock will pass.
+      - name: Tests a year ahead
+        run: npm test
+        env:
+          SHIFT_DAYS: '400'
+          NODE_OPTIONS: --import=./scripts/shift-clock.mjs
+
       - name: Packaged CLI runs from node_modules
         run: |
           npm pack --pack-destination "$RUNNER_TEMP"

@@ -126,6 +126,7 @@ describe('Scanner', () => {
     assert.deepEqual(scanner.ready(), []); // first sighting
     assert.deepEqual(scanner.ready(), [path]); // stable and 60 s old; fresh.mp4 is too new
     writeFileSync(path, Buffer.alloc(2048, 1)); // still being written
+    utimesSync(path, Date.now() / 1000, Date.now() / 1000); // "just now" on the test's clock too
     assert.deepEqual(scanner.ready(), []);
     assert.deepEqual(new Scanner(dir, 10_000).ready(false), []); // one-shot mode: just rewritten, so too new
     const t = (Date.now() - 60_000) / 1000;
