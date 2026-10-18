@@ -364,3 +364,25 @@ describe('x thumbnail', () => {
     assert.equal(ok.warnings, undefined);
   });
 });
+
+describe('x people tags', () => {
+  it('looks usernames up once, tags who was found, and says who was not', async () => {
+    const bodies: Array<Record<string, any>> = [];
+    const { fetch, calls } = mockFetch([
+      ['GET', '/2/media/upload?', () => json({ data: { id: 'M1', processing_info: { state: 'succeeded' } } })],
+      ['GET', '/2/users/by?', () => json({ data: [{ id: '42', username: 'Alice' }] })],
+      ['POST', '/2/tweets', (c) => {
+        bodies.push(JSON.parse(String(c.body)));
+        return json({ data: { id: 'T1' } }, 201);
+      }],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    const { targets } = store.createPost(post(), [{ platform: 'x', account: 'main', options: { tagUsers: ['@alice', 'ghost'] } }]);
+    const out = await x.poll({ ctx, post: post(), target: { ...store.getTarget(targets[0]!.id)!, remoteId: 'M1', resume: { mediaId: 'M1', finalized: true } }, account });
+    assert.equal(new URL(calls.find((c) => c.url.includes('/2/users/by'))!.url).searchParams.get('usernames'), 'alice,ghost');
+    assert.deepEqual(bodies[0]!.media, { media_ids: ['M1'], tagged_user_ids: ['42'] });
+    assert.match(out.warnings![0]!, /ghost/);
+    const codes = x.validate(post(), target({ tagUsers: ['too-long-name-here!'] }), fakeMedia()).map((i) => `${i.severity}:${i.code}`);
+    assert.ok(codes.includes('error:tag_users') && codes.includes('warning:tag_users'));
+  });
+});

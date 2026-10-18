@@ -274,3 +274,40 @@ describe('M6: Facebook cover, Instagram paid partnership', () => {
     assert.equal(targetOptions('x', parseArgs(['post', 'v.mp4', '--paid-partnership', '--x-paid-partnership', 'no'])).paidPartnership, false, 'the platform flag wins');
   });
 });
+
+describe('M6: tags and collaborators', () => {
+  it('Facebook invites collaborator Pages once the reel is live, each once, refusals only warn', async () => {
+    const { fetch, calls } = mockFetch([
+      ['GET', '/V?', () => json({ status: { video_status: 'ready', processing_phase: { status: 'complete' }, publishing_phase: { status: 'complete', publish_status: 'published' } } })],
+      ['POST', '/V/collaborators', (c) => (new URLSearchParams(String(c.body)).get('target_id') === '222' ? json({ error: { message: 'Limit reached', code: 368 } }, 400) : json({ success: true, collaborator_id: '111' }))],
+    ]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const options = { collaborators: '111, 222' };
+    const { targets } = store.createPost(post, [{ platform: 'facebook', account: 'main', options }]);
+    const poll = () => facebook.poll({ ctx, post, target: { ...store.getTarget(targets[0]!.id)!, remoteId: 'V' }, account: account('facebook') });
+    const out = await poll();
+    assert.deepEqual(calls.filter((c) => c.url.includes('/collaborators')).map((c) => new URLSearchParams(String(c.body)).get('target_id')), ['111', '222']);
+    assert.match(out.warnings!.at(-1)!, /222/);
+    await poll();
+    assert.equal(calls.filter((c) => c.url.includes('/collaborators')).length, 2, 'once');
+    const codes = (o: Record<string, unknown>) => facebook.validate(post, { ...target('facebook'), options: o }, fakeMedia()).map((i) => `${i.severity}:${i.code}`);
+    assert.ok(codes({ collaborators: ['my-page'] }).includes('error:collaborators'));
+    assert.ok(codes({ collaborators: ['1'], draft: true }).includes('warning:collaborators'));
+  });
+
+  it('Instagram tags people on the Reel by username', async () => {
+    const { fetch, calls } = mockFetch([
+      ['GET', '/IG/content_publishing_limit', () => json({ data: [{ quota_usage: 0, config: { quota_total: 100 } }] })],
+      ['POST', '/IG/media', () => json({ id: 'CONT1', uri: 'https://rupload.facebook.com/ig-api-upload/v24.0/CONT1' })],
+      ['POST', 'rupload.facebook.com', () => json({ success: true })],
+    ]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    await instagram.publish({ ctx, post, target: { ...target('instagram'), options: { userTags: 'alice, @bob' } }, account: account('instagram'), mediaPath: tempFile(10), media: fakeMedia(), saveResume: () => {} });
+    assert.deepEqual(JSON.parse(new URLSearchParams(String(calls[1]!.body)).get('user_tags')!), [{ username: 'alice' }, { username: 'bob' }]);
+    const codes = (o: Record<string, unknown>) => instagram.validate(post, { ...target('instagram'), options: o }, fakeMedia({}, { width: 1080, height: 1920 })).map((i) => i.code);
+    assert.ok(codes({ userTags: ['not ok!'] }).includes('user_tags'));
+    assert.ok(codes({ userTags: Array.from({ length: 21 }, (_, i) => `u${i}`) }).includes('user_tags'));
+  });
+});

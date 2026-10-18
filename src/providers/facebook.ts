@@ -13,6 +13,17 @@ export interface FacebookOptions {
   title?: string;
   /** Upload as a draft in the Page's content library instead of publishing; finish it in Meta Business Suite. */
   draft?: boolean;
+  /** Pages invited as collaborators (Page IDs); the reel shows on theirs too once they accept. */
+  collaborators?: string[];
+}
+
+const COLLAB_MAX = 10;
+
+/** Page IDs as a list, also when given as "123, 456" (MCP, watch-folder JSON). */
+function collaboratorPages(o: FacebookOptions): string[] {
+  const raw = o.collaborators as unknown;
+  const list = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? raw.split(',') : [];
+  return list.map((v) => v.trim()).filter(Boolean);
 }
 
 /** Native scheduling window for Page Reels. */
@@ -111,6 +122,10 @@ export const facebook: Provider = {
   validate(post, target, _media) {
     const issues: Issue[] = [];
     const o = target.options as FacebookOptions;
+    const pages = collaboratorPages(o);
+    if (pages.some((p) => !/^\d+$/.test(p))) issues.push({ severity: 'error', code: 'collaborators', message: msg('Facebook 공동 작업자는 페이지 ID(숫자)로 적으세요') });
+    if (pages.length > COLLAB_MAX) issues.push({ severity: 'error', code: 'collaborators', message: msg('Facebook 공동 작업자 초대는 페이지마다 하루 {max}건까지입니다', { max: COLLAB_MAX }) });
+    if (pages.length && o.draft) issues.push({ severity: 'warning', code: 'collaborators', message: msg('초안에는 공동 작업자를 초대하지 않습니다 — 게시한 뒤 앱에서 초대하세요') });
     if (o.draft && post.scheduledAt) {
       issues.push({ severity: 'warning', code: 'draft_schedule', message: msg('Facebook 초안은 예약하지 않습니다. 예약 시각은 무시되고 Meta Business Suite에서 직접 게시합니다') });
     } else if (post.scheduledAt) {
@@ -168,19 +183,33 @@ export const facebook: Provider = {
   async poll({ ctx, post, target, account }) {
     const c = pageCreds(account);
     const s = await graph<ReelStatus>(ctx, 'GET', `/${target.remoteId}`, { fields: 'status', access_token: c.pageToken });
-    const out = reelOutcome(target.remoteId, s, (target.options as FacebookOptions).draft === true);
+    const o = target.options as FacebookOptions;
+    const out = reelOutcome(target.remoteId, s, o.draft === true);
+    const warnings: string[] = [];
+    let resume = (target.resume ?? {}) as { coverSent?: boolean; collabSent?: boolean };
+    const mark = (patch: typeof resume) => {
+      resume = { ...resume, ...patch };
+      ctx.store.updateTarget(target.id, { resume: { ...target.resume, ...resume } });
+    };
     // The post's thumbnail as the reel's cover, once it has processed: tried once, a failure only warns.
-    const resume = (target.resume ?? {}) as { coverSent?: boolean };
     if (post.thumbnailPath && !resume.coverSent && s.status?.processing_phase?.status === 'complete' && existsSync(post.thumbnailPath)) {
-      ctx.store.updateTarget(target.id, { resume: { ...target.resume, coverSent: true } });
+      mark({ coverSent: true });
       const path = post.thumbnailPath;
-      const failed = await graphUpload(ctx, `/${target.remoteId}/thumbnails`, { field: 'source', path, type: imageMime(path) }, { is_preferred: 'true', access_token: c.pageToken }).then(
-        () => undefined,
-        (err: unknown) => msg('Facebook 커버 이미지를 바꾸지 못했습니다: {err} — 페이지에서 직접 바꾸세요', { err: (err as Error).message }),
-      );
-      if (failed) return { ...out, warnings: [...(out.warnings ?? []), failed] };
+      await graphUpload(ctx, `/${target.remoteId}/thumbnails`, { field: 'source', path, type: imageMime(path) }, { is_preferred: 'true', access_token: c.pageToken }).catch((err: unknown) => {
+        warnings.push(msg('Facebook 커버 이미지를 바꾸지 못했습니다: {err} — 페이지에서 직접 바꾸세요', { err: (err as Error).message }));
+      });
     }
-    return out;
+    // Collaborator invitations once it is live (sent once each; a refusal only warns).
+    const pages = collaboratorPages(o);
+    if (pages.length && out.state === 'published' && !resume.collabSent) {
+      mark({ collabSent: true });
+      for (const page of pages) {
+        await graph(ctx, 'POST', `/${target.remoteId}/collaborators`, { target_id: page, access_token: c.pageToken }).catch((err: unknown) => {
+          warnings.push(msg('Facebook 공동 작업자 {page} 초대 실패: {err}', { page, err: (err as Error).message }));
+        });
+      }
+    }
+    return warnings.length ? { ...out, warnings: [...(out.warnings ?? []), ...warnings] } : out;
   },
 
   async doctor({ ctx, account }): Promise<DoctorCheck[]> {
