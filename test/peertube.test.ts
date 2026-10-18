@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { ProviderError } from '../src/core/errors.ts';
 import type { MediaInfo } from '../src/core/media.ts';
-import { replyToComment, removeTarget } from '../src/core/posting.ts';
+import { replyToComment, removeTarget, withTimeout } from '../src/core/posting.ts';
 import type { PostInput } from '../src/core/types.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { peertube, peertubeTags } from '../src/providers/peertube.ts';
@@ -63,6 +63,22 @@ describe('PeerTube connect and tokens', () => {
     ]);
     const { ctx } = makeCtx(fetch);
     await assert.rejects(peertube.connect(ctx, 'main', { instance: I, username: 'me', password: 'pw' }), /2단계 인증/);
+  });
+
+  it('a short deadline on the caller never cuts a token rotation off', async () => {
+    // The server rotates the refresh token and answers after 80 ms; the stats read that started the
+    // refresh gives its calls 30 ms. Aborting there would lose RT2 for good.
+    const slow = (async (_url: string, init?: RequestInit) =>
+      new Promise((resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+        setTimeout(() => resolve(json({ access_token: 'AT2', refresh_token: 'RT2', expires_in: 86400 })), 80);
+      })) as typeof fetch;
+    const e = env([]);
+    const ctx = withTimeout({ ...e.ctx, fetch: slow }, 30);
+    const expired = { ...e.account, credentials: { ...CREDS, expiresAt: 0 } };
+    e.store.saveAccount(expired);
+    await peertube.refresh(ctx, expired);
+    assert.equal((e.store.getAccount('peertube', 'main')!.credentials as typeof CREDS).refreshToken, 'RT2');
   });
 
   it('refreshes near expiry and asks to reconnect when the refresh token is gone', async () => {

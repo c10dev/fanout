@@ -2,6 +2,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
+import { rotationContext } from '../core/http.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
@@ -309,7 +310,7 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
     } catch {
       throw new ProviderError('auth', 'bluesky.insecure', msg('Bluesky 서버 주소가 https가 아닙니다({url}). https 주소로 다시 연결하세요', { url: c.pds }));
     }
-    const s = await xrpc<{ accessJwt: string; refreshJwt: string; handle: string; didDoc?: unknown }>(ctx, c.pds, 'com.atproto.server.refreshSession', {
+    const s = await xrpc<{ accessJwt: string; refreshJwt: string; handle: string; didDoc?: unknown }>(rotationContext(ctx), c.pds, 'com.atproto.server.refreshSession', {
       token: c.refreshJwt,
       post: true,
     }).catch((err: unknown) => {
