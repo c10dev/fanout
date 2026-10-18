@@ -56,6 +56,21 @@ export interface StatsArgs {
   target: Target & { remoteId: string };
 }
 
+/** One posting limit of an account, as far as the platform (or fanout's own count) tells. */
+export interface Limit {
+  /** What is counted, as a message ("하루 업로드 (프로젝트 전체)"). */
+  what: string;
+  unit: 'posts' | 'bytes';
+  used?: number;
+  total?: number;
+  remaining?: number;
+  unlimited?: boolean;
+  /** ISO time the count starts over, when it is a fixed time (not a rolling window). */
+  resetsAt?: string;
+  /** How the number is known when that matters ("로컬 집계"), or why it can't be used now. */
+  note?: string;
+}
+
 export interface OAuthStart {
   url: string;
   state: string;
@@ -133,6 +148,9 @@ export interface Provider {
   publish(args: PublishArgs): Promise<PublishOutcome>;
   poll(args: PollArgs): Promise<PollOutcome>;
   doctor(args: DoctorArgs): Promise<DoctorCheck[]>;
+
+  /** Posting limits of the account right now (daily uploads, storage). Omit when the platform has none to read. */
+  limits?(args: { ctx: ProviderContext; account: Account }): Promise<Limit[]>;
 
   /** Views/likes/comments of a published post. Omit when the API (or granted scopes) can't read them. */
   stats?(args: StatsArgs): Promise<Omit<PostStats, 'fetchedAt'>>;

@@ -1383,6 +1383,50 @@ const NOTIFY_EVENTS = [
   ['removed', tr('삭제됨')],
 ];
 
+/** Remaining posting limits of every account that has them, read when the card is shown. */
+function limitsCard() {
+  const body = h('div', {}, h('p', { class: 'muted' }, tr('불러오는 중…')));
+  const load = async () => {
+    try {
+      const { accounts } = await api('/limits');
+      if (!accounts.length) return body.replaceChildren(h('p', { class: 'muted' }, tr('한도를 알려 주는 플랫폼(YouTube·Instagram·Bluesky·PeerTube)에 연결된 계정이 없습니다.')));
+      body.replaceChildren(
+        h(
+          'table',
+          { class: 'limits' },
+          h('tbody', {}, accounts.flatMap((a) => (a.error ? [limitRow(a, tr('읽지 못함'), a.error)] : a.limits.map((l) => limitRow(a, l.what, limitText(l), l))))),
+        ),
+      );
+    } catch (err) {
+      body.replaceChildren(h('p', { class: 'form-error' }, err.message));
+    }
+  };
+  load();
+  return h(
+    'section',
+    { class: 'panel' },
+    h('h2', {}, tr('남은 한도'), ' ', h('button', { class: 'small', type: 'button', onclick: load }, tr('새로고침'))),
+    h('p', { class: 'muted' }, tr('하루 업로드 수나 저장 용량처럼 플랫폼이 정한 한도입니다. 여러 개를 한꺼번에 올리기 전에 확인하세요.')),
+    body,
+  );
+}
+
+function limitRow(a, what, value, l) {
+  const extra = [l?.resetsAt ? tr('{time}에 초기화', { time: new Date(l.resetsAt).toLocaleString(LOCALE) }) : '', l?.note ?? ''].filter(Boolean).join(' · ');
+  const low = l && l.remaining !== undefined && (l.remaining === 0 || (l.total && l.remaining / l.total < 0.1));
+  return h('tr', {}, h('th', {}, `${a.platform}/${a.account}`), h('td', {}, what), h('td', { class: low ? 'warn' : '' }, value), h('td', { class: 'muted' }, extra));
+}
+
+/** "3/100, 97 left". */
+function limitText(l) {
+  const n = (v) => (l.unit === 'bytes' ? `${(v / 1048576).toLocaleString(LOCALE, { maximumFractionDigits: 0 })}MB` : v.toLocaleString(LOCALE));
+  if (l.unlimited) return l.used === undefined ? tr('무제한') : tr('{used} 씀, 무제한', { used: n(l.used) });
+  const parts = [];
+  if (l.used !== undefined && l.total !== undefined) parts.push(`${n(l.used)}/${n(l.total)}`);
+  if (l.remaining !== undefined) parts.push(tr('남은 {remaining}', { remaining: n(l.remaining) }));
+  return parts.join(', ') || '?';
+}
+
 function notifyCard(n) {
   const status = h('span', { class: 'msg' });
   const url = h('input', { name: 'url', type: 'password', autocomplete: 'off', placeholder: n.configured ? tr('저장됨 ({host}) · 바꿀 때만 입력', { host: n.host }) : tr('https://hooks.slack.com/… 또는 Discord webhook') });
@@ -1429,14 +1473,15 @@ function notifyCard(n) {
 async function loadSettings() {
   const box = $('#settings');
   if (!overview.settingsEnabled) {
-    box.replaceChildren(h('section', { class: 'panel' }, h('p', {}, tr('설정 화면은 127.0.0.1 전용으로 연 대시보드에서만 쓸 수 있습니다. 이 서버의 터미널에서 fanout app set / fanout connect 를 쓰세요.'))));
+    // Limits only read, so they are shown on any dashboard.
+    box.replaceChildren(h('section', { class: 'panel' }, h('p', {}, tr('설정 화면은 127.0.0.1 전용으로 연 대시보드에서만 쓸 수 있습니다. 이 서버의 터미널에서 fanout app set / fanout connect 를 쓰세요.'))), limitsCard());
     return;
   }
   try {
     const [settings, notify] = await Promise.all([api('/settings'), api('/notify')]);
     accountChecks.clear();
     const cards = settings.apps.map((app) => appCard(app, settings.platforms.filter((p) => app.platforms.includes(p.id))));
-    box.replaceChildren(checkAllCard(), ...cards, notifyCard(notify));
+    box.replaceChildren(limitsCard(), checkAllCard(), ...cards, notifyCard(notify));
   } catch (err) {
     box.replaceChildren(h('p', { class: 'form-error' }, err.message));
   }

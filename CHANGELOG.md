@@ -36,6 +36,7 @@
 - 기존 게시물에 플랫폼 추가: 대시보드 "플랫폼 추가", `fanout add`, MCP `add_to_post`
 - 댓글 모아보기(#30)와 답글: 대시보드, `fanout reply`, MCP `reply_to_comment`
 - Slack·Discord·JSON webhook 알림(#26)
+- 남은 게시 한도: `fanout limits`, 대시보드 설정 탭, MCP `get_limits` (YouTube·Instagram·Bluesky·PeerTube)
 - YouTube 데이터 정책: 연결을 끊으면 토큰을 철회하고 반응 통계를 지움. 작업 처리기가 하루 한 번 권한과 채널 이름을 확인하고, 접근이 21일 넘게 거부되면 받은 데이터를 지움
 
 ### 안정성

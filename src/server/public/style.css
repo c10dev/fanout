@@ -199,6 +199,10 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .checks li { padding: 2px 0; overflow-wrap: anywhere; }
 .checks .ok { color: var(--ok); }
 .checks .warn { color: var(--warn); }
+.limits { border-collapse: collapse; width: 100%; }
+.limits th, .limits td { text-align: left; padding: 4px 12px 4px 0; vertical-align: top; }
+.limits th { font-weight: 600; white-space: nowrap; }
+.limits td.warn { color: var(--warn); font-weight: 600; }
 .checks .fail { color: var(--bad); }
 .checks .info { color: var(--muted); }
 .connect { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 4px 14px; align-items: end; }

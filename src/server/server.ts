@@ -35,6 +35,7 @@ import type { PostInput, Target, TargetInput, TargetState } from '../core/types.
 import { isShort } from '../providers/youtube.ts';
 import { ACCOUNT_NAME } from '../core/store.ts';
 import { disconnectAccount } from '../core/accounts.ts';
+import { readLimits } from '../core/limits.ts';
 
 export interface DashboardOptions {
   ctx: ProviderContext;
@@ -292,6 +293,7 @@ export class Dashboard {
 
     const parts = url.pathname.split('/').filter(Boolean).slice(1);
     if (method === 'GET' && parts[0] === 'overview') return send(res, 200, this.#overview());
+    if (method === 'GET' && parts[0] === 'limits' && !parts[1]) return send(res, 200, { accounts: await readLimits(this.#opts.ctx, this.#opts.providers, url.searchParams.get('platform') ?? undefined) });
     if (parts[0] === 'presets') return send(res, 200, await this.#presets(method, parts[1] ? decodeURIComponent(parts[1]) : undefined, req));
     if (method === 'POST' && parts[0] === 'media' && parts.length === 1) return send(res, 201, await this.#upload(req));
     if (method === 'POST' && parts[0] === 'assets' && (parts[1] === 'thumbnail' || parts[1] === 'caption')) return send(res, 201, await this.#uploadAsset(req, parts[1]));

@@ -32,6 +32,19 @@
 | PeerTube | ✓ | ✓ | ✓ | | 댓글 수는 7.2 이상 |
 | TikTok | | | | | `video.list` 권한이 필요해 아직 지원하지 않음. 수신함으로 넘긴 게시물은 id도 모름 |
 
+## 남은 한도
+
+`fanout limits [플랫폼]`, 대시보드 설정 탭 맨 위 "남은 한도", MCP `get_limits`가 계정별로 지금 남은 게시 한도를 보여 줍니다. 여러 개를 한꺼번에 올리기 전에 확인하세요.
+
+| 플랫폼 | 보여 주는 것 | 어디서 |
+|---|---|---|
+| YouTube | 오늘 업로드 수 / 100 (Google Cloud 프로젝트 전체, 태평양 시간 자정 초기화) | fanout이 올린 것만 센 로컬 집계. 같은 프로젝트로 다른 곳에서 올린 것은 빠집니다 |
+| Instagram | 최근 24시간 게시 수 / 한도 | `content_publishing_limit` 실측 |
+| Bluesky | 오늘 남은 영상 수와 용량 | `app.bsky.video.getUploadLimits` |
+| PeerTube | 오늘 쓴 용량과 전체 저장 용량 (한도가 없으면 무제한) | `/users/me`, `/users/me/video-quota-used` |
+
+TikTok·Facebook·X·Mastodon은 읽을 수 있는 한도가 API에 없어 표시하지 않습니다.
+
 ## 댓글 모아보기
 
 `fanout comments <postId>`, 대시보드 "댓글", MCP `get_post_comments`가 게시물별 최근 최상위 댓글을 가져옵니다. 저장하지 않고 그때그때 읽습니다.

@@ -11,6 +11,7 @@ import type { Worker } from '../core/worker.ts';
 import { defaultAccountName } from '../core/inbox.ts';
 import { isShort } from '../providers/youtube.ts';
 import { currentLang, local, msg, translateDeep } from '../core/i18n.ts';
+import { readLimits } from '../core/limits.ts';
 
 // Model Context Protocol over stdio: newline-delimited JSON-RPC 2.0.
 // Spec: https://modelcontextprotocol.io/specification
@@ -139,6 +140,15 @@ const TOOLS = [
       'Fetch views/likes/comments/shares of a post\'s published targets from each platform (as far as the API and granted scopes allow). ' +
       'Platforms that bill for reads (X) are skipped unless includePaid is true — ask the user before setting it.',
     inputSchema: { type: 'object', required: ['postId'], properties: { postId: { type: 'string' }, includePaid: { type: 'boolean' } } },
+    annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  {
+    name: 'get_limits',
+    title: 'Get posting limits',
+    description:
+      'Remaining posting limits of each connected account that has them: YouTube uploads today (per Google Cloud project, counted locally by fanout), ' +
+      'Instagram posts in the last 24 hours, Bluesky videos and bytes today, PeerTube storage. Check before posting many videos.',
+    inputSchema: { type: 'object', properties: { platform: { type: 'string' } } },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },
   {
@@ -359,6 +369,8 @@ export class McpServer {
           throw new ToolError((err as Error).message);
         }
       }
+      case 'get_limits':
+        return { accounts: await readLimits(this.#deps.ctx, providers, typeof args.platform === 'string' ? args.platform : undefined) };
       case 'get_post_stats': {
         const p = store.findPost(String(args.postId ?? ''));
         if (!p) throw new ToolError(msg('게시물 없음: {postId}', { postId: String(args.postId) }));

@@ -11,7 +11,8 @@ import { exportRows, toCsv } from './core/export.ts';
 import { fileHash, probe } from './core/media.ts';
 import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
-import type { DoctorCheck, Provider, ProviderContext } from './core/provider.ts';
+import type { DoctorCheck, Limit, Provider, ProviderContext } from './core/provider.ts';
+import { readLimits } from './core/limits.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
 import { isTerminal } from './core/state.ts';
 import type { CaptionFile, Post, PostInput, Target, TargetInput, TargetState } from './core/types.ts';
@@ -262,6 +263,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout comments <postId> [--limit 20]  게시된 대상의 최근 댓글 (YouTube·Facebook·Instagram·Bluesky·Mastodon·PeerTube)
   fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]   댓글에 답글 (comments 의 [id])
   fanout stats [postId] [--include-paid] [--history]  게시된 영상의 조회·좋아요·댓글과 24시간 변화 (X는 --include-paid일 때만)
+  fanout limits [platform]               계정별 남은 게시 한도 (YouTube 하루 업로드, Instagram 24시간 게시, Bluesky·PeerTube 용량)
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off] [--format slack|discord|json]
   fanout notify test | off               상태 알림 (Slack·Discord·JSON webhook)
   fanout backup <폴더> [--without-key]    DB 스냅샷(+복호화 키) 백업 — 실행 중에도 안전
@@ -822,6 +824,33 @@ function cmdExport(ctx: ProviderContext, args: Args): number {
   return 0;
 }
 
+async function cmdLimits(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const platform = args.positionals[1];
+  if (platform && !deps.providers.has(platform)) throw new UsageError(msg('알 수 없는 플랫폼: {platform} (가능: {providers})', { platform, providers: [...deps.providers.keys()].join(', ') }));
+  const all = await readLimits(ctx, deps.providers, platform);
+  if (!all.length) say(msg('한도를 알려 주는 플랫폼에 연결된 계정이 없습니다 (YouTube·Instagram·Bluesky·PeerTube)'));
+  for (const a of all) {
+    console.log(`\n${a.platform}/${a.account}`);
+    if (a.error) console.log(`  ✗ ${local(a.error)}`);
+    for (const l of a.limits) {
+      const resets = l.resetsAt ? '  ' + local(msg('{time}에 초기화', { time: new Date(l.resetsAt).toLocaleString(LOCALE()) })) : '';
+      const note = l.note ? `  (${local(l.note)})` : '';
+      console.log(`  ${local(l.what)}: ${limitText(l)}${resets}${note}`);
+    }
+  }
+  return 0;
+}
+
+/** "3/100, 97 left", in FANOUT_LANG. */
+function limitText(l: Limit): string {
+  const n = (v: number) => (l.unit === 'bytes' ? formatBytes(v) : v.toLocaleString(LOCALE()));
+  if (l.unlimited) return local(l.used === undefined ? msg('무제한') : msg('{used} 씀, 무제한', { used: n(l.used) }));
+  const parts: string[] = [];
+  if (l.used !== undefined && l.total !== undefined) parts.push(`${n(l.used)}/${n(l.total)}`);
+  if (l.remaining !== undefined) parts.push(local(msg('남은 {remaining}', { remaining: n(l.remaining) })));
+  return parts.join(', ') || '?';
+}
+
 async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const id = args.positionals[1];
   const posts = id ? [ctx.store.findPost(id)].filter((p): p is Post => Boolean(p)) : ctx.store.listPosts(5);
@@ -979,6 +1008,8 @@ export async function main(argv: string[]): Promise<number> {
         return cmdExport(ctx, args);
       case 'stats':
         return await cmdStats(ctx, deps, args);
+      case 'limits':
+        return await cmdLimits(ctx, deps, args);
       case 'remove':
         return await cmdRemove(ctx, deps, args);
       case 'cancel':
