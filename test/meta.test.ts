@@ -59,7 +59,7 @@ describe('instagram reels', () => {
     store.setApp('meta', { appId: 'a', appSecret: 's' });
     await assert.rejects(
       instagram.publish({ ctx, post, target: target('instagram'), account: account('instagram'), mediaPath: tempFile(10), media: fakeMedia(), saveResume: () => {} }),
-      (e: ProviderError) => e.code === 'instagram.publishing_limit',
+      (e: ProviderError) => e.code === 'instagram.publishing_limit' && e.retryAt === new Date(ctx.now().getTime() + 3600_000).toISOString(),
     );
   });
 

@@ -181,6 +181,14 @@ function handleError(deps: RunnerDeps, targetId: string, err: unknown): Target {
 
   if (pe.kind === 'auth') return store.transition(target.id, 'needs_reauth', fields, pe.code);
 
+  if (pe.retryAt && target.state !== 'processing') {
+    // A daily limit, not a broken post: wait for its reset rather than fail and need a manual retry.
+    // The attempt isn't counted, and resume data stays, so an upload that already landed isn't redone.
+    log.warn(msg('{platform}: {message} — {notBefore}에 다시 시도합니다', { platform: target.platform, message: pe.message, notBefore: pe.retryAt }));
+    if (target.state === 'queued') return store.updateTarget(target.id, { ...fields, notBefore: pe.retryAt });
+    return store.transition(target.id, 'queued', { ...fields, notBefore: pe.retryAt }, pe.code);
+  }
+
   if (pe.kind === 'retryable') {
     if (target.state === 'processing') {
       // The upload already landed; keep polling instead of re-uploading.

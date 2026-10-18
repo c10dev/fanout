@@ -46,6 +46,12 @@ describe('tiktok options', () => {
     assert.equal(caption('😀'.repeat(1101)).length, 1, '2202 units, though only 1101 characters');
   });
 
+  it('waits out the daily post cap instead of failing', () => {
+    const err = tiktokError(403, { error: { code: 'spam_risk_too_many_posts', message: 'too many' } } as never);
+    assert.ok(err.retryAt && Date.parse(err.retryAt) > Date.now());
+    assert.equal(tiktokError(400, { error: { code: 'invalid_params', message: 'x' } } as never).retryAt, undefined);
+  });
+
   it('requires an explicit privacy level and music consent for direct posts', () => {
     const codes = tiktok.validate(post, target({ mode: 'direct' }), fakeMedia()).map((i) => i.code);
     assert.ok(codes.includes('privacy'));

@@ -85,6 +85,17 @@ describe('runner', () => {
     assert.equal(t.errorCode, 'net');
   });
 
+  it('waits for a daily limit to reset instead of failing, without counting an attempt', async () => {
+    const reset = new Date('2026-10-18T07:05:00Z');
+    const limit = new ProviderError('rejected', 'youtube.quota', 'used up', 'quotaExceeded', { retryAt: reset });
+    const { deps, id } = setup(fakeProvider({ publish: async () => Promise.reject(limit) }));
+    const t = await step(deps, id);
+    assert.equal(t.state, 'queued');
+    assert.equal(t.notBefore, reset.toISOString());
+    assert.equal(t.attempts, 1, 'the uploading attempt stays as it was, not one more');
+    assert.equal(t.errorCode, 'youtube.quota (quotaExceeded)');
+  });
+
   it('marks auth errors as needs_reauth and keeps the platform code', async () => {
     const { deps, id } = setup(fakeProvider({ publish: async () => Promise.reject(new ProviderError('auth', 'tiktok.access_token_invalid', 'expired', 'access_token_invalid')) }));
     const t = await step(deps, id);
