@@ -899,6 +899,17 @@ export class Dashboard {
     };
   }
 
+  /** When a published but still private target is due to go public (a native schedule, or one set later). */
+  #goesPublicAt(t: Target): string | undefined {
+    if (t.state !== 'published') return undefined;
+    const now = this.#opts.ctx.now().getTime();
+    const later = (at: unknown) => (typeof at === 'string' && Date.parse(at) > now ? at : undefined);
+    if (t.options.privacy === 'private' && later(t.options.publishAt)) return t.options.publishAt as string;
+    // Uploaded with a schedule the platform holds itself: private until then, whatever was asked.
+    if (this.#opts.providers.get(t.platform)?.capabilities.nativeSchedule && t.options.publishAt === undefined) return later(this.#opts.ctx.store.getPost(t.postId)?.scheduledAt);
+    return undefined;
+  }
+
   #publicTarget(t: Target) {
     const { resume: _r, ...rest } = t;
     const provider = this.#opts.providers.get(t.platform);
@@ -908,6 +919,7 @@ export class Dashboard {
       statsCost: provider?.statsCost,
       removable: t.state === 'published' && Boolean(provider?.remove),
       visibilities: t.state === 'published' && provider?.setVisibility ? provider.visibilities : undefined,
+      goesPublicAt: this.#goesPublicAt(t),
       trend: t.stats ? statsTrend(this.#opts.ctx.store, t.id, this.#opts.ctx.now()) : undefined,
     };
   }

@@ -1033,7 +1033,7 @@ function targetRow(t) {
           onchange: async (e) => {
             const next = e.target.value;
             if (!confirm(tr('{target}의 공개 범위를 "{visibility}"(으)로 바꿀까요?', { target: `${t.platform}/${t.account}`, visibility: VISIBILITY[next] ?? next }))) {
-              e.target.value = t.options.privacy ?? '';
+              e.target.value = t.goesPublicAt ? '' : (t.options.privacy ?? '');
               return;
             }
             e.target.disabled = true;
@@ -1041,7 +1041,9 @@ function targetRow(t) {
             refreshBoard();
           },
         },
-        t.visibilities.map((v) => h('option', { value: v, selected: v === t.options.privacy }, VISIBILITY[v] ?? v)),
+        // Waiting to go public shows as such; picking "public" then publishes it now.
+        t.goesPublicAt ? h('option', { value: '', selected: true, disabled: true }, tr('{time}에 공개 예약됨', { time: fmtTime(t.goesPublicAt) })) : null,
+        t.visibilities.map((v) => h('option', { value: v, selected: !t.goesPublicAt && v === t.options.privacy }, VISIBILITY[v] ?? v)),
       )
     : null;
   const actions = h('div', { class: 'row-actions' }, visibility, retry, cancel, remove);

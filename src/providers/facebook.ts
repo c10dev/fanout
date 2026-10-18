@@ -62,7 +62,8 @@ export function reelOutcome(videoId: string, s: ReelStatus, draft = false): Poll
     }
     return { state: 'published', remoteId: videoId, remoteUrl: url };
   }
-  return { state: 'processing', remoteId: videoId, remoteUrl: url };
+  // A draft has no public page: no link while it processes either (it would carry over to handed_off).
+  return { state: 'processing', remoteId: videoId, remoteUrl: draft ? undefined : url };
 }
 
 

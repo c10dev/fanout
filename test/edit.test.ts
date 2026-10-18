@@ -64,10 +64,10 @@ describe('editing published posts', () => {
 });
 
 describe('changing a published video\'s visibility', () => {
-  function setup() {
+  function setup(privacyStatus = 'unlisted', putStatus?: Record<string, unknown>) {
     const { fetch, calls } = mockFetch([
-      ['GET', '/youtube/v3/videos?part=status&id=V', () => json({ items: [{ status: { privacyStatus: 'unlisted', embeddable: false, license: 'youtube', publicStatsViewable: true, selfDeclaredMadeForKids: false, uploadStatus: 'processed' } }] })],
-      ['PUT', '/youtube/v3/videos?part=status', () => json({ id: 'V' })],
+      ['GET', '/youtube/v3/videos?part=status&id=V', () => json({ items: [{ status: { privacyStatus, embeddable: false, license: 'youtube', publicStatsViewable: true, selfDeclaredMadeForKids: false, uploadStatus: 'processed' } }] })],
+      ['PUT', '/youtube/v3/videos?part=status', (c) => json({ id: 'V', status: putStatus ?? JSON.parse(String(c.body)).status })],
     ]);
     const { ctx, store } = makeCtx(fetch, () => NOW);
     store.setApp('youtube', { clientId: 'c', clientSecret: 's' });
@@ -88,11 +88,23 @@ describe('changing a published video\'s visibility', () => {
   });
 
   it('schedules it to go public later (private until then)', async () => {
-    const { ctx, calls, id } = setup();
+    const { ctx, calls, id } = setup('private');
     const at = new Date(NOW.getTime() + 86_400_000).toISOString();
     const t = await changeVisibility(ctx, providerMap(), id, 'public', at);
     assert.deepEqual([putBody(calls).status.privacyStatus, putBody(calls).status.publishAt], ['private', at]);
-    assert.equal(t.options.publishAt, at);
+    assert.deepEqual([t.options.privacy, t.options.publishAt], ['private', at], 'recorded as it really is until then');
+  });
+
+  it('refuses to schedule a video that is not private, and records what YouTube really set', async () => {
+    const pub = setup('public');
+    await assert.rejects(changeVisibility(pub.ctx, providerMap(), pub.id, 'public', new Date(NOW.getTime() + 86_400_000).toISOString()), /비공개 영상에만/);
+    assert.ok(!pub.calls.some((c) => c.method === 'PUT'));
+
+    // An unverified project: YouTube keeps uploads private whatever is asked.
+    const kept = setup('private', { privacyStatus: 'private' });
+    const t = await changeVisibility(kept.ctx, providerMap(), kept.id, 'public');
+    assert.equal(t.options.privacy, 'private');
+    assert.ok(t.warnings.some((w) => w.includes('public') && w.includes('private')));
   });
 
   it('refuses what YouTube would not take, before calling it', async () => {

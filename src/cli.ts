@@ -204,7 +204,9 @@ const STATE_ICON: Record<string, string> = {
 function targetLine(t: Target): string {
   const head = `  ${STATE_ICON[t.state] ?? '?'} ${`${t.platform}/${t.account}`.padEnd(18)} ${t.state.padEnd(12)}`;
   const due = !t.notBefore ? '' : t.state === 'queued' ? local(msg('예정 {at}', { at: t.notBefore })) : t.state === 'processing' ? local(msg('{at}에 다시 확인', { at: t.notBefore })) : '';
-  const lines = [`${head} ${t.remoteUrl ?? due}`.trimEnd()];
+  // A parked status check shows its time next to the link (a YouTube target has one from upload).
+  const shown = t.state === 'processing' ? [t.remoteUrl, due] : [t.remoteUrl ?? due];
+  const lines = [`${head} ${shown.filter(Boolean).join('  ')}`.trimEnd()];
   if (t.errorCode) lines.push(`      ${t.errorCode}: ${local(t.errorMessage ?? '')}`);
   for (const w of t.warnings) lines.push(`      ⚠ ${local(w)}`);
   return lines.join('\n');
@@ -799,8 +801,10 @@ async function cmdVisibility(ctx: ProviderContext, deps: RunnerDeps, args: Args)
   const account = str(args, 'account');
   const candidates = ctx.store.targetsForPost(post.id).filter((t) => t.platform === platform && (!account || t.account === account));
   if (candidates.length !== 1) throw new UsageError(candidates.length ? msg('계정이 여러 개입니다. --account 로 고르세요: {candidates}', { candidates: candidates.map((t) => t.account).join(', ') }) : msg('{platform} 대상이 없습니다', { platform }));
-  const at = str(args, 'at');
-  const done = await changeVisibility(ctx, deps.providers, candidates[0]!.id, visibility, at ? new Date(at).toISOString() : undefined).catch((err: Error) => {
+  // A bare or empty --at must not fall through to "public now".
+  if (args.flags.at !== undefined && !str(args, 'at')?.trim()) throw new UsageError(msg('--at 은 ISO-8601 시각 (예: 2026-10-20T09:00:00+09:00)'));
+  const at = str(args, 'at')?.trim();
+  const done = await changeVisibility(ctx, deps.providers, candidates[0]!.id, visibility, at).catch((err: Error) => {
     throw err instanceof ProviderError ? err : new UsageError(err.message);
   });
   say(at ? msg('{platform}/{account}: {at}에 공개로 바뀌도록 예약했습니다', { platform: done.platform, account: done.account, at }) : msg('{platform}/{account}: 공개 범위를 {visibility}로 바꿨습니다', { platform: done.platform, account: done.account, visibility }));
