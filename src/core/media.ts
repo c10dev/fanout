@@ -280,7 +280,8 @@ const hashCache = new Map<string, string>();
 /** SHA-256 of a file's contents (streamed), cached by path + size + mtime. */
 export async function fileHash(path: string): Promise<string> {
   const st = statSync(path);
-  const key = `${path}:${st.size}:${st.mtimeMs}`;
+  // The inode too: a different file put in its place (a hard link) isn't the cached one.
+  const key = `${path}:${st.ino}:${st.size}:${st.mtimeMs}`;
   const cached = hashCache.get(key);
   if (cached) return cached;
   const hash = createHash('sha256');

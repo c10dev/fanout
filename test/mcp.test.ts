@@ -151,10 +151,11 @@ describe('MCP file access limited to chosen folders', () => {
     symlinkSync(outside, sneaky);
     const { call } = server([allowed]);
     assert.ok(!(await call('check_video', { path: inside })).isError);
-    for (const path of [outside, sneaky, join(allowed, '..', 'secret.mp4')]) {
+    // One answer for "outside" and "not there", so an agent can't probe what exists elsewhere.
+    for (const path of [outside, sneaky, join(allowed, '..', 'secret.mp4'), join(base, 'nothing.mp4')]) {
       const r = await call('check_video', { path });
       assert.ok(r.isError, path);
-      assert.match(r.content[0]!.text, /outside the allowed folders|허용된 폴더 밖/);
+      assert.match(r.content[0]!.text, /no such file inside the allowed folders|허용된 폴더 안에 그 파일이 없습니다/);
     }
   });
 
@@ -166,5 +167,42 @@ describe('MCP file access limited to chosen folders', () => {
     assert.equal(mcpRoots(undefined, ''), undefined, 'unset: anywhere, as before');
     assert.throws(() => mcpRoots(join(a, 'nope')), /nope/);
     assert.deepEqual(mcpRoots('~'), [realpathSync(homedir())], 'a ~ the shell left alone');
+    // "--allow" with nothing after it, or an empty value, must not mean "anywhere".
+    assert.throws(() => mcpRoots(true), /--allow/);
+    assert.throws(() => mcpRoots(''), /--allow/);
+    assert.throws(() => mcpRoots(' , '), /--allow/);
+  });
+});
+
+describe('MCP posts read fanout\'s own copies', () => {
+  it('copies the thumbnail and captions at create_post, refusing links', async () => {
+    const { env, call } = server();
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'fanout-mcp-assets-')));
+    const video = join(dir, 'clip.mp4');
+    const thumb = join(dir, 'cover.jpg');
+    const subs = join(dir, 'ko.srt');
+    writeFileSync(video, 'x');
+    writeFileSync(thumb, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]));
+    writeFileSync(subs, '1\n00:00:00,000 --> 00:00:01,000\nhi\n');
+    const args = { path: video, title: 'T', targets: [{ platform: 'youtube', options: { privacy: 'unlisted', madeForKids: false } }] };
+    const r = await call('create_post', { ...args, thumbnailPath: thumb, captions: [{ language: 'ko', path: subs }] });
+    assert.ok(!r.isError, r.content[0]!.text);
+    const post = env.store.getPost(r.structuredContent.postId)!;
+    assert.ok(post.thumbnailPath!.startsWith(join(env.ctx.home, 'media')) && post.captions[0]!.path.startsWith(join(env.ctx.home, 'media')));
+    const linked = join(dir, 'link.srt');
+    symlinkSync(subs, linked);
+    const refused = await call('create_post', { ...args, captions: [{ language: 'ko', path: linked }] });
+    assert.ok(refused.isError);
+  });
+});
+
+describe('MCP account choice', () => {
+  it('asks for an account when a platform has several and none is "main"', async () => {
+    const { env, call, video } = server();
+    env.store.saveAccount({ platform: 'tiktok', name: 'brand', credentials: {}, profile: {} });
+    const r = await call('preview_post', { path: video, title: 'T', targets: [{ platform: 'tiktok' }] });
+    assert.ok(r.isError);
+    assert.match(r.content[0]!.text, /brand, mainmain/);
+    assert.ok(!(await call('preview_post', { path: video, title: 'T', targets: [{ platform: 'tiktok', account: 'brand' }] })).isError);
   });
 });

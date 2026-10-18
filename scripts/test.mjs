@@ -6,10 +6,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const dir = mkdtempSync(join(tmpdir(), 'fanout-tests-'));
-const files = process.argv.slice(2);
-const run = spawnSync(process.execPath, ['--test', ...(files.length ? files : ['test/**/*.test.ts'])], {
+// Test files given after "npm test --"; anything starting with "-" goes to node --test as a flag.
+const args = process.argv.slice(2);
+const files = args.filter((a) => !a.startsWith('-'));
+const flags = args.filter((a) => a.startsWith('-'));
+// Ctrl-C reaches the test run too; staying alive here lets the cleanup below still happen.
+process.on('SIGINT', () => {});
+const run = spawnSync(process.execPath, ['--test', ...flags, ...(files.length ? files : ['test/**/*.test.ts'])], {
   stdio: 'inherit',
   env: { ...process.env, TMPDIR: dir, TMP: dir, TEMP: dir },
 });
-rmSync(dir, { recursive: true, force: true });
+try {
+  rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+} catch (err) {
+  console.error(`could not remove ${dir}: ${err.message}`);
+}
+if (run.error) console.error(run.error.message);
 process.exit(run.status ?? 1);
