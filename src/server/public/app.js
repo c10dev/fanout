@@ -406,7 +406,10 @@ function renderTargets() {
         ? h('p', { class: 'note' }, assessment.violations.map((v) => `${v.fixable ? tr('변환') : tr('불가')}: ${v.message}`).join(' · '))
         : null;
       const block = h('div', { class: `target${connected && !blocked ? '' : ' disabled'}`, 'data-platform': p.id }, head, reasons, body);
-      if (p.id === 'tiktok') wireTikTokMode(body);
+      if (p.id === 'tiktok') {
+        if (connected) wireTikTokRules(block, body);
+        wireTikTokMode(body);
+      }
       return { block, connected };
   });
   // Platforms you can post to come first; the ones not connected yet fold away below them.
@@ -501,6 +504,49 @@ function exitAddMode() {
 }
 
 /** Show direct-post fields only in direct mode. */
+/** TikTok creator_info per account, fetched once per page. */
+const tiktokRules = new Map();
+
+/**
+ * Shape the TikTok form from the account's own rules (TikTok's content sharing guidelines ask for
+ * this): show who it posts as, offer only the visibility values the account allows, and turn off
+ * the interactions its settings disable. Follows the account select when there are several.
+ */
+function wireTikTokRules(block, body) {
+  const info = h('p', { class: 'note', 'data-when': 'direct' });
+  body.prepend(info);
+  const accountName = () => block.querySelector('select[name="account"]')?.value ?? block.querySelector('[data-account]')?.dataset.account;
+  const apply = async () => {
+    const name = accountName();
+    if (!name) return;
+    if (!tiktokRules.has(name)) tiktokRules.set(name, api(`/accounts/tiktok/${encodeURIComponent(name)}/rules`).then((r) => r.rules).catch(() => null));
+    const rules = await tiktokRules.get(name);
+    if (!rules || accountName() !== name) return;
+    info.textContent = [
+      rules.username ? tr('@{username} ({nickname}) 계정에 바로 게시합니다', { username: rules.username, nickname: rules.nickname ?? '' }) : '',
+      rules.maxDurationSec ? tr('이 계정은 {max}초까지 올릴 수 있습니다.', { max: rules.maxDurationSec }) : '',
+    ].filter(Boolean).join(' ');
+    const privacy = body.querySelector('[name="privacyLevel"]');
+    if (privacy && rules.privacyOptions?.length) {
+      for (const o of privacy.options) if (o.value) o.hidden = o.disabled = !rules.privacyOptions.includes(o.value);
+      if (privacy.selectedOptions[0]?.disabled) privacy.value = '';
+    }
+    for (const name of ['allowComment', 'allowDuet', 'allowStitch']) {
+      const box = body.querySelector(`[name="${name}"]`);
+      if (!box) continue;
+      const off = rules.disabled?.includes(name);
+      box.disabled = Boolean(off);
+      if (off) box.checked = false;
+      box.closest('label').title = off ? tr('계정 설정에서 꺼져 있음') : '';
+    }
+  };
+  block.querySelector('select[name="account"]')?.addEventListener('change', apply);
+  // Read only when direct posting is chosen: inbox uploads don't need the account's rules.
+  body.addEventListener('change', () => {
+    if (body.querySelector('[name="mode"]:checked')?.value === 'direct') apply();
+  });
+}
+
 function wireTikTokMode(body) {
   const sync = () => {
     const direct = body.querySelector('[name="mode"]:checked')?.value === 'direct';

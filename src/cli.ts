@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fanoutHome, openContext, stderrLogger } from './core/context.ts';
@@ -12,7 +12,8 @@ import { fileHash, probe } from './core/media.ts';
 import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Limit, Provider, ProviderContext } from './core/provider.ts';
-import { addLimitWarnings, readLimits } from './core/limits.ts';
+import { readLimits } from './core/limits.ts';
+import { addLiveChecks } from './core/livepreview.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
 import { isTerminal } from './core/state.ts';
 import type { CaptionFile, Post, PostInput, Target, TargetInput, TargetState } from './core/types.ts';
@@ -426,8 +427,8 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
   const targets = parseTargets(to, deps.providers, args, ctx.store.listAccounts());
   input.mediaHash = await fileHash(mediaPath);
   const prior = priorPosts(ctx.store, input.mediaHash, targets);
-  const limitNotes = targets.map((t) => ({ platform: t.platform, account: t.account, warnings: [] as string[] }));
-  await addLimitWarnings(ctx, deps.providers, limitNotes, statSync(mediaPath).size);
+  const limitNotes = targets.map((t) => ({ platform: t.platform, account: t.account, warnings: [] as string[], errors: [] as string[] }));
+  await addLiveChecks(ctx, deps.providers, limitNotes, { input, targets, media: await probe(mediaPath) });
 
   // YouTube policy: show which channel and which visibility before uploading.
   console.log(`\n"${title}"  ${mediaPath}${input.scheduledAt ? `  ${local(msg('예약 {at}', { at: input.scheduledAt }))}` : ''}`);
@@ -436,6 +437,7 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
     const before = prior.get(`${t.platform}/${t.account}`)?.[0];
     if (before) console.log(`      ⚠ ${local(describePrior(before))}`);
   }
+  for (const e of limitNotes.flatMap((n) => n.errors.map((e) => `${n.platform}/${n.account}: ${e}`))) console.log(`  ✗ ${local(e)}`);
   for (const w of new Set(limitNotes.flatMap((n) => n.warnings.map((w) => `${n.platform}/${n.account}: ${w}`)))) console.log(`  ⚠ ${local(w)}`);
   if (!args.flags.yes && !(await confirm(msg('이대로 업로드할까요?')))) return 1;
 
@@ -467,7 +469,7 @@ async function cmdAdd(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promi
   } catch (err) {
     return fail(err);
   }
-  await addLimitWarnings(ctx, deps.providers, plan.preview, media.sizeBytes);
+  await addLiveChecks(ctx, deps.providers, plan.preview, { input: post, targets, media });
   const adding = local(msg('"{title}"에 추가', { title: post.title }));
   const at = post.scheduledAt ? local(msg('예약 {at}', { at: post.scheduledAt })) : '';
   console.log(`\n${adding}${at ? `  ${at}` : ''}`);

@@ -21,6 +21,7 @@ import {
   removeTarget,
   replyToComment,
   retryTarget,
+  withTimeout,
 } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
@@ -35,7 +36,8 @@ import type { PostInput, Target, TargetInput, TargetState } from '../core/types.
 import { isShort } from '../providers/youtube.ts';
 import { ACCOUNT_NAME } from '../core/store.ts';
 import { disconnectAccount } from '../core/accounts.ts';
-import { addLimitWarnings, readLimits } from '../core/limits.ts';
+import { readLimits } from '../core/limits.ts';
+import { addLiveChecks } from '../core/livepreview.ts';
 import { ASSET_RULES, type AssetKind } from '../core/assets.ts';
 
 export interface DashboardOptions {
@@ -371,7 +373,7 @@ export class Dashboard {
         const media = existsSync(post.mediaPath) ? await (this.#opts.probe ?? realProbe)(post.mediaPath) : undefined;
         if (parts[3] === 'preview') {
           const { preview } = planAddTargets(this.#opts.ctx.store, this.#opts.providers, post.id, targets, media!);
-          await addLimitWarnings(this.#opts.ctx, this.#opts.providers, preview, media!.sizeBytes);
+          await addLiveChecks(this.#opts.ctx, this.#opts.providers, preview, { input: post, targets, media: media! });
           return send(res, 200, { targets: preview });
         }
         const created = addTargets(this.#opts.ctx.store, this.#opts.providers, post.id, targets, media!);
@@ -406,6 +408,7 @@ export class Dashboard {
     if (method === 'PUT' && parts[0] === 'apps' && parts[1]) return send(res, 200, this.#saveApp(parts[1], await readJson(req)));
     if (method === 'POST' && parts[0] === 'connect' && parts[1]) return send(res, 200, await this.#connect(req, parts[1], await readJson(req)));
     if (method === 'DELETE' && parts[0] === 'accounts' && parts[1] && parts[2]) return send(res, 200, await this.#disconnect(parts[1], decode(parts[2])));
+    if (method === 'GET' && parts[0] === 'accounts' && parts[1] && parts[2] && parts[3] === 'rules' && parts.length === 4) return send(res, 200, await this.#accountRules(parts[1], decode(parts[2])));
     if (method === 'POST' && parts[0] === 'doctor' && parts[1]) return send(res, 200, await this.#doctor(parts[1], await readJson(req)));
     throw new HttpError(404, 'not found');
   }
@@ -654,6 +657,15 @@ export class Dashboard {
     throw new HttpError(404, 'not found');
   }
 
+  /** The account's own posting rules (TikTok creator_info), for shaping the post form. */
+  async #accountRules(platform: string, name: string) {
+    const provider = this.#provider(platform);
+    const account = this.#opts.ctx.store.getAccount(platform, name);
+    if (!account) throw new HttpError(404, msg('해당 계정이 없습니다'));
+    if (!provider.accountRules) return { rules: null };
+    return { rules: await provider.accountRules({ ctx: withTimeout(this.#opts.ctx), account }) };
+  }
+
   async #disconnect(platform: string, name: string) {
     this.#provider(platform);
     const done = await disconnectAccount(this.#opts.ctx, this.#opts.providers, platform, name);
@@ -785,7 +797,7 @@ export class Dashboard {
     input.mediaHash = await fileHash(input.mediaPath);
     const media = await (this.#opts.probe ?? realProbe)(input.mediaPath);
     const previews = previewPost(this.#opts.ctx.store, this.#opts.providers, input, targets, media);
-    await addLimitWarnings(this.#opts.ctx, this.#opts.providers, previews, media.sizeBytes);
+    await addLiveChecks(this.#opts.ctx, this.#opts.providers, previews, { input, targets, media });
     return { targets: previews };
   }
 

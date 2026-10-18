@@ -597,4 +597,8 @@ export const MESSAGES_EN: Record<string, string> = {
   "Instagram 공동 작업자는 {COLLABORATORS_MAX}명까지": "Instagram allows up to {COLLABORATORS_MAX} collaborators",
   "Instagram 사용자 이름이 아닙니다: {names}": "Not Instagram usernames: {names}",
   "replySettings는 {values} 중 하나": "replySettings must be one of {values}",
+  "계정 설정에서 꺼져 있어 적용되지 않습니다: {off}": "Off in the account's settings, so not applied: {off}",
+  "댓글": "comments",
+  "듀엣": "duets",
+  "이어찍기": "stitches",
 };

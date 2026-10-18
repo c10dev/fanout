@@ -49,6 +49,9 @@ function translateStatic(root = document) {
 // English for every tr() key in app.js and data-i18n key in index.html (test/i18n.test.ts checks).
 const MESSAGES_EN = {
   '남은 한도': 'Remaining limits',
+  '@{username} ({nickname}) 계정에 바로 게시합니다': 'Posts directly to @{username} ({nickname})',
+  '이 계정은 {max}초까지 올릴 수 있습니다.': 'This account can post videos up to {max} s.',
+  '계정 설정에서 꺼져 있음': "Off in the account's settings",
   '공동 작업자 (선택, 쉼표로 구분, 3명까지)': 'Collaborators (optional, comma-separated, up to 3)',
   '오디오 이름 (선택)': 'Audio name (optional)',
   '답글 허용': 'Who can reply',
