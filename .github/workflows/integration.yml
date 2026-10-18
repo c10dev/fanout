@@ -14,6 +14,8 @@ on:
       - 'src/core/runner.ts'
       - 'src/core/livecheck.ts'
       - 'src/core/posting.ts'
+      - 'src/core/http.ts'
+      - 'src/core/context.ts'
       - 'scripts/it/**'
       - '.github/workflows/integration.yml'
 

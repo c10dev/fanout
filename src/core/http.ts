@@ -107,3 +107,33 @@ export function imageMime(path: string): string {
   const ext = extname(path).toLowerCase();
   return ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
 }
+
+/** No platform API answer fanout reads comes near this; a hostile instance's endless body stops here. */
+export const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+
+/**
+ * `fetch` whose response bodies stop at `maxBytes`: reading more fails instead of filling memory
+ * (a self-hosted instance or PDS is anyone's server). Status and headers are untouched.
+ */
+export function capResponses(inner: typeof fetch, maxBytes = MAX_RESPONSE_BYTES): typeof fetch {
+  const tooLarge = () => new ProviderError('rejected', 'http.too_large', msg('응답이 너무 큽니다 ({max}MB 넘음)', { max: maxBytes / 1024 / 1024 }));
+  return (async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const res = await inner(input, init);
+    if (!res.body) return res;
+    if (Number(res.headers.get('content-length')) > maxBytes) {
+      await res.body.cancel().catch(() => undefined);
+      throw tooLarge();
+    }
+    let seen = 0;
+    const body = res.body.pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, out) {
+          seen += chunk.byteLength;
+          if (seen > maxBytes) out.error(tooLarge());
+          else out.enqueue(chunk);
+        },
+      }),
+    );
+    return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
+  }) as typeof fetch;
+}
