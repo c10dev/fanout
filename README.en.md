@@ -4,7 +4,7 @@
 
 A **video-first, self-hosted uploader** that posts one video to YouTube, TikTok, Instagram Reels, Facebook Reels, X, Bluesky, Mastodon and PeerTube at once. It uses only the platforms' official APIs, through your own accounts and your own developer apps.
 
-> **Status: v0.1, experimental.** Upload flows follow each platform's official documentation and are covered by HTTP-mocked tests. With real accounts (2026-10-17) we have confirmed an unlisted YouTube post end to end, a TikTok upload to the app inbox, and Instagram/Facebook connection and checks. PeerTube and Mastodon were exercised end to end (post, edit, comments, replies, scheduling, delete) against local instances. Run `fanout doctor <platform> --live` on your own setup before relying on it. The detailed docs under `docs/` are in Korean for now.
+> **Status: v0.1, experimental.** Upload flows follow each platform's official documentation and are covered by HTTP-mocked tests. With real accounts (2026-10-17) we have confirmed an unlisted YouTube post end to end, a TikTok upload to the app inbox, and Instagram/Facebook connection and checks. PeerTube and Mastodon were exercised end to end (post, edit, comments, replies, scheduling, delete) against local instances. Run `fanout doctor <platform> --live` on your own setup before relying on it. The detailed docs under `docs/` are in Korean for now, except [docs/mcp.en.md](docs/mcp.en.md).
 
 ## Why another uploader
 
@@ -57,13 +57,13 @@ fanout status
 fanout serve                             # web dashboard on http://127.0.0.1:8780/
 ```
 
-The CLI, its logs and the MCP server speak Korean by default; set `FANOUT_LANG=en` for English (the system locale is not used). Data is stored in `FANOUT_HOME` (default `~/.fanout`). Tokens and app secrets are encrypted with AES-256-GCM; the key comes from `FANOUT_SECRET_KEY` or `~/.fanout/secret.key` (mode 0600).
+The CLI and its logs speak Korean by default; set `FANOUT_LANG=en` for English (the system locale is not used). The MCP server (`fanout mcp`) answers in English by default; set `FANOUT_LANG=ko` for Korean. Data is stored in `FANOUT_HOME` (default `~/.fanout`). Tokens and app secrets are encrypted with AES-256-GCM; the key comes from `FANOUT_SECRET_KEY` or `~/.fanout/secret.key` (mode 0600).
 
 ## Ways to use it
 
 - **Web dashboard** (`fanout serve`): drag-and-drop upload with per-platform verdicts, a preview of exactly which account and visibility each post will use before anything uploads, a live status board with retry, per-platform reactions (views, likes, comments), a combined comments panel with replies, editing and deletion, a remaining-limits card (uploads per day, posts per 24 hours, storage), and a settings tab for app registration, account connection and checks. Loopback-only by default, per-start API token, Host-header check against DNS rebinding. The dashboard follows your browser language (English or Korean) with a switch in the header, and the server's messages (platform errors, preview warnings, checks, setup guides) follow it too.
 - **Watch folder** (`fanout watch <dir>`): drop videos into a folder and they're posted according to `fanout.watch.json`, with per-video overrides in a sidecar JSON.
-- **AI agents over MCP** (`fanout mcp`): tools `list_accounts`, `check_video`, `preview_post`, `create_post`, `add_to_post`, `get_post_status`, `get_post_stats`, `get_limits`, `get_post_comments`, `reply_to_comment`, `update_post`, `cancel_target`, `retry_target`. Register with `claude mcp add fanout -- fanout mcp`.
+- **AI agents over MCP** (`fanout mcp`): tools `list_accounts`, `check_video`, `preview_post`, `create_post`, `add_to_post`, `get_post_status`, `get_post_stats`, `get_limits`, `get_post_comments`, `reply_to_comment`, `update_post`, `cancel_target`, `retry_target`. Register with `claude mcp add fanout -- fanout mcp`, or install the Claude Code plugin: `/plugin marketplace add c10dev/fanout`, then `/plugin install fanout@fanout`. See [docs/mcp.en.md](docs/mcp.en.md).
 - **CLI**: everything above from the terminal (`fanout help`).
 
 ## Platforms
