@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { writeFileSync } from 'node:fs';
+import { parseArgs, targetOptions } from '../src/cli.ts';
 import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
@@ -224,5 +226,51 @@ describe('facebook draft through the runner', () => {
     processed = true;
     t = await step(deps as never, id);
     assert.deepEqual([t.state, t.remoteUrl], ['handed_off', undefined]);
+  });
+});
+
+describe('M6: Facebook cover, Instagram paid partnership', () => {
+  it('sets the reel cover from the thumbnail once processed, once, and only warns on failure', async () => {
+    let refuse = false;
+    const { fetch, calls } = mockFetch([
+      ['GET', '/V?', () => json({ status: { video_status: 'ready', processing_phase: { status: 'complete' }, publishing_phase: { status: 'complete', publish_status: 'published' } } })],
+      ['POST', '/V/thumbnails', () => (refuse ? json({ error: { message: '(#100) Invalid parameter', code: 100 } }, 400) : json({ success: true }))],
+    ]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const thumb = tempFile(100).replace(/video\.mp4$/, 'cover.jpg');
+    writeFileSync(thumb, Buffer.from([0xff, 0xd8, 0xff]));
+    const withThumb = { ...post, thumbnailPath: thumb };
+    const { targets } = store.createPost(withThumb, [{ platform: 'facebook', account: 'main', options: {} }]);
+    const id = targets[0]!.id;
+    const poll = () => facebook.poll({ ctx, post: withThumb, target: { ...store.getTarget(id)!, remoteId: 'V' }, account: account('facebook') });
+    assert.equal((await poll()).state, 'published');
+    const sent = calls.filter((c) => c.url.includes('/V/thumbnails'));
+    assert.equal(sent.length, 1);
+    const form = sent[0]!.body as FormData;
+    assert.deepEqual([form.get('is_preferred'), form.get('access_token'), (form.get('source') as Blob).type], ['true', 'PT', 'image/jpeg']);
+    await poll();
+    assert.equal(calls.filter((c) => c.url.includes('/V/thumbnails')).length, 1, 'once');
+
+    refuse = true;
+    const again = store.createPost(withThumb, [{ platform: 'facebook', account: 'main', options: {} }]).targets[0]!.id;
+    const out = await facebook.poll({ ctx, post: withThumb, target: { ...store.getTarget(again)!, remoteId: 'V' }, account: account('facebook') });
+    assert.equal(out.state, 'published');
+    assert.match(out.warnings!.at(-1)!, /커버 이미지를 바꾸지 못했습니다/);
+  });
+
+  it('Instagram sends the paid-partnership label, and --paid-partnership reaches X, TikTok and Instagram', async () => {
+    const { fetch, calls } = mockFetch([
+      ['GET', '/IG/content_publishing_limit', () => json({ data: [{ quota_usage: 0, config: { quota_total: 100 } }] })],
+      ['POST', '/IG/media', () => json({ id: 'CONT1', uri: 'https://rupload.facebook.com/ig-api-upload/v24.0/CONT1' })],
+      ['POST', 'rupload.facebook.com', () => json({ success: true })],
+    ]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    await instagram.publish({ ctx, post, target: { ...target('instagram'), options: { paidPartnership: true } }, account: account('instagram'), mediaPath: tempFile(10), media: fakeMedia(), saveResume: () => {} });
+    assert.equal(new URLSearchParams(String(calls[1]!.body)).get('is_paid_partnership'), 'true');
+    const args = parseArgs(['post', 'v.mp4', '--paid-partnership']);
+    assert.deepEqual([targetOptions('x', args).paidPartnership, targetOptions('tiktok', args).brandedContent, targetOptions('instagram', args).paidPartnership], [true, true, true]);
+    assert.equal(targetOptions('x', parseArgs(['post', 'v.mp4', '--paid-partnership', '--x-paid-partnership', 'no'])).paidPartnership, false, 'the platform flag wins');
   });
 });

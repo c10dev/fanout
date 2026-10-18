@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from 'node:fs';
+import { basename } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus, type ErrorKind } from '../core/errors.ts';
 import { jsonOr } from '../core/http.ts';
@@ -97,6 +98,17 @@ export async function graph<T>(
     method === 'GET'
       ? await ctx.fetch(`${url}?${qs}`)
       : await ctx.fetch(url, { method, headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: qs });
+  const body = (await jsonOr(res, undefined)) as (T & GraphError) | undefined;
+  if (!res.ok || body?.error) throw graphError(res.status, body);
+  return body as T;
+}
+
+/** POST a file with form fields (multipart), e.g. a video's custom thumbnail. */
+export async function graphUpload<T>(ctx: ProviderContext, path: string, file: { field: string; path: string; type: string }, params: Record<string, string>): Promise<T> {
+  const form = new FormData();
+  for (const [k, v] of Object.entries(params)) form.set(k, v);
+  form.set(file.field, new Blob([new Uint8Array(readFileSync(file.path))], { type: file.type }), basename(file.path));
+  const res = await ctx.fetch(`${graphBase(ctx)}${path}`, { method: 'POST', body: form });
   const body = (await jsonOr(res, undefined)) as (T & GraphError) | undefined;
   if (!res.ok || body?.error) throw graphError(res.status, body);
   return body as T;
