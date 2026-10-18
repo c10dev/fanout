@@ -108,6 +108,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         embeddable: bool(args, 'yt-embeddable'),
         publicStatsViewable: args.flags['yt-hide-stats'] ? false : undefined,
         localizations: localizationsFile(str(args, 'yt-localizations')),
+        recordingDate: str(args, 'yt-recorded'),
       });
     case 'tiktok': {
       const privacy = str(args, 'tt-privacy');
@@ -331,6 +332,7 @@ post 공통 옵션
              --yt-category 22  --yt-playlist ID  --yt-no-notify  --yt-lang ko
              --yt-license creativeCommon  --yt-embeddable no  --yt-hide-stats (확장 통계 숨김)
              --yt-localizations titles.json ({"en": {"title": "…", "description": "…"}})
+             --yt-recorded 2026-10-18 (촬영일)
   TikTok     --tt-mode inbox|direct (기본 inbox)
              direct 전용: --tt-privacy public|friends|followers|private (필수)
              --tt-music-consent yes (필수)  --tt-allow-comment/--tt-allow-duet/--tt-allow-stitch yes

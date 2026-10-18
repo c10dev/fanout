@@ -107,6 +107,7 @@ const OPTION_FORMS = {
         { class: 'opts' },
         opt(tr('제목·설명 언어 (예: ko)'), h('input', { type: 'text', name: 'defaultLanguage', autocomplete: 'off' })),
         opt(tr('라이선스'), select('license', [['', tr('표준 YouTube 라이선스')], ['creativeCommon', tr('크리에이티브 커먼즈 - 저작자 표시')]])),
+        opt(tr('촬영일 (선택)'), h('input', { type: 'date', name: 'recordingDate' })),
         h('div', { class: 'choices' }, checkbox('embeddable', tr('퍼가기 허용'), true), checkbox('publicStatsViewable', tr('확장 통계 공개 (조회수·좋아요는 늘 공개)'), true)),
         localizationRows(),
       ),
@@ -192,6 +193,7 @@ function readOptions(platform, body) {
         embeddable: on('embeddable') ? undefined : false,
         publicStatsViewable: on('publicStatsViewable') ? undefined : false,
         localizations: readLocalizations(body),
+        recordingDate: val('recordingDate').value || undefined,
       };
     }
     case 'tiktok': {

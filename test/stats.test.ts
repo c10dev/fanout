@@ -371,3 +371,49 @@ describe('finding a TikTok post finished in the app', () => {
     assert.deepEqual(seen, [`${fresh.post.id}/tiktok`]);
   });
 });
+
+describe('Meta copyright check after publish', () => {
+  const POST: PostInput = { mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
+  const blocked = {
+    copyright_check_information: {
+      status: { status: 'complete', matches_found: true },
+      copyright_matches: [{ content_title: 'Ditto', owner_copyright_policy: { name: 'Label', actions: [{ action: 'TRACK' }, { action: 'BLOCK', geos: ['South Korea', 'Japan'] }, { action: 'MUTE' }] } }],
+    },
+  };
+  it('turns a block or mute into the target\'s warnings once, then stops asking', async () => {
+    let info: unknown = { copyright_check_information: { status: { status: 'in_progress' } } };
+    const { fetch, calls } = mockFetch([
+      ['GET', 'copyright_check_information', () => json(info)],
+      ['GET', '/R?', () => json({ likes: { summary: { total_count: 4 } }, comments: { summary: { total_count: 1 } } })],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    store.saveAccount({ platform: 'facebook', name: 'main', credentials: { pageToken: 'PT', pageId: 'P' }, profile: {} });
+    const { post, targets } = store.createPost(POST, [{ platform: 'facebook', account: 'main', options: {} }]);
+    store.transition(targets[0]!.id, 'uploading');
+    store.transition(targets[0]!.id, 'published', { remoteId: 'R' });
+    const read = async () => (await refreshStats(ctx, providerMap(), post.id))[0]!.stats!;
+    assert.equal((await read()).copyright, undefined, 'still checking');
+    info = blocked;
+    const s = await read();
+    assert.equal(s.copyright, 'matched');
+    assert.deepEqual(store.getTarget(targets[0]!.id)!.warnings, ['저작권 일치 "Ditto": 차단 (South Korea, Japan)', '저작권 일치 "Ditto": 음소거 (모든 지역)']);
+    const before = calls.filter((c) => c.url.includes('copyright_check_information')).length;
+    await read();
+    assert.equal(calls.filter((c) => c.url.includes('copyright_check_information')).length, before, 'finished: not asked again');
+    assert.equal(store.getTarget(targets[0]!.id)!.warnings.length, 2, 'not repeated');
+  });
+
+  it('a clear check and an unreadable field cost nothing', async () => {
+    for (const reply of [() => json({ copyright_check_information: { status: { status: 'completed', matches_found: false } } }), () => json({ error: { message: 'nonexisting field', code: 100 } }, 400)]) {
+      const { fetch } = mockFetch([
+        ['GET', 'copyright_check_information', reply],
+        ['GET', '/M?', () => json({ like_count: 10, comments_count: 2 })],
+      ]);
+      const env = makeCtx(fetch);
+      env.store.setApp('meta', { appId: 'a', appSecret: 's' });
+      const s = await instagram.stats!({ ctx: env.ctx, account: acct('instagram', { pageToken: 'PT', igUserId: 'IG' }), target: target('instagram', 'M') });
+      assert.deepEqual([s.likes, s.alerts], [10, undefined]);
+    }
+  });
+});

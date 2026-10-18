@@ -4,7 +4,7 @@ import { ProviderError, kindForStatus, type ErrorKind } from '../core/errors.ts'
 import { jsonOr } from '../core/http.ts';
 import type { ProviderContext } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
-import type { Post } from '../core/types.ts';
+import type { Post, PostStats } from '../core/types.ts';
 import { msg } from '../core/i18n.ts';
 
 // Shared plumbing for Instagram (via Facebook Login) and Facebook Pages.
@@ -236,6 +236,39 @@ export async function readInsights(
     const transient = !(err instanceof ProviderError) || err.kind === 'retryable';
     return { values: {}, note: msg('조회수를 가져오지 못했습니다: {err}', { err: err instanceof Error ? err.message : String(err) }), ...(transient ? { transient } : {}) };
   }
+}
+
+interface CopyrightInfo {
+  status?: { status?: string; matches_found?: boolean };
+  copyright_matches?: Array<{ content_title?: string; author?: string; owner_copyright_policy?: { name?: string; actions?: Array<{ action?: string; geos?: string[] }> } }>;
+}
+
+/**
+ * Meta's copyright check on a published reel (Instagram media and Facebook Reels alike): once it has
+ * finished, whether anything matched, and an alert for each match that mutes or blocks the video
+ * somewhere. Read on its own, so a token or media type without the field never costs the stats; a
+ * finished result is kept by the caller and not read again.
+ */
+export async function copyrightCheck(ctx: ProviderContext, id: string, token: string): Promise<Pick<PostStats, 'copyright' | 'alerts'>> {
+  const res = await graph<{ copyright_check_information?: CopyrightInfo }>(ctx, 'GET', `/${id}`, { fields: 'copyright_check_information', access_token: token }).catch(() => undefined);
+  const info = res?.copyright_check_information;
+  const status = info?.status?.status;
+  // "complete" on Facebook, "completed" on Instagram; anything else is still running (or failed).
+  if (status !== 'complete' && status !== 'completed') return {};
+  if (!info?.status?.matches_found) return { copyright: 'clear' };
+  const labels: Record<string, string> = { BLOCK: msg('차단'), MUTE: msg('음소거') };
+  const alerts = (info.copyright_matches ?? []).flatMap((m) =>
+    (m.owner_copyright_policy?.actions ?? [])
+      .filter((a) => a.action === 'BLOCK' || a.action === 'MUTE')
+      .map((a) =>
+        msg('저작권 일치 "{title}": {action} ({where})', {
+          title: m.content_title ?? m.author ?? '?',
+          action: labels[a.action!]!,
+          where: a.geos?.length ? a.geos.join(', ') : msg('모든 지역'),
+        }),
+      ),
+  );
+  return { copyright: 'matched', ...(alerts.length ? { alerts } : {}) };
 }
 
 /** Stats without the fields nothing was read for, so they stay absent rather than `undefined`. */

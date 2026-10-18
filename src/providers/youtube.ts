@@ -59,6 +59,30 @@ export interface YouTubeOptions {
   publicStatsViewable?: boolean;
   /** Title and description in other languages, by language code. */
   localizations?: Record<string, { title: string; description?: string }>;
+  /** When the video was recorded, YYYY-MM-DD (recordingDetails.recordingDate). */
+  recordingDate?: string;
+}
+
+const RECORDING_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Problems with chapter timestamps in a description, which YouTube turns into chapters only when the
+ * first is 0:00, there are at least three, they go up, and each lasts at least 10 seconds. Nothing
+ * when the description has no timestamps at all.
+ */
+export function chapterProblems(description: string): string[] {
+  const times = description
+    .split('\n')
+    .map((line) => /^\s*[(\[]?((?:\d{1,2}:)?\d{1,2}:\d{2})\b/.exec(line)?.[1])
+    .filter((t): t is string => Boolean(t))
+    .map((t) => t.split(':').reduce((sum, part) => sum * 60 + Number(part), 0));
+  if (!times.length) return [];
+  const problems: string[] = [];
+  if (times[0] !== 0) problems.push(msg('첫 타임스탬프가 0:00이어야 합니다'));
+  if (times.length < 3) problems.push(msg('타임스탬프가 3개 이상이어야 합니다 (지금 {n}개)', { n: times.length }));
+  if (times.some((t, i) => i > 0 && t <= times[i - 1]!)) problems.push(msg('타임스탬프가 차례로 커져야 합니다'));
+  else if (times.some((t, i) => i > 0 && t - times[i - 1]! < 10)) problems.push(msg('챕터는 10초 이상이어야 합니다'));
+  return problems;
 }
 
 interface VideoResource {
@@ -321,6 +345,7 @@ export function buildMetadata(post: Post, opts: YouTubeOptions): Record<string, 
       ...(opts.publicStatsViewable === false ? { publicStatsViewable: false } : {}),
     },
     ...(hasLocalizations(opts) ? { localizations: opts.localizations } : {}),
+    ...(opts.recordingDate && RECORDING_DATE.test(opts.recordingDate) ? { recordingDetails: { recordingDate: `${opts.recordingDate}T00:00:00Z` } } : {}),
   };
 }
 
@@ -328,7 +353,7 @@ const hasLocalizations = (opts: YouTubeOptions) => Boolean(opts.localizations &&
 
 /** The resource parts videos.insert must be told about: the ones buildMetadata filled in. */
 export function insertParts(opts: YouTubeOptions): string {
-  return ['snippet', 'status', ...(hasLocalizations(opts) ? ['localizations'] : [])].join(',');
+  return ['snippet', 'status', ...(hasLocalizations(opts) ? ['localizations'] : []), ...(opts.recordingDate && RECORDING_DATE.test(opts.recordingDate) ? ['recordingDetails'] : [])].join(',');
 }
 
 function forcedPrivateWarning(requested: YouTubeOptions['privacy'], video: VideoResource, scheduled: boolean): string | undefined {
@@ -719,6 +744,11 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const o = target.options as Partial<YouTubeOptions>;
     // Options fanout once accepted but YouTube's API can't set: say so instead of dropping them quietly
     // (a paid-promotion disclosure has legal weight).
+    const chapters = chapterProblems(post.description);
+    if (chapters.length) issues.push({ severity: 'warning', code: 'chapters', message: msg('설명의 타임스탬프로는 YouTube 챕터가 만들어지지 않습니다: {problems}', { problems: chapters.join(' / ') }) });
+    if (o.recordingDate !== undefined && !(typeof o.recordingDate === 'string' && RECORDING_DATE.test(o.recordingDate) && !Number.isNaN(Date.parse(o.recordingDate)))) {
+      issues.push({ severity: 'error', code: 'recording_date', message: msg('recordingDate는 YYYY-MM-DD 날짜') });
+    }
     const unsettable = ['paidPromotion', 'audioLanguage'].filter((k) => k in (target.options ?? {}));
     if (unsettable.length) {
       issues.push({ severity: 'warning', code: 'unsettable', message: msg('YouTube API로 설정할 수 없어 적용되지 않습니다: {keys}. YouTube Studio에서 직접 설정하세요', { keys: unsettable.join(', ') }) });

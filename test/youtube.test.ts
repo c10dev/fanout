@@ -273,3 +273,26 @@ describe('youtube resumable upload', () => {
     await assert.rejects(youtube.oauthFinish!(ctx, 'main', new URLSearchParams('code=C'), 'http://127.0.0.1:1/cb', 'v'), (e: ProviderError) => e.code === 'youtube.partial_grant');
   });
 });
+
+describe('youtube chapters and recording date', () => {
+  it('says when description timestamps will not make chapters', async () => {
+    const { chapterProblems } = await import('../src/providers/youtube.ts');
+    assert.deepEqual(chapterProblems('no stamps here'), []);
+    assert.deepEqual(chapterProblems('0:00 Intro\n0:45 Verse\n1:30 Chorus\n(12:05) Outro'), []);
+    assert.equal(chapterProblems('0:10 Intro\n0:45 a\n1:30 b').length, 1, 'first not 0:00');
+    assert.equal(chapterProblems('0:00 Intro\n0:45 a').length, 1, 'fewer than 3');
+    assert.match(chapterProblems('0:00 a\n0:05 b\n1:00 c')[0]!, /10/);
+    assert.match(chapterProblems('0:00 a\n1:00 b\n0:30 c')[0]!, /커져야/);
+    assert.deepEqual(chapterProblems('0:00 a\n1:02:03 b\n1:05:00 c'), [], 'hours too');
+  });
+
+  it('sends the recording date and asks for its part; refuses a bad date', async () => {
+    const { buildMetadata, insertParts } = await import('../src/providers/youtube.ts');
+    const opts = { privacy: 'public' as const, madeForKids: false, recordingDate: '2026-10-01' };
+    assert.deepEqual((buildMetadata(post(), opts) as { recordingDetails: unknown }).recordingDetails, { recordingDate: '2026-10-01T00:00:00Z' });
+    assert.equal(insertParts(opts), 'snippet,status,recordingDetails');
+    const codes = (o: Record<string, unknown>) => youtube.validate(post(), target({ privacy: 'public', madeForKids: false, ...o }), fakeMedia()).map((i) => i.code);
+    assert.ok(codes({ recordingDate: '10/01/2026' }).includes('recording_date'));
+    assert.ok(!codes({ recordingDate: '2026-10-01' }).includes('recording_date'));
+  });
+});

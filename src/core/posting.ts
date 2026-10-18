@@ -313,6 +313,12 @@ export async function refreshStats(
     }
     ctx.store.saveStats(t.id, stats);
     if (!failed) ctx.store.recordStats(t.id, stats);
+    // Alerts (a copyright block) belong with the target's warnings, where every view shows them.
+    const fresh = (stats.alerts ?? []).filter((a) => !t.warnings.includes(a));
+    if (fresh.length) {
+      ctx.store.updateTarget(t.id, { warnings: [...t.warnings, ...fresh] });
+      for (const a of fresh) ctx.log.warn(`${t.platform}/${t.account}: ${a}`);
+    }
     out.push({ ...base, stats, trend: statsTrend(ctx.store, t.id, ctx.now()) });
   }
   return out;
