@@ -38,7 +38,7 @@
 
 | 플랫폼 | 보여 주는 것 | 어디서 |
 |---|---|---|
-| YouTube | 오늘 업로드 수 / 100 (Google Cloud 프로젝트 전체, 태평양 시간 자정 초기화) | fanout이 올린 것만 센 로컬 집계. 같은 프로젝트로 다른 곳에서 올린 것은 빠집니다 |
+| YouTube | 오늘 업로드 수 / 100, 그리고 오늘 쓴 API 단위 / 10,000(자막 400, 썸네일·재생목록 추가·수정·삭제 50, 조회 1). 둘 다 Google Cloud 프로젝트 전체, 태평양 시간 자정 초기화 | fanout이 보낸 요청만 센 로컬 집계. 같은 프로젝트로 다른 곳에서 쓴 것은 빠집니다. 미리보기는 게시물 하나가 쓸 단위(자막 수 등)가 오늘 남은 단위보다 많으면 경고 |
 | Instagram | 최근 24시간 게시 수 / 한도 | `content_publishing_limit` 실측 |
 | Bluesky | 오늘 남은 영상 수와 용량 | `app.bsky.video.getUploadLimits` |
 | PeerTube | 오늘 쓴 용량과 전체 저장 용량 (한도가 없으면 무제한) | `/users/me`, `/users/me/video-quota-used` |

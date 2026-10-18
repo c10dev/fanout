@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
-import { CHUNK_SIZE, buildMetadata, insertParts, nextOffset, pacificDay, youtube } from '../src/providers/youtube.ts';
+import { CHUNK_SIZE, DAILY_UNITS, buildMetadata, insertParts, nextOffset, pacificDay, postUnits, unitCost, youtube } from '../src/providers/youtube.ts';
 import { fakeMedia, json, makeCtx, mockFetch, tempFile } from './helpers.ts';
 
 const NOW = new Date('2026-10-17T03:00:00Z');
@@ -32,6 +32,39 @@ const account: Account = {
   credentials: { accessToken: 'AT', refreshToken: 'RT', expiresAt: NOW.getTime() + 3600_000 },
   profile: { channelTitle: 'Ch' },
 };
+
+describe('youtube quota units', () => {
+  const A = 'https://www.googleapis.com/youtube/v3';
+  const U = 'https://www.googleapis.com/upload/youtube/v3';
+  it('prices each call as Google does', () => {
+    assert.equal(unitCost('GET', `${A}/videos?part=status&id=V`), 1);
+    assert.equal(unitCost('PUT', `${A}/videos?part=snippet`), 50);
+    assert.equal(unitCost('DELETE', `${A}/videos?id=V`), 50);
+    assert.equal(unitCost('POST', `${U}/videos?uploadType=resumable&part=snippet,status`), 1);
+    assert.equal(unitCost('PUT', `${U}/videos?uploadType=resumable&upload_id=abc`), 0, 'upload chunks are free');
+    assert.equal(unitCost('POST', `${U}/captions?uploadType=multipart&part=snippet`), 400);
+    assert.equal(unitCost('POST', `${U}/thumbnails/set?videoId=V&uploadType=media`), 50);
+    assert.equal(unitCost('POST', `${A}/playlistItems?part=snippet`), 50);
+    assert.equal(unitCost('POST', 'https://oauth2.googleapis.com/token'), 0);
+    assert.equal(postUnits({ captions: [{ language: 'ko', path: '/a' }, { language: 'en', path: '/b' }], thumbnailPath: '/t.jpg' }, { playlistId: 'PL' }), 1 + 800 + 50 + 50 + 10);
+  });
+
+  it('counts what fanout spends and warns before a post would run out', async () => {
+    const { fetch } = mockFetch([['GET', '/playlists', () => json({ items: [] })]]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('youtube', { clientId: 'cid', clientSecret: 'cs' });
+    const account = { platform: 'youtube', name: 'main', credentials: { accessToken: 'AT', refreshToken: 'RT', expiresAt: ctx.now().getTime() + 3600_000 }, profile: {} };
+    await youtube.listPlaylists!({ ctx, account });
+    const units = (await youtube.limits!({ ctx, account }))[1]!;
+    assert.deepEqual([units.used, units.total], [1, DAILY_UNITS]);
+
+    store.bumpUsage('youtube', 'units', pacificDay(ctx.now()), DAILY_UNITS - 500);
+    const withCaption = post({ captions: [{ language: 'en', path: '/en.srt' }, { language: 'ja', path: '/ja.srt' }] });
+    const issues = await youtube.previewChecks!({ ctx, account, post: withCaption, target: target({ privacy: 'public', madeForKids: false }), media: fakeMedia() });
+    assert.deepEqual(issues.map((i) => i.code), ['quota_units']);
+    assert.deepEqual(await youtube.previewChecks!({ ctx, account, post: post({}), target: target({ privacy: 'public', madeForKids: false }), media: fakeMedia() }), []);
+  });
+});
 
 describe('youtube metadata', () => {
   it('lists the account\'s playlists to pick from', async () => {

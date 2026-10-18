@@ -575,13 +575,13 @@ export class Store {
     return this.statsBaseline(id, '9999');
   }
 
-  bumpUsage(platform: string, account: string, day: string): number {
+  bumpUsage(platform: string, account: string, day: string, by = 1): number {
     this.#db
       .prepare(
-        `INSERT INTO usage (platform, account, day, count) VALUES (?, ?, ?, 1)
-         ON CONFLICT(platform, account, day) DO UPDATE SET count = count + 1`,
+        `INSERT INTO usage (platform, account, day, count) VALUES (?, ?, ?, ?)
+         ON CONFLICT(platform, account, day) DO UPDATE SET count = count + excluded.count`,
       )
-      .run(platform, account, day);
+      .run(platform, account, day, by);
     return this.getUsage(platform, account, day);
   }
 

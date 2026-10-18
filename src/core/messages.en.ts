@@ -612,4 +612,7 @@ export const MESSAGES_EN: Record<string, string> = {
   "Facebook 초안으로 저장했습니다. Meta Business Suite의 콘텐츠에서 게시하세요": "Saved as a Facebook draft. Post it from Content in Meta Business Suite",
   "Facebook 초안은 예약하지 않습니다. 예약 시각은 무시되고 Meta Business Suite에서 직접 게시합니다": "Facebook drafts aren't scheduled. The schedule is ignored; post it yourself from Meta Business Suite",
   "localizations 형식: {\"en\": {\"title\": \"…\", \"description\": \"…\"}}": "localizations format: {\"en\": {\"title\": \"…\", \"description\": \"…\"}}",
+  "하루 API 단위 (프로젝트 전체)": "API units today (whole project)",
+  "자막 400, 썸네일·재생목록·수정 50, 조회 1. fanout이 쓴 것만 센 로컬 집계": "captions 400, thumbnail/playlist/edit 50, reads 1; counted locally, fanout's calls only",
+  "이 게시물은 API 단위를 약 {cost} 쓰는데 오늘 남은 단위는 {left}입니다. 자막·썸네일이 실패하거나 내일로 밀릴 수 있습니다": "This post needs about {cost} API units and {left} are left today. Captions or the thumbnail may fail or wait for tomorrow",
 };

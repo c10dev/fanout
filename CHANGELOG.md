@@ -36,6 +36,7 @@
 - 기존 게시물에 플랫폼 추가: 대시보드 "플랫폼 추가", `fanout add`, MCP `add_to_post`
 - 댓글 모아보기(#30)와 답글: 대시보드, `fanout reply`, MCP `reply_to_comment`
 - Slack·Discord·JSON webhook 알림(#26)
+- YouTube API 단위(하루 10,000) 집계: 남은 한도에 표시, 자막이 많은 게시물이 오늘 남은 단위를 넘으면 미리보기에서 경고
 - Facebook Reels: 제목, 게시 대신 초안으로 저장(Meta Business Suite에서 마무리)
 - 대시보드: Instagram·TikTok 커버 장면(초) 선택, YouTube 재생목록을 내 목록에서 고르기
 - YouTube: 제목·설명 언어, 다른 언어 제목·설명, 크리에이티브 커먼즈 라이선스, 퍼가기·확장 통계 공개 설정(CLI·대시보드 "더 보기"·MCP)
