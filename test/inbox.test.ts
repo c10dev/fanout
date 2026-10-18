@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -173,6 +173,27 @@ describe('watch-folder files are copied when the post is made', () => {
     rmSync(join(dir, 'a.vtt'));
     symlinkSync(secret, join(dir, 'a.vtt'));
     assert.equal(readFileSync(caption, 'utf8'), 'WEBVTT\n');
+  });
+
+  it('leaves no copies behind when the post is not made', async () => {
+    const { store } = makeCtx();
+    const config: WatchConfig = { to: ['youtube'], options: { youtube: { privacy: 'unlisted', madeForKids: false } } };
+    const dir = folder(config);
+    writeFileSync(join(dir, 'a.vtt'), 'WEBVTT\n');
+    writeFileSync(join(dir, 'a.json'), JSON.stringify({ captions: { ko: 'a.vtt' } }));
+    mkdirSync(join(dir, 'posted'), { mode: 0o500 }); // can't move the video there
+    video(dir, 'a.mp4');
+    const media = mkdtempSync(join(tmpdir(), 'fanout-media-'));
+    for (let i = 0; i < 3; i++) {
+      await assert.rejects(ingest({ mediaDir: media, dir, config, videoPath: join(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: NOW }));
+    }
+    assert.deepEqual(readdirSync(media), []);
+  });
+
+  it('keeps the original file name in the copy', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fanout-assets-'));
+    writeFileSync(join(dir, 'a.ko.VTT'), 'WEBVTT\n');
+    assert.match(importAsset('caption', join(dir, 'a.ko.VTT'), join(dir, 'media')), /\/[0-9a-f]{8}-a\.ko\.vtt$/);
   });
 
   it('refuses a symlink or a hard link at the moment of copying', () => {
