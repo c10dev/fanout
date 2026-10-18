@@ -113,7 +113,7 @@ function options(target: Target): YouTubeOptions {
 }
 
 async function tokenRequest(ctx: ProviderContext, params: Record<string, string>): Promise<Record<string, unknown>> {
-  const res = await ctx.fetch(TOKEN_URL, {
+  const res = await ytFetch(ctx, TOKEN_URL, {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(params),
@@ -148,8 +148,40 @@ function creds(account: Account): YouTubeCredentials {
   return account.credentials as unknown as YouTubeCredentials;
 }
 
+/** The project's daily API quota, shared by every call except uploads (which have their own 100). */
+export const DAILY_UNITS = 10_000;
+
+/**
+ * Quota units a request costs (developers.google.com/youtube/v3/determine_quota_cost): reads 1,
+ * writes 50, a caption upload 400, a video insert 1 (its count is kept separately). Token calls and
+ * the chunks of a resumable upload cost nothing.
+ */
+export function unitCost(method: string, url: string): number {
+  const u = new URL(url);
+  if (u.hostname !== 'www.googleapis.com' || u.searchParams.has('upload_id')) return 0;
+  const path = u.pathname.replace(/^\/(upload\/)?youtube\/v3/, '');
+  const m = method.toUpperCase();
+  if (path.startsWith('/captions')) return m === 'GET' ? 50 : 400;
+  if (path.startsWith('/thumbnails')) return 50;
+  if (m === 'GET') return 1;
+  if (path === '/videos' && m === 'POST') return 1;
+  return 50;
+}
+
+/** Units a post will spend: the insert, its captions, thumbnail and playlist entry, and a few status checks. */
+export function postUnits(post: Pick<Post, 'captions' | 'thumbnailPath'>, o: Pick<YouTubeOptions, 'playlistId'>): number {
+  return 1 + post.captions.length * 400 + (post.thumbnailPath ? 50 : 0) + (o.playlistId ? 50 : 0) + 10;
+}
+
+/** fetch for YouTube calls, counting the quota units each one spends (charged even when it fails). */
+async function ytFetch(ctx: ProviderContext, input: string, init: RequestInit = {}): Promise<Response> {
+  const cost = unitCost(init.method ?? 'GET', input);
+  if (cost) ctx.store.bumpUsage('youtube', 'units', pacificDay(ctx.now()), cost);
+  return ctx.fetch(input, init);
+}
+
 async function api<T>(ctx: ProviderContext, account: Account, path: string, init: RequestInit = {}): Promise<T> {
-  const res = await ctx.fetch(path.startsWith('http') ? path : `${API}${path}`, {
+  const res = await ytFetch(ctx, path.startsWith('http') ? path : `${API}${path}`, {
     ...init,
     headers: { authorization: `Bearer ${creds(account).accessToken}`, ...(init.headers as Record<string, string>) },
   });
@@ -241,7 +273,7 @@ async function querySession(
   sessionUri: string,
   size: number,
 ): Promise<{ offset: number } | { video: VideoResource } | { expired: true }> {
-  const res = await ctx.fetch(sessionUri, {
+  const res = await ytFetch(ctx, sessionUri, {
     method: 'PUT',
     headers: { authorization: `Bearer ${creds(account).accessToken}`, 'content-range': `bytes */${size}`, 'content-length': '0' },
   });
@@ -260,7 +292,7 @@ export function nextOffset(range: string | null): number {
 async function startSession(ctx: ProviderContext, account: Account, post: Post, opts: YouTubeOptions, size: number): Promise<string> {
   const params = new URLSearchParams({ uploadType: 'resumable', part: insertParts(opts) });
   if (opts.notifySubscribers === false) params.set('notifySubscribers', 'false');
-  const res = await ctx.fetch(`${UPLOAD_API}/videos?${params}`, {
+  const res = await ytFetch(ctx, `${UPLOAD_API}/videos?${params}`, {
     method: 'POST',
     headers: {
       authorization: `Bearer ${creds(account).accessToken}`,
@@ -288,7 +320,7 @@ async function uploadBytes(
   while (offset < size) {
     const chunk = await readChunk(path, offset, Math.min(CHUNK_SIZE, size - offset));
     const end = offset + chunk.length - 1;
-    const res = await ctx.fetch(sessionUri, {
+    const res = await ytFetch(ctx, sessionUri, {
       method: 'PUT',
       headers: {
         authorization: `Bearer ${creds(account).accessToken}`,
@@ -349,7 +381,7 @@ async function applyExtras(
       'thumbnail',
       msg('썸네일'),
       () =>
-        ctx.fetch(`${UPLOAD_API}/thumbnails/set?videoId=${videoId}&uploadType=media`, {
+        ytFetch(ctx, `${UPLOAD_API}/thumbnails/set?videoId=${videoId}&uploadType=media`, {
           method: 'POST',
           headers: { authorization: `Bearer ${token}`, 'content-type': imageMime(path) },
           body: readFileSync(path),
@@ -367,7 +399,7 @@ async function applyExtras(
         readFileSync(cap.path),
         Buffer.from(`\r\n--${boundary}--`),
       ]);
-      return ctx.fetch(`${UPLOAD_API}/captions?uploadType=multipart&part=snippet`, {
+      return ytFetch(ctx, `${UPLOAD_API}/captions?uploadType=multipart&part=snippet`, {
         method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'content-type': `multipart/related; boundary=${boundary}` },
         body,
@@ -378,7 +410,7 @@ async function applyExtras(
   if (opts.playlistId) {
     const playlistId = opts.playlistId;
     await attempt('playlist', msg('재생목록 추가'), () =>
-      ctx.fetch(`${API}/playlistItems?part=snippet`, {
+      ytFetch(ctx, `${API}/playlistItems?part=snippet`, {
         method: 'POST',
         headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
         body: JSON.stringify({ snippet: { playlistId, resourceId: { kind: 'youtube#video', videoId } } }),
@@ -531,7 +563,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const c = creds(account);
     const token = c.refreshToken || c.accessToken;
     if (!token) return false;
-    const res = await ctx.fetch(REVOKE_URL, {
+    const res = await ytFetch(ctx, REVOKE_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ token }),
@@ -548,6 +580,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
   async limits({ ctx }) {
     const now = ctx.now();
     const used = ctx.store.getUsage('youtube', 'project', pacificDay(now));
+    const units = ctx.store.getUsage('youtube', 'units', pacificDay(now));
     return [
       {
         what: msg('하루 업로드 (프로젝트 전체)'),
@@ -558,7 +591,25 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
         resetsAt: nextPacificMidnight(now).toISOString(),
         note: msg('fanout이 올린 것만 센 로컬 집계'),
       },
+      {
+        what: msg('하루 API 단위 (프로젝트 전체)'),
+        unit: 'posts',
+        used: units,
+        total: DAILY_UNITS,
+        remaining: Math.max(0, DAILY_UNITS - units),
+        resetsAt: nextPacificMidnight(now).toISOString(),
+        note: msg('자막 400, 썸네일·재생목록·수정 50, 조회 1. fanout이 쓴 것만 센 로컬 집계'),
+      },
     ];
+  },
+
+  // A post's own quota bill, checked against what is left today (captions are the costly part).
+  async previewChecks({ ctx, post, target }) {
+    const o = target.options as unknown as YouTubeOptions;
+    const cost = postUnits(post, o);
+    const left = DAILY_UNITS - ctx.store.getUsage('youtube', 'units', pacificDay(ctx.now()));
+    if (cost <= left) return [];
+    return [{ severity: 'warning', code: 'quota_units', message: msg('이 게시물은 API 단위를 약 {cost} 쓰는데 오늘 남은 단위는 {left}입니다. 자막·썸네일이 실패하거나 내일로 밀릴 수 있습니다', { cost, left: Math.max(0, left) }) }];
   },
 
   async listPlaylists({ ctx, account }) {
@@ -806,7 +857,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
           },
     );
 
-    const del = await ctx.fetch(`${API}/videos?id=${video.id}`, {
+    const del = await ytFetch(ctx, `${API}/videos?id=${video.id}`, {
       method: 'DELETE',
       headers: { authorization: `Bearer ${creds(acct).accessToken}` },
     });
@@ -831,7 +882,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
   },
 
   async remove({ ctx, account, target }) {
-    const res = await ctx.fetch(`${API}/videos?id=${target.remoteId}`, { method: 'DELETE', headers: { authorization: `Bearer ${creds(account).accessToken}` } });
+    const res = await ytFetch(ctx, `${API}/videos?id=${target.remoteId}`, { method: 'DELETE', headers: { authorization: `Bearer ${creds(account).accessToken}` } });
     if (res.ok || res.status === 404) return;
     throw await uploadError(res, ctx.now());
   },
