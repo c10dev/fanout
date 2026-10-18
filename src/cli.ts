@@ -132,7 +132,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         audioName: str(args, 'ig-audio'),
       });
     case 'facebook':
-      return drop({ caption: str(args, 'fb-caption') });
+      return drop({ caption: str(args, 'fb-caption'), title: str(args, 'fb-title'), draft: args.flags['fb-draft'] ? true : undefined });
     case 'x':
       return drop({ text: str(args, 'x-text'), paidPartnership: bool(args, 'x-paid-partnership'), replySettings: str(args, 'x-reply') });
     case 'mastodon':
@@ -325,7 +325,7 @@ post 공통 옵션
              --tt-music-consent yes (필수)  --tt-allow-comment/--tt-allow-duet/--tt-allow-stitch yes
              --tt-brand-organic yes  --tt-branded yes  --tt-caption 텍스트  --tt-cover-ms 1000
   Instagram  --ig-caption 텍스트  --ig-no-feed  --ig-thumb-ms 1000  --ig-collab 사용자1,사용자2 (공동 작업자, 3명까지)  --ig-audio 오디오이름
-  Facebook   --fb-caption 텍스트
+  Facebook   --fb-caption 텍스트  --fb-title 제목  --fb-draft (게시하지 않고 초안으로)
   X          --x-text 텍스트 (가중치 280 이하, 한글은 2로 셈)  --x-paid-partnership yes  --x-reply following|mentionedUsers|subscribers|verified
   Bluesky    --bsky-text 텍스트(300자 이하)  --bsky-alt 대체텍스트  --bsky-lang ko,en
   Mastodon   --md-visibility public|unlisted|private (필수)  --md-text 텍스트  --md-alt 대체텍스트

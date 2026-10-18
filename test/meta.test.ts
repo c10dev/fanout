@@ -136,6 +136,23 @@ describe('facebook reels', () => {
     assert.equal(finish.get('scheduled_publish_time'), String(Date.parse('2026-10-20T00:00:00Z') / 1000));
   });
 
+  it('sends the title and saves a draft instead of publishing (or scheduling)', async () => {
+    const { fetch, calls } = mockFetch([
+      ['POST', '/PAGE/video_reels', (c) => (new URLSearchParams(String(c.body)).get('upload_phase') === 'start' ? json({ video_id: 'R1', upload_url: 'https://rupload.facebook.com/video-upload/v24.0/R1' }) : json({ success: true }))],
+      ['POST', 'rupload.facebook.com', () => json({ success: true })],
+    ]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const draft = { ...target('facebook'), options: { title: '가사 영상', draft: true } };
+    await facebook.publish({ ctx, post: { ...post, scheduledAt: '2026-10-20T00:00:00.000Z' }, target: draft, account: account('facebook'), mediaPath: tempFile(16), media: fakeMedia(), saveResume: () => {} });
+    const finish = new URLSearchParams(String(calls[2]!.body));
+    assert.deepEqual([finish.get('title'), finish.get('video_state'), finish.get('scheduled_publish_time')], ['가사 영상', 'DRAFT', null]);
+    // Done once processed: it waits in the Page's drafts.
+    assert.equal(reelOutcome('R1', { status: { processing_phase: { status: 'complete' } } }, true).state, 'handed_off');
+    assert.equal(reelOutcome('R1', { status: { processing_phase: { status: 'complete' } } }).state, 'processing');
+    assert.ok(facebook.validate({ ...post, scheduledAt: '2026-10-20T00:00:00.000Z' }, draft, fakeMedia()).some((i) => i.code === 'draft_schedule'));
+  });
+
   it('maps reel status phases', () => {
     assert.equal(reelOutcome('R', { status: { publishing_phase: { status: 'in_progress' } } }).state, 'processing');
     assert.equal(reelOutcome('R', { status: { publishing_phase: { status: 'complete', publish_status: 'published' } } }).state, 'published');

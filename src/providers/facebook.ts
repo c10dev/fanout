@@ -7,6 +7,10 @@ import { msg } from '../core/i18n.ts';
 
 export interface FacebookOptions {
   caption?: string;
+  /** Title shown with the Reel (none unless given). */
+  title?: string;
+  /** Upload as a draft in the Page's content library instead of publishing; finish it in Meta Business Suite. */
+  draft?: boolean;
 }
 
 /** Native scheduling window for Page Reels. */
@@ -27,13 +31,14 @@ async function finishReel(ctx: ProviderContext, pageId: string, pageToken: strin
     upload_phase: 'finish',
     video_id: videoId,
     description: metaCaption(post, o.caption),
-    video_state: post.scheduledAt ? 'SCHEDULED' : 'PUBLISHED',
-    scheduled_publish_time: post.scheduledAt ? Math.floor(new Date(post.scheduledAt).getTime() / 1000) : undefined,
+    title: o.title,
+    video_state: o.draft ? 'DRAFT' : post.scheduledAt ? 'SCHEDULED' : 'PUBLISHED',
+    scheduled_publish_time: post.scheduledAt && !o.draft ? Math.floor(new Date(post.scheduledAt).getTime() / 1000) : undefined,
     access_token: pageToken,
   });
 }
 
-export function reelOutcome(videoId: string, s: ReelStatus): PollOutcome {
+export function reelOutcome(videoId: string, s: ReelStatus, draft = false): PollOutcome {
   const st = s.status ?? {};
   const err = st.uploading_phase?.errors?.[0]?.message ?? st.processing_phase?.errors?.[0]?.message ?? st.publishing_phase?.errors?.[0]?.message;
   if (
@@ -46,6 +51,10 @@ export function reelOutcome(videoId: string, s: ReelStatus): PollOutcome {
     throw new ProviderError('rejected', 'facebook.reel_error', msg('Facebook Reels 처리 실패: {err}', { err: err ?? st.video_status }));
   }
   const url = `https://www.facebook.com/reel/${videoId}`;
+  // A draft is done once processed: it waits in the Page's content library for the user to post it.
+  if (draft && st.processing_phase?.status === 'complete') {
+    return { state: 'handed_off', remoteId: videoId, warnings: [msg('Facebook 초안으로 저장했습니다. Meta Business Suite의 콘텐츠에서 게시하세요')] };
+  }
   if (st.publishing_phase?.status === 'complete') {
     if (st.publishing_phase.publish_status === 'scheduled') {
       const when = st.publishing_phase.publish_time ? new Date(st.publishing_phase.publish_time * 1000).toISOString() : '?';
@@ -96,9 +105,12 @@ export const facebook: Provider = {
   connect: (ctx, name, flags) => connectPage(ctx, 'facebook', name, flags),
   refresh: async (_ctx, account) => account,
 
-  validate(post, _target, _media) {
+  validate(post, target, _media) {
     const issues: Issue[] = [];
-    if (post.scheduledAt) {
+    const o = target.options as FacebookOptions;
+    if (o.draft && post.scheduledAt) {
+      issues.push({ severity: 'warning', code: 'draft_schedule', message: msg('Facebook 초안은 예약하지 않습니다. 예약 시각은 무시되고 Meta Business Suite에서 직접 게시합니다') });
+    } else if (post.scheduledAt) {
       const delta = new Date(post.scheduledAt).getTime() - Date.now();
       if (delta < SCHEDULE_MIN_MS) {
         issues.push({ severity: 'error', code: 'schedule_window', message: msg('Facebook Reels 예약은 10분 뒤부터 가능합니다') });
@@ -151,7 +163,7 @@ export const facebook: Provider = {
   async poll({ ctx, target, account }) {
     const c = pageCreds(account);
     const s = await graph<ReelStatus>(ctx, 'GET', `/${target.remoteId}`, { fields: 'status', access_token: c.pageToken });
-    return reelOutcome(target.remoteId, s);
+    return reelOutcome(target.remoteId, s, (target.options as FacebookOptions).draft === true);
   },
 
   async doctor({ ctx, account }): Promise<DoctorCheck[]> {
