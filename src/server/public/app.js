@@ -1003,7 +1003,29 @@ function targetRow(t) {
           tr('다시 시도'),
         )
       : null;
-  const actions = h('div', { class: 'row-actions' }, retry, cancel, remove);
+  // A published video's visibility (YouTube): changing it asks first, the platform does the rest.
+  const VISIBILITY = { public: tr('공개'), unlisted: tr('일부 공개'), private: tr('비공개') };
+  const visibility = t.visibilities
+    ? h(
+        'select',
+        {
+          class: 'small',
+          'aria-label': tr('공개 범위'),
+          onchange: async (e) => {
+            const next = e.target.value;
+            if (!confirm(tr('{target}의 공개 범위를 "{visibility}"(으)로 바꿀까요?', { target: `${t.platform}/${t.account}`, visibility: VISIBILITY[next] ?? next }))) {
+              e.target.value = t.options.privacy ?? '';
+              return;
+            }
+            e.target.disabled = true;
+            await api(`/targets/${t.id}/visibility`, { method: 'POST', body: JSON.stringify({ visibility: next }) }).catch((err) => alert(err.message));
+            refreshBoard();
+          },
+        },
+        t.visibilities.map((v) => h('option', { value: v, selected: v === t.options.privacy }, VISIBILITY[v] ?? v)),
+      )
+    : null;
+  const actions = h('div', { class: 'row-actions' }, visibility, retry, cancel, remove);
   return h('div', { class: 'trow' }, h('span', { class: 'tname' }, `${t.platform}/${t.account}`), badge(STATE[t.state] ?? [t.state, 'info']), detail, actions);
 }
 

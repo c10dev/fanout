@@ -889,6 +889,21 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
 
   // videos.update replaces the whole snippet, so start from the current one (title and categoryId are
   // required) and change only what fanout owns.
+  visibilities: ['public', 'unlisted', 'private'],
+
+  async setVisibility({ ctx, account, target, visibility, publishAt }) {
+    const res = await api<{ items?: Array<{ status?: Record<string, unknown> }> }>(ctx, account, `/videos?part=status&id=${target.remoteId}`);
+    const current = res.items?.[0]?.status;
+    if (!current) throw new ProviderError('rejected', 'youtube.not_found', msg('영상을 찾을 수 없습니다'));
+    // videos.update replaces the whole status: carry over the settable fields being kept.
+    const keep = ['embeddable', 'license', 'publicStatsViewable', 'selfDeclaredMadeForKids', 'containsSyntheticMedia'];
+    const status: Record<string, unknown> = Object.fromEntries(keep.filter((k) => current[k] !== undefined).map((k) => [k, current[k]]));
+    // A scheduled publish is a private video with publishAt; YouTube makes it public then.
+    status.privacyStatus = publishAt ? 'private' : visibility;
+    if (publishAt) status.publishAt = new Date(publishAt).toISOString();
+    await api(ctx, account, '/videos?part=status', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: target.remoteId, status }) });
+  },
+
   async update({ ctx, account, target, post }) {
     const res = await api<{ items?: Array<{ snippet: Record<string, unknown> }> }>(ctx, account, `/videos?part=snippet&id=${target.remoteId}`);
     const snippet = res.items?.[0]?.snippet;

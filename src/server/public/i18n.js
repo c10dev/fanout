@@ -49,6 +49,7 @@ function translateStatic(root = document) {
 // English for every tr() key in app.js and data-i18n key in index.html (test/i18n.test.ts checks).
 const MESSAGES_EN = {
   '남은 한도': 'Remaining limits',
+  '{target}의 공개 범위를 "{visibility}"(으)로 바꿀까요?': 'Change the visibility of {target} to "{visibility}"?',
   '릴스 제목 (선택)': 'Reel title (optional)',
   '게시하지 않고 초안으로 저장 (Meta Business Suite에서 마무리)': 'Save as a draft instead of posting (finish in Meta Business Suite)',
   '재생목록 (선택)': 'Playlist (optional)',

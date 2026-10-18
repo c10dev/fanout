@@ -11,6 +11,7 @@ import {
   appReady,
   assessMedia,
   cancelTarget,
+  changeVisibility,
   createScheduledPost,
   editPost,
   fetchComments,
@@ -329,6 +330,15 @@ export class Dashboard {
       } catch (err) {
         // The dashboard asks the user to check the platform, then sends confirmedNotPosted.
         if (err instanceof MaybeLiveError) return send(res, 409, { error: err.message, needsConfirm: true });
+        throw new HttpError(409, err instanceof Error ? err.message : String(err));
+      }
+    }
+    if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'visibility') {
+      const body = await readJson<{ visibility?: string; publishAt?: string }>(req);
+      try {
+        return send(res, 200, this.#publicTarget(await changeVisibility(this.#opts.ctx, this.#opts.providers, parts[1], String(body.visibility ?? ''), body.publishAt || undefined)));
+      } catch (err) {
+        if (err instanceof ProviderError) throw err;
         throw new HttpError(409, err instanceof Error ? err.message : String(err));
       }
     }
@@ -885,6 +895,7 @@ export class Dashboard {
       terminal: isTerminal(t.state),
       statsCost: provider?.statsCost,
       removable: t.state === 'published' && Boolean(provider?.remove),
+      visibilities: t.state === 'published' && provider?.setVisibility ? provider.visibilities : undefined,
       trend: t.stats ? statsTrend(this.#opts.ctx.store, t.id, this.#opts.ctx.now()) : undefined,
     };
   }

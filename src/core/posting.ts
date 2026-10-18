@@ -325,6 +325,38 @@ export async function removeTarget(baseCtx: ProviderContext, providers: Map<stri
   return ctx.store.transition(t.id, 'removed', {}, 'removed by user');
 }
 
+/**
+ * Change a published target's visibility on the platform (YouTube), optionally scheduling it to go
+ * public at `publishAt`. The target's options record the new value.
+ */
+export async function changeVisibility(
+  baseCtx: ProviderContext,
+  providers: Map<string, Provider>,
+  targetId: string,
+  visibility: string,
+  publishAt?: string,
+): Promise<Target> {
+  const ctx = withTimeout(baseCtx);
+  const t = ctx.store.getTarget(targetId);
+  if (!t) throw new Error(msg('대상 없음: {targetId}', { targetId }));
+  if (t.state !== 'published' || !t.remoteId) throw new Error(msg('게시된 대상만 공개 범위를 바꿀 수 있습니다 (지금: {state})', { state: t.state }));
+  const provider = providers.get(t.platform);
+  if (!provider?.setVisibility) throw new Error(msg('{provider}는 API로 공개 범위를 바꿀 수 없습니다', { provider: provider?.displayName ?? t.platform }));
+  if (!provider.visibilities?.includes(visibility)) throw new Error(msg('공개 범위는 {values} 중 하나', { values: (provider.visibilities ?? []).join(', ') }));
+  if (publishAt !== undefined) {
+    const at = Date.parse(publishAt);
+    if (Number.isNaN(at) || at <= ctx.now().getTime()) throw new Error(msg('예약 공개 시각은 앞으로의 ISO-8601 시각이어야 합니다'));
+    if (visibility !== 'public') throw new Error(msg('예약해서 바꿀 수 있는 것은 공개(public)뿐입니다'));
+  }
+  let account = ctx.store.getAccount(t.platform, t.account);
+  if (!account) throw new Error(msg('연결된 계정이 없습니다: {platform}/{account}', { platform: t.platform, account: t.account }));
+  account = await provider.refresh(ctx, account);
+  await provider.setVisibility({ ctx, account, target: { ...t, remoteId: t.remoteId }, visibility, publishAt });
+  // Recorded on the target, so the board and later edits know what it is now.
+  const { publishAt: _, ...rest } = t.options;
+  return ctx.store.updateTarget(t.id, { options: { ...rest, privacy: visibility, ...(publishAt ? { publishAt } : {}) } });
+}
+
 export interface EditResult {
   targetId: string;
   platform: string;

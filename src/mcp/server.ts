@@ -3,7 +3,7 @@ import { extname, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
-import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, createScheduledPost, editPost, fetchComments, planAddTargets, previewPost, refreshStats, replyToComment, retryTarget, type TargetPreview } from '../core/posting.ts';
+import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, createScheduledPost, editPost, fetchComments, planAddTargets, previewPost, refreshStats, replyToComment, retryTarget, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
 import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
@@ -185,6 +185,19 @@ const TOOLS = [
       properties: { targetId: { type: 'string' }, commentId: { type: 'string' }, text: { type: 'string', maxLength: 5000 } },
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
+  },
+  {
+    name: 'set_visibility',
+    title: 'Change a published video\'s visibility',
+    description:
+      'Change the visibility of a published target (YouTube: public, unlisted, private), or with publishAt schedule it to go public later. ' +
+      'This changes who can see the video right away: show the user what will change and call only after they agree.',
+    inputSchema: {
+      type: 'object',
+      required: ['targetId', 'visibility'],
+      properties: { targetId: { type: 'string' }, visibility: { type: 'string', enum: ['public', 'unlisted', 'private'] }, publishAt: { type: 'string', description: 'ISO-8601; only with visibility "public"' } },
+    },
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
   },
   {
     name: 'cancel_target',
@@ -388,6 +401,14 @@ export class McpServer {
         try {
           return await replyToComment(this.#deps.ctx, providers, String(args.targetId ?? ''), String(args.commentId ?? ''), String(args.text ?? ''));
         } catch (err) {
+          throw new ToolError((err as Error).message);
+        }
+      }
+      case 'set_visibility': {
+        try {
+          return { target: publicTarget(await changeVisibility(this.#deps.ctx, providers, String(args.targetId ?? ''), String(args.visibility ?? ''), typeof args.publishAt === 'string' ? args.publishAt : undefined)) };
+        } catch (err) {
+          if (err instanceof ToolError) throw err;
           throw new ToolError((err as Error).message);
         }
       }
