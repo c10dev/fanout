@@ -2,7 +2,7 @@ import { openAsBlob, statSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { imageMime, readChunk } from '../core/http.ts';
+import { imageMime, readChunk, rotationContext } from '../core/http.ts';
 import { liveRoundTrip } from '../core/livecheck.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
@@ -147,7 +147,7 @@ async function tokenRequest(ctx: ProviderContext, instance: string, form: Record
 async function rotate(ctx: ProviderContext, account: Account): Promise<Account> {
   const c = creds(account);
   try {
-    const tok = await tokenRequest(ctx, c.instance, { client_id: c.clientId, client_secret: c.clientSecret, grant_type: 'refresh_token', refresh_token: c.refreshToken });
+    const tok = await tokenRequest(rotationContext(ctx), c.instance, { client_id: c.clientId, client_secret: c.clientSecret, grant_type: 'refresh_token', refresh_token: c.refreshToken });
     const next: Account = { ...account, credentials: { ...fromToken(c, tok, ctx.now().getTime()) } };
     ctx.store.saveAccount(next);
     return next;

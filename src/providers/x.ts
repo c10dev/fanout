@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { openBrowser, pkcePair, readChunk, startLoopback } from '../core/http.ts';
+import { openBrowser, pkcePair, readChunk, rotationContext, startLoopback } from '../core/http.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
@@ -214,7 +214,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     const sc = stored ? creds(stored) : c;
     if (stored && sc.refreshToken !== c.refreshToken && sc.expiresAt - ctx.now().getTime() > 120_000) return stored;
     try {
-      const tok = await tokenRequest(ctx, { grant_type: 'refresh_token', refresh_token: sc.refreshToken }, sc);
+      const tok = await tokenRequest(rotationContext(ctx), { grant_type: 'refresh_token', refresh_token: sc.refreshToken }, sc);
       const next: Account = { ...(stored ?? account), credentials: { ...sc, ...tok } };
       ctx.store.saveAccount(next);
       return next;

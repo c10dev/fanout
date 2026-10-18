@@ -6,6 +6,7 @@ import type { AddressInfo } from 'node:net';
 import { extname } from 'node:path';
 import { ProviderError, kindForStatus } from './errors.ts';
 import { msg } from './i18n.ts';
+import type { ProviderContext } from './provider.ts';
 
 /** Read a JSON body; turn non-2xx into ProviderError using `describe` to extract platform codes. */
 export async function jsonOrThrow<T>(
@@ -136,4 +137,17 @@ export function capResponses(inner: typeof fetch, maxBytes = MAX_RESPONSE_BYTES)
     );
     return new Response(body, { status: res.status, statusText: res.statusText, headers: res.headers });
   }) as typeof fetch;
+}
+
+/** Generous: only a server that has stopped answering altogether should hit it. */
+const ROTATION_TIMEOUT_MS = 120_000;
+
+/**
+ * The context for exchanging a single-use refresh token (PeerTube, Bluesky, X). A short deadline
+ * from the caller (a 20 s stats read, a poll) is set aside: aborting after the server has rotated
+ * the token but before its answer is stored loses the new pair, and the account must be reconnected.
+ */
+export function rotationContext(ctx: ProviderContext): ProviderContext {
+  const base = ctx.baseFetch ?? ctx.fetch;
+  return { ...ctx, fetch: ((input, init) => base(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(ROTATION_TIMEOUT_MS) })) as typeof fetch };
 }
