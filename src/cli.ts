@@ -23,6 +23,7 @@ import { DEFAULT_STATS_EVERY_MS, Worker } from './core/worker.ts';
 import { isShort } from './providers/youtube.ts';
 import { currentLang, local, msg } from './core/i18n.ts';
 import { ACCOUNT_NAME } from './core/store.ts';
+import { disconnectAccount } from './core/accounts.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
 
@@ -952,7 +953,9 @@ export async function main(argv: string[]): Promise<number> {
       case 'disconnect': {
         const [, platform, name] = args.positionals;
         if (!platform || !name) throw new UsageError('fanout disconnect <platform> <name>');
-        say(ctx.store.removeAccount(platform, name) ? msg('삭제됨') : msg('해당 계정 없음'));
+        const provider = deps.providers.get(platform);
+        if (!(await disconnectAccount(ctx, deps.providers, platform, name))) say(msg('해당 계정 없음'));
+        else say(provider?.forget ? msg('삭제됨 (토큰을 철회하고 플랫폼에서 받은 반응 통계도 지웠습니다)') : msg('삭제됨'));
         return 0;
       }
       case 'doctor':

@@ -296,7 +296,10 @@ describe('posting slots, tenth review fixes', () => {
     const dir = folder(config);
     // A sidecar sneaks in an unlisted YouTube privacy past the folder check.
     writeFileSync(join(dir, 'a.json'), JSON.stringify({ options: { youtube: { privacy: 'unlisted', madeForKids: false } } }));
-    const r = await ingest({ dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now: local(17, 9) });
+    // YouTube checks the schedule against the real clock, so the slot must really be ahead: tomorrow.
+    const tomorrow = new Date(Date.now() + 86_400_000);
+    const now = new Date(tomorrow.getFullYear(), tomorrow.getMonth(), tomorrow.getDate(), 9);
+    const r = await ingest({ dir, config, videoPath: video(dir, 'a.mp4'), providers, store, probe: async () => fakeMedia(), now });
     assert.ok(r.ok);
     if (r.ok) {
       assert.deepEqual(r.plan.targets.map((t) => t.platform), ['tiktok']);

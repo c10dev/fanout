@@ -240,6 +240,20 @@ export class Store {
     return this.#db.prepare('DELETE FROM accounts WHERE platform = ? AND name = ?').run(platform, name).changes > 0;
   }
 
+  /**
+   * Forget the reactions read from the platform for one account's targets (latest and history).
+   * Posts, targets and their links stay: they are the user's own record of what they posted.
+   * Returns how many targets had stats.
+   */
+  purgeAccountStats(platform: string, account: string): number {
+    return this.transaction(() => {
+      this.#db
+        .prepare('DELETE FROM stats_history WHERE target_id IN (SELECT id FROM targets WHERE platform = ? AND account = ?)')
+        .run(platform, account);
+      return Number(this.#db.prepare('UPDATE targets SET stats = NULL WHERE platform = ? AND account = ? AND stats IS NOT NULL').run(platform, account).changes);
+    });
+  }
+
   // ── Posts and targets ────────────────────────────────────────────
 
   createPost(input: PostInput, targets: TargetInput[], notBefore?: string): { post: Post; targets: Target[] } {
