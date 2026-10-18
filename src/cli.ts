@@ -578,7 +578,7 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
       scanner.forget(videoPath);
       let r: Awaited<ReturnType<typeof ingest>>;
       try {
-        r = await ingest({ dir, config, videoPath, providers: deps.providers, store: ctx.store, probe: probeFn, now: ctx.now() });
+        r = await ingest({ dir, config, videoPath, providers: deps.providers, store: ctx.store, probe: probeFn, now: ctx.now(), mediaDir: join(ctx.home, 'media') });
       } catch (err) {
         // One bad video (or a busy database) must not stop the watcher; it is picked up again next scan.
         failures++;

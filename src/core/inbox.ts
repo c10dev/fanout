@@ -5,7 +5,7 @@
 
 import { accessSync, constants as fsConstants, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path';
-import { assetProblem, type AssetKind } from './assets.ts';
+import { assetProblem, importAsset, type AssetKind } from './assets.ts';
 import { msg } from './i18n.ts';
 import { fileHash, type MediaInfo } from './media.ts';
 import { assessMedia, createScheduledPost, describePrior, priorPosts } from './posting.ts';
@@ -221,13 +221,14 @@ export function planPost(args: {
 
   // Sidecars may come from whoever can write to the folder: their files must be inside it and be
   // what they claim, or a path like ~/.ssh/id_rsa would be uploaded as a "caption".
-  const root = realpathSync(dir);
+  const real0 = realpathSync(dir);
+  const root = real0.endsWith(sep) ? real0 : real0 + sep;
   const fromDir = (p: string, kind: AssetKind, field: string): string => {
     const full = resolve(dir, p);
     if (isAbsolute(p)) throw new WatchConfigError(msg('{field}: 감시 폴더 안의 상대 경로만 쓸 수 있습니다 ({path})', { field, path: p }));
     if (!existsSync(full)) throw new WatchConfigError(kind === 'caption' ? msg('자막 파일 없음: {path}', { path: full }) : msg('썸네일 파일 없음: {path}', { path: full }));
     const real = realpathSync(full);
-    if (!real.startsWith(root + sep)) throw new WatchConfigError(msg('{field}: 감시 폴더 밖의 파일은 쓸 수 없습니다 ({path})', { field, path: p }));
+    if (!real.startsWith(root)) throw new WatchConfigError(msg('{field}: 감시 폴더 밖의 파일은 쓸 수 없습니다 ({path})', { field, path: p }));
     const problem = assetProblem(kind, real);
     if (problem) throw new WatchConfigError(`${field}: ${problem}`);
     return real;
@@ -371,6 +372,8 @@ export async function ingest(args: {
   store: Store;
   probe: (path: string) => Promise<MediaInfo>;
   now: Date;
+  /** fanout's own media folder (`<home>/media`): thumbnails and captions are copied there. */
+  mediaDir: string;
 }): Promise<IngestResult> {
   const { dir, config, videoPath, providers, store, now } = args;
   let plan: Plan;
@@ -378,6 +381,17 @@ export async function ingest(args: {
   try {
     media = await args.probe(videoPath);
     plan = planPost({ videoPath, dir, config, sidecar: loadSidecar(videoPath), media, providers, now });
+    // Uploads may run hours later (slots, retries): they read fanout's own copies, not files in a
+    // folder someone could swap for a link to a private file in the meantime.
+    const copy = (path: string, kind: AssetKind, field: string) => {
+      try {
+        return importAsset(kind, path, args.mediaDir);
+      } catch (err) {
+        throw new WatchConfigError(`${field}: ${(err as Error).message}`);
+      }
+    };
+    if (plan.input.thumbnailPath) plan.input.thumbnailPath = copy(plan.input.thumbnailPath, 'thumbnail', 'thumbnail');
+    plan.input.captions = plan.input.captions.map((c) => ({ ...c, path: copy(c.path, 'caption', `captions.${c.language}`) }));
   } catch (err) {
     // ffprobe failures are long; its last line ("…: Invalid data found when processing input") says enough.
     const detail = (err as Error).message.trim().split('\n').pop()?.replace(/^.*?:\s(?=[^:]+$)/, '') ?? '';
