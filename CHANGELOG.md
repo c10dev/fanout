@@ -36,6 +36,7 @@
 - 기존 게시물에 플랫폼 추가: 대시보드 "플랫폼 추가", `fanout add`, MCP `add_to_post`
 - 댓글 모아보기(#30)와 답글: 대시보드, `fanout reply`, MCP `reply_to_comment`
 - Slack·Discord·JSON webhook 알림(#26)
+- 게시 현황 카드에 플랫폼을 합친 반응 합계(조회·좋아요·댓글·공유, 하루 변화 포함)
 - 게시된 YouTube 영상의 공개 범위 변경·공개 예약: `fanout visibility`, 대시보드 게시 현황, MCP `set_visibility`
 - YouTube API 단위(하루 10,000) 집계: 남은 한도에 표시, 자막이 많은 게시물이 오늘 남은 단위를 넘으면 미리보기에서 경고
 - Facebook Reels: 제목, 게시 대신 초안으로 저장(Meta Business Suite에서 마무리)

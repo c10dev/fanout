@@ -1245,6 +1245,31 @@ function editForm(post, card) {
   );
 }
 
+/**
+ * Reactions added up across platforms, once two or more of them have numbers: how the video did
+ * overall, with the change over the last day where every platform's trend is known.
+ */
+function postTotals(targets) {
+  const counted = targets.filter((t) => t.stats);
+  if (counted.length < 2) return null;
+  const parts = [
+    [tr('조회'), 'views'],
+    [tr('좋아요'), 'likes'],
+    [tr('댓글'), 'comments'],
+    [tr('공유'), 'shares'],
+  ]
+    .map(([label, key]) => {
+      const values = counted.map((t) => t.stats[key]).filter((v) => typeof v === 'number');
+      if (!values.length) return null;
+      const deltas = counted.map((t) => t.trend?.[key]).filter((v) => typeof v === 'number');
+      const delta = deltas.reduce((a, b) => a + b, 0);
+      return h('span', {}, `${label} `, h('strong', {}, fmtNum(values.reduce((a, b) => a + b, 0))), delta ? h('span', { class: delta > 0 ? 'up' : 'down' }, ` ${delta > 0 ? '+' : ''}${fmtNum(delta)}`) : null);
+    })
+    .filter(Boolean);
+  if (!parts.length) return null;
+  return h('div', { class: 'stats totals', title: tr('플랫폼 {n}곳 합계 (조회수를 공개하지 않는 플랫폼은 빠짐)', { n: counted.length }) }, h('span', { class: 'muted' }, `${tr('합계')} `), parts);
+}
+
 function postCard({ post, targets }) {
   const wasOpen = openHistory.has(post.id);
   // Show the cached list at once so a re-render doesn't flicker; the toggle handler then refreshes it.
@@ -1309,6 +1334,7 @@ function postCard({ post, targets }) {
     'article',
     { class: 'post', 'data-post': post.id },
     h('div', { class: 'post-head' }, h('span', { class: 'post-title' }, post.title), h('span', { class: 'muted' }, [fmtTime(post.createdAt), post.scheduledAt && tr('예약 {time}', { time: fmtTime(post.scheduledAt) }), post.hasThumbnail && tr('썸네일'), post.captionLanguages?.length && tr('자막 {list}', { list: post.captionLanguages.join(', ') })].filter(Boolean).join(' · '))),
+    postTotals(targets),
     targets.map(targetRow),
     h('div', { class: 'post-foot' }, history, h('div', { class: 'actions-inline' }, commentsButton, editButton, addButton, refreshStats)),
     commentsPanel(post.id),

@@ -49,6 +49,8 @@ function translateStatic(root = document) {
 // English for every tr() key in app.js and data-i18n key in index.html (test/i18n.test.ts checks).
 const MESSAGES_EN = {
   '남은 한도': 'Remaining limits',
+  '합계': 'Total',
+  '플랫폼 {n}곳 합계 (조회수를 공개하지 않는 플랫폼은 빠짐)': 'Sum of {n} platforms (platforms that hide views are left out)',
   '{time}에 다시 확인': 'checking again at {time}',
   '{target}의 공개 범위를 "{visibility}"(으)로 바꿀까요?': 'Change the visibility of {target} to "{visibility}"?',
   '릴스 제목 (선택)': 'Reel title (optional)',
