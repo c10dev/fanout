@@ -129,6 +129,7 @@ const OPTION_FORMS = {
     opt(tr('공동 작업자 (선택, 쉼표로 구분, 3명까지)'), h('input', { type: 'text', name: 'collaborators', autocomplete: 'off', placeholder: 'user1, user2' })),
     opt(tr('오디오 이름 (선택)'), h('input', { type: 'text', name: 'audioName', autocomplete: 'off' })),
     opt(tr('커버로 쓸 장면 (초, 선택)'), h('input', { type: 'number', name: 'coverSec', min: 0, step: 0.1, inputmode: 'decimal' })),
+    opt(tr('시험 릴스 (팔로워가 아닌 사람에게 먼저)'), select('trialReel', [['', tr('쓰지 않음')], ['manual', tr('앱에서 직접 공유')], ['auto', tr('반응이 좋으면 자동 공유')]])),
   ],
   facebook: () => [
     opt(tr('설명 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
@@ -216,6 +217,7 @@ function readOptions(platform, body) {
         collaborators: text('collaborators')?.split(',').map((u) => u.trim()).filter(Boolean),
         audioName: text('audioName'),
         thumbOffsetMs: seconds('coverSec'),
+        trialReel: val('trialReel').value || undefined,
       };
     case 'facebook':
       return { caption: text('caption'), title: text('title'), draft: on('draft') || undefined };
@@ -1135,7 +1137,7 @@ function commentsPanel(postId) {
                       tr('답글'),
                     )
                   : null,
-                r.canHide ? hideButton(r.targetId, c) : null,
+                r.canHide && c.hideable !== false ? hideButton(r.targetId, c) : null,
               ),
             ),
           ),

@@ -595,6 +595,8 @@ export async function hideComment(baseCtx: ProviderContext, providers: Map<strin
   }
   const listed = hidden ? (await provider.comments({ ctx, account, target, limit: REPLY_LOOKBACK })).find((c) => c.id === commentId) : undefined;
   if (hidden && !listed) throw new Error(msg('이 게시물의 최근 댓글 중에 그 댓글이 없습니다. 댓글을 다시 불러온 뒤 시도하세요'));
+  // Instagram accepts the call but keeps the owner's own comments visible: say so instead.
+  if (hidden && listed?.hideable === false) throw new Error(msg('이 계정이 직접 쓴 댓글은 {platform}에서 숨겨지지 않습니다. 지우려면 앱에서 삭제하세요', { platform: provider.displayName }));
   try {
     await provider.hideComment({ ctx, account, target, commentId, hidden });
   } catch (err) {
