@@ -67,6 +67,29 @@ describe('posting limits', () => {
     assert.equal(yt!.limits[0]!.used, 0, 'YouTube still read');
   });
 
+  it('stops waiting without cutting the read off, so a token refresh it started still lands', async () => {
+    let finished = false;
+    let aborted = false;
+    const slow = {
+      id: 'slow',
+      async limits({ ctx }: { ctx: { fetch: typeof fetch } }) {
+        await ctx.fetch('https://slow.example/', {}).catch(() => (aborted = true));
+        finished = true;
+        return [];
+      },
+    };
+    const { ctx, store } = makeCtx((async (_: unknown, init?: RequestInit) => {
+      if (init?.signal) aborted = true;
+      await new Promise((r) => setTimeout(r, 80));
+      return json({});
+    }) as typeof fetch);
+    store.saveAccount({ platform: 'slow', name: 'main', credentials: {}, profile: {} });
+    const [r] = await readLimits(ctx, new Map([['slow', slow as never]]), undefined, 20);
+    assert.match(r!.error!, /초 안에 답이 없습니다/);
+    await new Promise((r) => setTimeout(r, 120));
+    assert.deepEqual({ finished, aborted }, { finished: true, aborted: false });
+  });
+
   it('Bluesky reports what is left today, and nothing left when uploads are refused', async () => {
     const auth = ['GET', 'com.atproto.server.getServiceAuth', () => json({ token: 'svc' })] as const;
     const account = { pds: 'https://pds.example', did: 'did:plc:abc', handle: 'me.bsky.social', accessJwt: jwt(NOW.getTime() + 3600_000), refreshJwt: jwt(NOW.getTime() + 86400_000) };
@@ -81,6 +104,11 @@ describe('posting limits', () => {
     );
     const refused = await read({ canUpload: false, message: 'daily limit reached' });
     assert.deepEqual(refused.map((l) => [l.remaining, l.note]), [[0, 'daily limit reached'], [0, 'daily limit reached']]);
+    const previews = [{ platform: 'bluesky', account: 'main', warnings: [] as string[] }];
+    const { ctx, store } = makeCtx(mockFetch([[...auth], ['GET', 'app.bsky.video.getUploadLimits', () => json({ canUpload: false, message: 'email not verified' })]]).fetch, () => NOW);
+    store.saveAccount({ platform: 'bluesky', name: 'main', credentials: account, profile: {} });
+    await addLimitWarnings(ctx, providerMap(), previews, 1e6);
+    assert.ok(previews[0]!.warnings[0]!.includes('(email not verified)'), previews[0]!.warnings[0]);
   });
 
   it('previews warn when a limit is used up, nearly used up, or smaller than the video', async () => {

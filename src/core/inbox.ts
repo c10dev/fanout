@@ -3,7 +3,7 @@
 //
 // Pure planning lives here (config parsing, templating, deciding targets); the CLI owns the loop.
 
-import { accessSync, constants as fsConstants, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { assetProblem, importAsset, type AssetKind } from './assets.ts';
 import { msg } from './i18n.ts';
@@ -381,17 +381,6 @@ export async function ingest(args: {
   try {
     media = await args.probe(videoPath);
     plan = planPost({ videoPath, dir, config, sidecar: loadSidecar(videoPath), media, providers, now });
-    // Uploads may run hours later (slots, retries): they read fanout's own copies, not files in a
-    // folder someone could swap for a link to a private file in the meantime.
-    const copy = (path: string, kind: AssetKind, field: string) => {
-      try {
-        return importAsset(kind, path, args.mediaDir);
-      } catch (err) {
-        throw new WatchConfigError(`${field}: ${(err as Error).message}`);
-      }
-    };
-    if (plan.input.thumbnailPath) plan.input.thumbnailPath = copy(plan.input.thumbnailPath, 'thumbnail', 'thumbnail');
-    plan.input.captions = plan.input.captions.map((c) => ({ ...c, path: copy(c.path, 'caption', `captions.${c.language}`) }));
   } catch (err) {
     // ffprobe failures are long; its last line ("…: Invalid data found when processing input") says enough.
     const detail = (err as Error).message.trim().split('\n').pop()?.replace(/^.*?:\s(?=[^:]+$)/, '') ?? '';
@@ -425,7 +414,22 @@ export async function ingest(args: {
   }
   // Pick the slot and create the post in one transaction, so two watchers can't take the same slot.
   let created: { postId: string; movedTo: string } | undefined;
+  const copies: string[] = [];
   try {
+    // Uploads may run hours later (slots, retries): they read fanout's own copies, not files in a
+    // folder someone could swap for a link to a private file in the meantime. Made last, and
+    // removed again unless the post is made, so a video that keeps failing doesn't pile them up.
+    const copy = (path: string, kind: AssetKind, field: string) => {
+      try {
+        const made = importAsset(kind, path, args.mediaDir);
+        copies.push(made);
+        return made;
+      } catch (err) {
+        throw new WatchConfigError(`${field}: ${(err as Error).message}`);
+      }
+    };
+    if (plan.input.thumbnailPath) plan.input.thumbnailPath = copy(plan.input.thumbnailPath, 'thumbnail', 'thumbnail');
+    plan.input.captions = plan.input.captions.map((c) => ({ ...c, path: copy(c.path, 'caption', `captions.${c.language}`) }));
     created = store.transaction(() => {
       if (!plan.input.scheduledAt && config.slots?.length) {
         plan.input.scheduledAt = nextFreeSlot(config.slots, new Set(store.scheduledTimes(now.toISOString())), now);
@@ -458,6 +462,7 @@ export async function ingest(args: {
       throw new Error(msg('게시물을 만들었지만 영상을 posted/ 로 옮기지 못해 취소했습니다: {err}', { err: (err as Error).message }));
     }
   } catch (err) {
+    if (!created) for (const c of copies) rmSync(c, { force: true });
     if (!(err instanceof WatchConfigError)) throw err;
     const movedTo = moveVideo(videoPath, dir, 'failed');
     writeError(movedTo, err.message);

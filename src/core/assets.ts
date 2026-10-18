@@ -4,7 +4,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from 'node:fs';
-import { extname, join } from 'node:path';
+import { basename, extname, join } from 'node:path';
 import { msg } from './i18n.ts';
 
 /** YouTube accepts JPEG/PNG thumbnails up to 2MB and these caption formats. */
@@ -54,7 +54,8 @@ export function importAsset(kind: AssetKind, path: string, mediaDir: string): st
     const data = readFileSync(fd);
     if (data.length > rule.maxBytes) throw new Error(msg('{max}MB 이하여야 합니다', { max: rule.maxBytes / 1024 / 1024 }));
     mkdirSync(mediaDir, { recursive: true, mode: 0o700 });
-    const copy = join(mediaDir, `${randomUUID()}${ext}`);
+    // The original name stays readable (platform file names, warnings); the prefix keeps it unique.
+    const copy = join(mediaDir, `${randomUUID().slice(0, 8)}-${basename(path, extname(path))}${ext}`);
     writeFileSync(copy, data, { mode: 0o600 });
     return copy;
   } finally {

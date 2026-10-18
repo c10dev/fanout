@@ -2,7 +2,6 @@
 // daily cap is seen before an upload runs into it rather than after.
 
 import { msg } from './i18n.ts';
-import { withTimeout } from './posting.ts';
 import { formatBytes } from './prune.ts';
 import type { Limit, Provider, ProviderContext } from './provider.ts';
 
@@ -12,6 +11,21 @@ export interface AccountLimits {
   limits: Limit[];
   /** Set when the limits couldn't be read (token, network); `limits` is then empty. */
   error?: string;
+}
+
+/**
+ * Stop waiting after `ms`, without aborting the requests: a limits read may refresh a token first,
+ * and a token rotation cut off mid-way (PeerTube, Bluesky) would lose the new pair. The read
+ * finishes in the background and saves what it got.
+ */
+function within<T>(work: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(msg('{seconds}초 안에 답이 없습니다', { seconds: ms / 1000 }))), ms);
+    timer.unref();
+  });
+  work.catch(() => undefined);
+  return Promise.race([work, deadline]).finally(() => clearTimeout(timer));
 }
 
 /** Read the limits of every account (or one platform's) whose provider can tell them, one at a time. */
@@ -24,7 +38,7 @@ export async function readLimits(ctx: ProviderContext, providers: Map<string, Pr
     if (!provider?.limits || !account) continue;
     try {
       // One stuck host must not hold up the rest (or the dashboard card) for minutes.
-      out.push({ platform: p, account: name, limits: await provider.limits({ ctx: withTimeout(ctx, timeoutMs), account }) });
+      out.push({ platform: p, account: name, limits: await within(provider.limits({ ctx, account }), timeoutMs) });
     } catch (err) {
       out.push({ platform: p, account: name, limits: [], error: err instanceof Error ? err.message : String(err) });
     }
@@ -51,7 +65,7 @@ export async function addLimitWarnings(
     const provider = providers.get(p.platform);
     const account = ctx.store.getAccount(p.platform, p.account);
     if (!provider?.limits || !account || read.has(key)) continue;
-    read.set(key, provider.limits({ ctx: withTimeout(ctx, timeoutMs), account }).catch(() => []));
+    read.set(key, within(provider.limits({ ctx, account }), timeoutMs).catch(() => []));
   }
   for (const p of previews) {
     const limits = await (read.get(`${p.platform}/${p.account}`) ?? Promise.resolve([]));
@@ -65,7 +79,11 @@ export async function addLimitWarnings(
 function limitWarning(l: Limit, sizeBytes: number): string | undefined {
   if (l.unlimited || l.remaining === undefined) return undefined;
   const n = (v: number) => (l.unit === 'bytes' ? formatBytes(v) : String(v));
-  if (l.remaining === 0) return msg('{what}: 남은 한도가 없습니다. 지금 올리면 거부될 수 있습니다', { what: l.what });
+  if (l.remaining === 0) {
+    return l.note
+      ? msg('{what}: 남은 한도가 없습니다 ({note}). 지금 올리면 거부될 수 있습니다', { what: l.what, note: l.note })
+      : msg('{what}: 남은 한도가 없습니다. 지금 올리면 거부될 수 있습니다', { what: l.what });
+  }
   if (l.unit === 'bytes' && sizeBytes > l.remaining) return msg('{what}: 영상({size})이 남은 {remaining}보다 큽니다', { what: l.what, size: formatBytes(sizeBytes), remaining: n(l.remaining) });
   if (l.unit === 'posts' && l.total && l.remaining / l.total < 0.1) return msg('{what}: 한도가 얼마 남지 않았습니다 ({used}/{total})', { what: l.what, used: n(l.used ?? l.total - l.remaining), total: n(l.total) });
   return undefined;
