@@ -4,7 +4,7 @@
 
 | 플랫폼 | 방식 | 기본 동작 | 예약 | 알아둘 제약 |
 |---|---|---|---|---|
-| YouTube | `videos.insert` 재개형 업로드 | 공개 범위·아동용 여부를 직접 지정해야 함 | 네이티브 `publishAt` | 프로젝트당 하루 100회 업로드. 3분 이하 세로 영상은 Shorts로 분류. 썸네일·자막·재생목록 지원. 제목·설명 언어, 다른 언어 제목·설명(`localizations`, `--yt-localizations 파일.json`), 크리에이티브 커먼즈 라이선스, 퍼가기·확장 통계 공개 끄기. 음성 언어와 유료 PPL 표시는 API로 설정할 수 없어 YouTube Studio에서 정합니다 |
+| YouTube | `videos.insert` 재개형 업로드 | 공개 범위·아동용 여부를 직접 지정해야 함 | 네이티브 `publishAt` | 프로젝트당 하루 100회 업로드. 3분 이하 세로 영상은 Shorts로 분류. 썸네일·자막·재생목록 지원. 제목·설명 언어, 다른 언어 제목·설명(`localizations`, `--yt-localizations 파일.json`), 크리에이티브 커먼즈 라이선스, 퍼가기·확장 통계 공개 끄기. 음성 언어와 유료 PPL 표시는 API로 설정할 수 없어 YouTube Studio에서 정합니다 설명의 타임스탬프가 챕터 조건(0:00 시작, 3개 이상, 10초 이상, 차례대로)에 안 맞으면 미리 경고. 촬영일(`--yt-recorded`, `recordingDetails.recordingDate`) |
 | TikTok | Content Posting API `FILE_UPLOAD` | **inbox**: TikTok 앱 수신함으로 보내고 앱에서 마무리 | fanout worker | 심사 전 direct는 비공개 계정 SELF_ONLY만, 24시간 5명. direct 모드는 TikTok이 요구하는 UX 필드(공개 범위 기본값 없음, 댓글·듀엣·이어찍기 기본 끔, 음악 사용 동의, 브랜디드 콘텐츠)를 요구 |
 | Instagram Reels | 컨테이너 → rupload → `media_publish` | 프로페셔널 계정 + 연결된 Facebook 페이지 | fanout worker | 3초~15분, 300MB. 24시간 한도는 매번 `content_publishing_limit`로 조회. 공동 작업자(3명까지, `--ig-collab`)·오디오 이름(`--ig-audio`)·AI 표시(`--ai` → `is_ai_generated`). 캡션 2200자·해시태그 30개·@멘션 20개 시험 릴스(`--ig-trial manual|auto` → `trial_params`, 팔로워가 아닌 사람에게 먼저 보임)는 실험적: Meta 문서에는 URL 업로드에만 나와 있어 fanout의 파일 업로드에서 받아 주는지 아직 확인 못 함. 이 계정이 직접 쓴 댓글은 Instagram이 숨기지 않으므로 숨기기를 거절함 |
 | Facebook Reels | `video_reels` start → rupload → finish | 페이지만 가능 | 네이티브 (10분~29일). 29일보다 먼 예약은 28일 전까지 fanout이 기다렸다가 올림 | 9:16, 3~90초. 릴스 제목(`--fb-title`)과 초안 저장(`--fb-draft`, 처리가 끝나면 "앱에서 마무리" 상태) |
@@ -48,6 +48,10 @@
 - 처음부터 끝까지 연동 흐름을 보여 주는 데모 영상(mp4/mov, 50MB 이하, 5개까지). 승인된 적 없는 앱은 **샌드박스 환경**으로 찍어야 하고, 고른 제품·범위가 모두 영상에 나와야 하며, 웹이면 영상 속 도메인과 등록한 URL이 같아야 함. 쓰지 않는 제품·범위는 빼고 내야 늦어지지 않음
 
 fanout은 자기 앱을 각자 만드는 BYO 방식이라, 심사는 그 앱 주인이 냅니다. TikTok은 "자기·팀 계정용 유틸리티"는 심사 대상에서 빼기도 하니, 혼자 쓰면 inbox 모드로 충분한지 먼저 보세요.
+
+### 저작권 검사 (Instagram·Facebook)
+
+반응을 읽을 때 Meta의 저작권 검사 결과(`copyright_check_information`)도 함께 읽습니다. 검사가 끝나면 다시 읽지 않고, 음원 등이 일치해 **음소거·차단**된 곳이 있으면 대상의 경고로 남겨 `fanout status`·대시보드·MCP에 보입니다(예: `저작권 일치 "곡명": 차단 (South Korea)`). 권한이나 미디어 종류 때문에 읽을 수 없으면 조용히 넘어갑니다.
 
 ## 남은 한도
 

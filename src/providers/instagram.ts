@@ -2,7 +2,7 @@ import { ProviderError } from '../core/errors.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue } from '../core/types.ts';
-import { connectPage, definedOnly, graph, META_APP_FIELDS, META_SETUP_GUIDE, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
+import { connectPage, copyrightCheck, definedOnly, graph, META_APP_FIELDS, META_SETUP_GUIDE, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
 import { msg } from '../core/i18n.ts';
 
 export interface InstagramOptions {
@@ -230,6 +230,8 @@ export const instagram: Provider = {
     const ms = (v?: number) => (v === undefined ? undefined : Math.round(v / 100) / 10);
     // A passing failure of either call keeps that call's last numbers rather than dropping them.
     const keep = ins.transient || more?.transient ? target.stats : undefined;
+    // Read until the check has finished; its result is kept after that.
+    const copyright = target.stats?.copyright ? { copyright: target.stats.copyright, alerts: target.stats.alerts } : await copyrightCheck(ctx, target.remoteId, c.pageToken);
     return definedOnly({
       views: ins.values.views ?? last?.views,
       likes: m.like_count,
@@ -240,6 +242,7 @@ export const instagram: Provider = {
       avgWatchSec: ms(more?.values.ig_reels_avg_watch_time) ?? keep?.avgWatchSec,
       watchTimeSec: ms(more?.values.ig_reels_video_view_total_time) ?? keep?.watchTimeSec,
       ...(ins.note ? { note: ins.note } : {}),
+      ...copyright,
     });
   },
 

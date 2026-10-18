@@ -93,6 +93,10 @@ export interface PostStats {
   fetchedAt: string;
   /** What couldn't be read, or why. */
   note?: string;
+  /** The platform's copyright check, once finished (Instagram, Facebook): not read again after that. */
+  copyright?: 'clear' | 'matched';
+  /** Things the user must know about the post (a copyright block); they become the target's warnings. */
+  alerts?: string[];
 }
 
 /** One dated stats reading (see Store.recordStats). */

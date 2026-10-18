@@ -55,6 +55,7 @@ const MESSAGES_EN = {
   '쓰지 않음': 'Off',
   '앱에서 직접 공유': 'Share to followers in the app',
   '반응이 좋으면 자동 공유': 'Share automatically if it does well',
+  '촬영일 (선택)': 'Recording date (optional)',
   '{time}에 공개 예약됨': 'Goes public {time}',
   '이 댓글을 숨길까요? 나중에 다시 보이게 할 수 있습니다.': 'Hide this comment? You can show it again later.',
   '다시 보이기': 'Show again',

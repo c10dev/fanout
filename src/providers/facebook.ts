@@ -2,7 +2,7 @@ import { ProviderError } from '../core/errors.ts';
 import type { DoctorCheck, PollOutcome, Provider, PublishOutcome } from '../core/provider.ts';
 import type { ProviderContext } from '../core/provider.ts';
 import type { Issue, Post } from '../core/types.ts';
-import { connectPage, definedOnly, graph, META_APP_FIELDS, META_SETUP_GUIDE, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
+import { connectPage, copyrightCheck, definedOnly, graph, META_APP_FIELDS, META_SETUP_GUIDE, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
 import { msg } from '../core/i18n.ts';
 
 export interface FacebookOptions {
@@ -205,6 +205,8 @@ export const facebook: Provider = {
     const ms = (n?: number) => (n === undefined ? undefined : Math.round(n / 100) / 10);
     // A passing failure of either call keeps that call's last numbers rather than dropping them.
     const keep = ins.transient || more?.transient ? target.stats : undefined;
+    // Read until the check has finished; its result is kept after that.
+    const copyright = target.stats?.copyright ? { copyright: target.stats.copyright, alerts: target.stats.alerts } : await copyrightCheck(ctx, target.remoteId, c.pageToken);
     return definedOnly({
       views: ins.values.fb_reels_total_plays ?? last?.views,
       likes: v.likes?.summary?.total_count,
@@ -213,6 +215,7 @@ export const facebook: Provider = {
       avgWatchSec: ms(more?.values.post_video_avg_time_watched) ?? keep?.avgWatchSec,
       watchTimeSec: ms(more?.values.post_video_view_time) ?? keep?.watchTimeSec,
       ...(ins.note ? { note: ins.note } : {}),
+      ...copyright,
     });
   },
 
