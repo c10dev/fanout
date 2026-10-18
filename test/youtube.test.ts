@@ -102,6 +102,7 @@ describe('youtube metadata', () => {
     assert.ok(!codes({ defaultLanguage: 'ko', localizations: { en: { title: 'Hi' } } }).includes('localizations'));
     assert.ok(codes({ defaultLanguage: 'ko', localizations: { en: { title: 'x'.repeat(101) } } }).includes('localizations'));
     assert.ok(codes({ license: 'cc0' }).includes('license'));
+    assert.ok(codes({ paidPromotion: true }).includes('unsettable'), 'options YouTube can\'t take are reported, not dropped quietly');
     // Malformed shapes (MCP, a watch-folder JSON) are issues, not crashes.
     for (const bad of [{ en: null }, { en: { title: 5 } }, { en: { title: 'x', description: 5 } }, 'en:Hi', ['x']]) {
       assert.ok(codes({ defaultLanguage: 'ko', localizations: bad }).includes('localizations'), JSON.stringify(bad));

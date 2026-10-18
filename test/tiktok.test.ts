@@ -55,6 +55,11 @@ describe('tiktok options', () => {
     assert.deepEqual(creatorIssues(info, { mode: 'inbox' } as never, 90), [], 'inbox uploads are finished in the app');
   });
 
+  it('checks the cover frame is inside the video', () => {
+    const cover = (coverTimestampMs: number) => tiktok.validate(post, target({ mode: 'direct', privacyLevel: 'SELF_ONLY', musicConsent: true, coverTimestampMs }), fakeMedia({ durationSec: 15 })).some((i) => i.code === 'cover');
+    assert.deepEqual([cover(-5), cover(2000), cover(60_000)], [true, false, true]);
+  });
+
   it('waits out the daily post cap instead of failing', () => {
     const err = tiktokError(403, { error: { code: 'spam_risk_too_many_posts', message: 'too many' } } as never);
     assert.ok(err.retryAt && Date.parse(err.retryAt) > Date.now());

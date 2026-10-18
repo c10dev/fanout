@@ -919,6 +919,7 @@ function targetRow(t) {
   const detail = h('div', { class: 'tdetail' });
   if (t.remoteUrl) detail.append(webUrl(t.remoteUrl) ? h('a', { href: t.remoteUrl, target: '_blank', rel: 'noopener noreferrer' }, t.remoteUrl) : h('span', {}, t.remoteUrl));
   else if (t.state === 'queued' && t.notBefore) detail.append(h('span', { class: 'muted' }, tr('{time}에 시작', { time: fmtTime(t.notBefore) })));
+  if (t.state === 'processing' && t.notBefore) detail.append(h('span', { class: 'muted' }, tr('{time}에 다시 확인', { time: fmtTime(t.notBefore) })));
   if (t.errorCode) detail.append(h('div', { class: 'err' }, `${t.errorCode}: ${t.errorMessage ?? ''}`));
   for (const w of t.warnings) detail.append(h('div', { class: 'warnline' }, `⚠ ${w}`));
   if (t.attempts > 1) detail.append(h('div', { class: 'muted' }, tr('시도 {n}회', { n: t.attempts })));

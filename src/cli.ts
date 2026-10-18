@@ -93,6 +93,9 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
   const drop = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
   switch (platform) {
     case 'youtube':
+      for (const gone of ['yt-paid-promo', 'yt-audio-lang']) {
+        if (args.flags[gone] !== undefined) console.error('⚠ ' + local(msg('--{flag}는 YouTube API로 설정할 수 없어 무시합니다. YouTube Studio에서 직접 설정하세요', { flag: gone })));
+      }
       return drop({
         privacy: str(args, 'yt-privacy'),
         madeForKids: bool(args, 'yt-made-for-kids'),
@@ -200,7 +203,7 @@ const STATE_ICON: Record<string, string> = {
 
 function targetLine(t: Target): string {
   const head = `  ${STATE_ICON[t.state] ?? '?'} ${`${t.platform}/${t.account}`.padEnd(18)} ${t.state.padEnd(12)}`;
-  const due = t.notBefore && t.state === 'queued' ? local(msg('예정 {at}', { at: t.notBefore })) : '';
+  const due = !t.notBefore ? '' : t.state === 'queued' ? local(msg('예정 {at}', { at: t.notBefore })) : t.state === 'processing' ? local(msg('{at}에 다시 확인', { at: t.notBefore })) : '';
   const lines = [`${head} ${t.remoteUrl ?? due}`.trimEnd()];
   if (t.errorCode) lines.push(`      ${t.errorCode}: ${local(t.errorMessage ?? '')}`);
   for (const w of t.warnings) lines.push(`      ⚠ ${local(w)}`);
