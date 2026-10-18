@@ -124,8 +124,8 @@ export interface Provider {
   /** Exchange the callback params (state already checked by the caller) for an account. */
   oauthFinish?(ctx: ProviderContext, name: string, params: URLSearchParams, redirectUri: string, verifier: string): Promise<Account>;
 
-  /** Disconnecting through fanout: revoke the account's tokens at the platform. */
-  disconnect?(ctx: ProviderContext, account: Account): Promise<void>;
+  /** Disconnecting through fanout: revoke the account's tokens at the platform. Resolves whether they are revoked now. */
+  disconnect?(ctx: ProviderContext, account: Account): Promise<boolean>;
 
   /**
    * Prove the account is still authorized and return it with its stored profile re-read, for

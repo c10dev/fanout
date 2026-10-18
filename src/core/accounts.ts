@@ -6,6 +6,7 @@
 import { ProviderError } from './errors.ts';
 import { msg } from './i18n.ts';
 import type { Provider, ProviderContext } from './provider.ts';
+import type { Account } from './store.ts';
 
 const DAY_MS = 86_400_000;
 /** Re-check each account this often (well inside the 30 days). */
@@ -19,35 +20,57 @@ export const FORGET_AFTER_MS = 21 * DAY_MS;
 
 /** Kept in the account's (encrypted) credentials, never shown to the browser. */
 interface Upkeep {
-  /** Last check, successful or not. */
-  checkedAt?: number;
+  /** When to check next: a day after a check, sooner after a network or quota error. */
+  nextCheckAt?: number;
+  /** First refusal of a run of refusals; cleared by a successful check or a reconnect. */
   authFailedAt?: number;
   forgottenAt?: number;
 }
 
+/** After a network, quota or setup error, try again this much later. */
+const RETRY_MS = 3 * 3600_000;
+
+/**
+ * Refusals that are fanout's own setup (no app, an app secret that changed), not the user taking
+ * access back: they never start the deletion clock.
+ */
+function isSetupError(err: ProviderError): boolean {
+  return err.code.endsWith('.app_missing') || err.platformCode === 'invalid_client' || err.platformCode === 'unauthorized_client';
+}
+
+/** A token that identifies the stored grant, to notice a reconnect while a check was running. */
+const grant = (credentials: Record<string, unknown>) => credentials.refreshToken ?? credentials.accessToken;
+
 /**
  * Disconnect one account: let the provider revoke its tokens and forget restricted data, then
  * remove it. A failed revoke is logged; the data goes and the account is removed anyway. Resolves
- * false when there was no such account.
+ * undefined when there was no such account.
  */
-export async function disconnectAccount(ctx: ProviderContext, providers: Map<string, Provider>, platform: string, name: string): Promise<boolean> {
+export async function disconnectAccount(
+  ctx: ProviderContext,
+  providers: Map<string, Provider>,
+  platform: string,
+  name: string,
+): Promise<{ revoked: boolean; forgot: boolean } | undefined> {
   const account = ctx.store.getAccount(platform, name);
-  if (!account) return false;
+  if (!account) return undefined;
   const provider = providers.get(platform);
+  let revoked = false;
   try {
-    await provider?.disconnect?.(ctx, account);
+    revoked = (await provider?.disconnect?.(ctx, account)) ?? false;
   } catch (err) {
     ctx.log.warn(msg('{platform}/{name}: 토큰을 철회하지 못했습니다 ({err}). 계정은 지웁니다', { platform, name, err: err instanceof Error ? err.message : String(err) }));
   }
   provider?.forget?.(ctx, account);
-  return ctx.store.removeAccount(platform, name);
+  if (!ctx.store.removeAccount(platform, name)) return undefined;
+  return { revoked, forgot: Boolean(provider?.forget) };
 }
 
 /**
- * Verify accounts whose last check is older than VERIFY_EVERY_MS. Success refreshes the stored
- * profile and clears a past refusal; an auth refusal is remembered, and once it has lasted
+ * Verify accounts that are due (a day after their last check). Success refreshes the stored
+ * profile and clears a past refusal; an auth refusal is remembered, and once refusals have lasted
  * FORGET_AFTER_MS the provider forgets the account's data (the account itself stays, to reconnect).
- * Other errors (network, quota) are left for the next round. Resolves to how many were checked.
+ * Network, quota and setup errors are retried a few hours later. Resolves to how many were checked.
  */
 export async function verifyDueAccounts(ctx: ProviderContext, providers: Map<string, Provider>): Promise<number> {
   let checked = 0;
@@ -56,34 +79,46 @@ export async function verifyDueAccounts(ctx: ProviderContext, providers: Map<str
     if (!provider?.verify) continue;
     const account = ctx.store.getAccount(platform, name);
     if (!account) continue;
-    const upkeep = account.credentials as Upkeep;
     const now = ctx.now().getTime();
-    if (upkeep.checkedAt !== undefined && now - upkeep.checkedAt < VERIFY_EVERY_MS) continue;
+    const next = (account.credentials as Upkeep).nextCheckAt;
+    if (next !== undefined && now < next) continue;
     checked++;
+    // Every save goes onto what is stored by then, and only if it is still the same grant: the
+    // account may have been removed, reconnected or refreshed elsewhere while the check ran.
+    const update = (change: (stored: Account) => Account) => {
+      const stored = ctx.store.getAccount(platform, name);
+      if (stored && grant(stored.credentials) === grant(account.credentials)) ctx.store.saveAccount(change(stored));
+      return stored;
+    };
+    const marks = (stored: Account, upkeep: Upkeep): Account['credentials'] => {
+      const { nextCheckAt: _, authFailedAt: __, forgottenAt: ___, ...rest } = stored.credentials as Record<string, unknown> & Upkeep;
+      return { ...rest, ...Object.fromEntries(Object.entries(upkeep).filter(([, v]) => v !== undefined)) };
+    };
     try {
       const fresh = await provider.verify(ctx, account);
-      // Merge onto what is stored now: a refresh elsewhere may have saved newer tokens meanwhile.
-      const latest = ctx.store.getAccount(platform, name) ?? fresh;
-      const { authFailedAt: _, forgottenAt: __, ...credentials } = { ...latest.credentials, ...fresh.credentials } as Record<string, unknown> & Upkeep;
-      ctx.store.saveAccount({ ...latest, profile: fresh.profile, credentials: { ...credentials, checkedAt: now } });
+      update((stored) => ({ ...stored, profile: fresh.profile, credentials: marks(stored, { nextCheckAt: now + VERIFY_EVERY_MS }) }));
     } catch (err) {
-      if (!(err instanceof ProviderError) || err.kind !== 'auth') {
+      const refusal = err instanceof ProviderError && err.kind === 'auth' && !isSetupError(err);
+      if (!refusal) {
         ctx.log.warn(`verify(${platform}/${name}): ${err instanceof Error ? err.message : String(err)}`);
+        update((stored) => {
+          const { authFailedAt, forgottenAt } = stored.credentials as Upkeep;
+          return { ...stored, credentials: marks(stored, { authFailedAt, forgottenAt, nextCheckAt: now + RETRY_MS }) };
+        });
         continue;
       }
-      const latest = ctx.store.getAccount(platform, name);
-      if (!latest) continue;
-      const state = latest.credentials as Upkeep;
-      const failedAt = state.authFailedAt ?? now;
-      const next: Upkeep = { checkedAt: now, authFailedAt: failedAt, forgottenAt: state.forgottenAt };
-      if (state.forgottenAt === undefined && now - failedAt >= FORGET_AFTER_MS) {
-        provider.forget?.(ctx, latest);
-        next.forgottenAt = now;
+      update((stored) => {
+        const state = stored.credentials as Upkeep;
+        const failedAt = state.authFailedAt ?? now;
+        const upkeep: Upkeep = { nextCheckAt: now + VERIFY_EVERY_MS, authFailedAt: failedAt, forgottenAt: state.forgottenAt };
+        if (state.authFailedAt === undefined) {
+          ctx.log.warn(msg('{platform}/{name}: 접근이 거부됐습니다 ({err}). {days}일 안에 다시 연결하지 않으면 플랫폼에서 받은 데이터(반응 통계, 프로필)를 지웁니다', { platform, name, err: (err as Error).message, days: Math.round(FORGET_AFTER_MS / DAY_MS) }));
+        }
+        if (state.forgottenAt !== undefined || now - failedAt < FORGET_AFTER_MS) return { ...stored, credentials: marks(stored, upkeep) };
+        provider.forget?.(ctx, stored);
         ctx.log.warn(msg('{platform}/{name}: {days}일 넘게 접근이 거부돼 플랫폼에서 받은 데이터(반응 통계, 프로필)를 지웠습니다. 다시 연결하면 새로 받습니다', { platform, name, days: Math.round(FORGET_AFTER_MS / DAY_MS) }));
-        ctx.store.saveAccount({ ...latest, profile: {}, credentials: { ...latest.credentials, ...next } });
-      } else {
-        ctx.store.saveAccount({ ...latest, credentials: { ...latest.credentials, ...next } });
-      }
+        return { ...stored, profile: {}, credentials: marks(stored, { ...upkeep, forgottenAt: now }) };
+      });
     }
   }
   return checked;

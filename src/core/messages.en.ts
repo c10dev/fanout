@@ -568,4 +568,6 @@ export const MESSAGES_EN: Record<string, string> = {
   "{time}에 초기화": "resets {time}",
   "{used} 씀, 무제한": "{used} used, unlimited",
   "남은 {remaining}": "{remaining} left",
+  "{platform}/{name}: 접근이 거부됐습니다 ({err}). {days}일 안에 다시 연결하지 않으면 플랫폼에서 받은 데이터(반응 통계, 프로필)를 지웁니다": "{platform}/{name}: access was refused ({err}). Unless it is reconnected within {days} days, the data read from the platform (reaction stats, profile) will be deleted",
+  "삭제됨 (플랫폼에서 받은 반응 통계를 지웠습니다. 토큰은 철회하지 않았습니다)": "Removed (the reaction stats read from the platform were deleted; the token was not revoked)",
 };

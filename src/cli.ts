@@ -24,7 +24,7 @@ import { DEFAULT_STATS_EVERY_MS, Worker } from './core/worker.ts';
 import { isShort } from './providers/youtube.ts';
 import { currentLang, local, msg } from './core/i18n.ts';
 import { ACCOUNT_NAME } from './core/store.ts';
-import { disconnectAccount } from './core/accounts.ts';
+import { disconnectAccount, verifyDueAccounts } from './core/accounts.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
 
@@ -505,7 +505,14 @@ async function cmdWorker(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
   say(msg('worker 시작 ({interval}s 간격, Ctrl+C로 종료)', { interval: interval / 1000 }));
   // Stats run beside uploads, never in front of them: a slow instance mustn't hold back a scheduled post.
   let stats: Promise<unknown> | undefined;
+  let upkeep: Promise<unknown> | undefined;
   for (;;) {
+    // Account checks some platforms' terms require (core/accounts.ts); each account at most daily.
+    upkeep ??= verifyDueAccounts(ctx, deps.providers)
+      .catch((err: unknown) => ctx.log.warn(`verify: ${String(err)}`))
+      .finally(() => {
+        upkeep = undefined;
+      });
     if (everyMs > 0 && !stats) {
       stats = refreshDueStats(ctx, deps.providers, (postId, platform) => refreshStats(ctx, deps.providers, postId, { platform }), { everyMs })
         .catch((err: unknown) => ctx.log.warn(`stats: ${String(err)}`))
@@ -982,9 +989,10 @@ export async function main(argv: string[]): Promise<number> {
       case 'disconnect': {
         const [, platform, name] = args.positionals;
         if (!platform || !name) throw new UsageError('fanout disconnect <platform> <name>');
-        const provider = deps.providers.get(platform);
-        if (!(await disconnectAccount(ctx, deps.providers, platform, name))) say(msg('해당 계정 없음'));
-        else say(provider?.forget ? msg('삭제됨 (토큰을 철회하고 플랫폼에서 받은 반응 통계도 지웠습니다)') : msg('삭제됨'));
+        const done = await disconnectAccount(ctx, deps.providers, platform, name);
+        if (!done) say(msg('해당 계정 없음'));
+        else if (done.forgot) say(done.revoked ? msg('삭제됨 (토큰을 철회하고 플랫폼에서 받은 반응 통계도 지웠습니다)') : msg('삭제됨 (플랫폼에서 받은 반응 통계를 지웠습니다. 토큰은 철회하지 않았습니다)'));
+        else say(msg('삭제됨'));
         return 0;
       }
       case 'doctor':
