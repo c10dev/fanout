@@ -3,8 +3,9 @@
 //
 // Pure planning lives here (config parsing, templating, deciding targets); the CLI owns the loop.
 
-import { accessSync, constants as fsConstants, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
-import { basename, extname, join, resolve } from 'node:path';
+import { accessSync, constants as fsConstants, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs';
+import { basename, extname, isAbsolute, join, resolve, sep } from 'node:path';
+import { assetProblem, type AssetKind } from './assets.ts';
 import { msg } from './i18n.ts';
 import { fileHash, type MediaInfo } from './media.ts';
 import { assessMedia, createScheduledPost, describePrior, priorPosts } from './posting.ts';
@@ -218,12 +219,23 @@ export function planPost(args: {
   vars.tags = tags.map((t) => `#${t.replace(/\s+/g, '')}`).join(' ');
   const description = render(sidecar.description ?? config.description ?? '', vars, 'description');
 
-  const fromDir = (p: string) => resolve(dir, p);
-  const thumbnail = sidecar.thumbnail ?? config.thumbnail;
+  // Sidecars may come from whoever can write to the folder: their files must be inside it and be
+  // what they claim, or a path like ~/.ssh/id_rsa would be uploaded as a "caption".
+  const root = realpathSync(dir);
+  const fromDir = (p: string, kind: AssetKind, field: string): string => {
+    const full = resolve(dir, p);
+    if (isAbsolute(p)) throw new WatchConfigError(msg('{field}: 감시 폴더 안의 상대 경로만 쓸 수 있습니다 ({path})', { field, path: p }));
+    if (!existsSync(full)) throw new WatchConfigError(kind === 'caption' ? msg('자막 파일 없음: {path}', { path: full }) : msg('썸네일 파일 없음: {path}', { path: full }));
+    const real = realpathSync(full);
+    if (!real.startsWith(root + sep)) throw new WatchConfigError(msg('{field}: 감시 폴더 밖의 파일은 쓸 수 없습니다 ({path})', { field, path: p }));
+    const problem = assetProblem(kind, real);
+    if (problem) throw new WatchConfigError(`${field}: ${problem}`);
+    return real;
+  };
+  const thumbnailName = sidecar.thumbnail ?? config.thumbnail;
+  const thumbnail = thumbnailName ? fromDir(thumbnailName, 'thumbnail', 'thumbnail') : undefined;
   const captionsMap = { ...config.captions, ...sidecar.captions };
-  const captions: CaptionFile[] = Object.entries(captionsMap).map(([language, p]) => ({ language, path: fromDir(p) }));
-  for (const c of captions) if (!existsSync(c.path)) throw new WatchConfigError(msg('자막 파일 없음: {path}', { path: c.path }));
-  if (thumbnail && !existsSync(fromDir(thumbnail))) throw new WatchConfigError(msg('썸네일 파일 없음: {path}', { path: fromDir(thumbnail) }));
+  const captions: CaptionFile[] = Object.entries(captionsMap).map(([language, p]) => ({ language, path: fromDir(p, 'caption', `captions.${language}`) }));
 
   const at = sidecar.at ?? config.at;
   const input: PostInput = {
@@ -231,7 +243,7 @@ export function planPost(args: {
     title,
     description,
     tags,
-    thumbnailPath: thumbnail ? fromDir(thumbnail) : undefined,
+    thumbnailPath: thumbnail,
     captions,
     containsSyntheticMedia: sidecar.ai ?? config.ai ?? false,
     scheduledAt: at ? new Date(at).toISOString() : undefined,

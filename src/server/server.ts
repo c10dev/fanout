@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -36,6 +36,7 @@ import { isShort } from '../providers/youtube.ts';
 import { ACCOUNT_NAME } from '../core/store.ts';
 import { disconnectAccount } from '../core/accounts.ts';
 import { readLimits } from '../core/limits.ts';
+import { ASSET_RULES, type AssetKind } from '../core/assets.ts';
 
 export interface DashboardOptions {
   ctx: ProviderContext;
@@ -72,10 +73,9 @@ const MEDIA_ID = /^[0-9a-f-]{36}\.[a-z0-9]{1,5}$/;
 const VIDEO_EXT = new Set(['.mp4', '.mov', '.m4v', '.webm', '.mkv', '.avi']);
 /** Thumbnail and caption uploads: YouTube accepts JPEG/PNG up to 2MB and these caption formats. */
 const ASSET_KINDS = {
-  thumbnail: { ext: new Set(['.jpg', '.jpeg', '.png']), maxBytes: 2 * 1024 * 1024 },
-  caption: { ext: new Set(['.srt', '.vtt', '.sbv', '.scc', '.ttml', '.dfxp']), maxBytes: 5 * 1024 * 1024 },
+  thumbnail: { ext: new Set<string>(ASSET_RULES.thumbnail.exts), maxBytes: ASSET_RULES.thumbnail.maxBytes },
+  caption: { ext: new Set<string>(ASSET_RULES.caption.exts), maxBytes: ASSET_RULES.caption.maxBytes },
 } as const;
-type AssetKind = keyof typeof ASSET_KINDS;
 const JSON_LIMIT = 1024 * 1024;
 const PRUNE_INTERVAL_MS = 6 * 3600_000;
 /** Token-connect form for providers that don't declare their own fields (Meta). */
@@ -112,6 +112,22 @@ const responseLang = new WeakMap<ServerResponse, Lang>();
 
 function requestLang(req: IncomingMessage): Lang {
   return req.headers['x-fanout-lang'] === 'en' ? 'en' : 'ko';
+}
+
+/** Token check in constant time (digests make the lengths equal). */
+function sameToken(given: string | string[] | undefined, token: string): boolean {
+  if (typeof given !== 'string') return false;
+  const digest = (s: string) => createHash('sha256').update(s).digest();
+  return timingSafeEqual(digest(given), digest(token));
+}
+
+/** URL path segments and header values: malformed percent-encoding is the client's error, not a 500. */
+function decode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new HttpError(400, msg('잘못된 주소 인코딩입니다'));
+  }
 }
 
 /** For a page load with no dashboard header: the browser's first language, as the dashboard picks it. */
@@ -289,12 +305,12 @@ export class Dashboard {
     }
     if (method === 'GET' && url.pathname.startsWith('/oauth/') && url.pathname.endsWith('/callback')) return this.#oauthCallback(req, res, url);
     if (!url.pathname.startsWith('/api/')) throw new HttpError(404, 'not found');
-    if (req.headers['x-fanout-token'] !== this.#token) throw new HttpError(401, msg('대시보드 토큰이 필요합니다'));
+    if (!sameToken(req.headers['x-fanout-token'], this.#token)) throw new HttpError(401, msg('대시보드 토큰이 필요합니다'));
 
     const parts = url.pathname.split('/').filter(Boolean).slice(1);
     if (method === 'GET' && parts[0] === 'overview') return send(res, 200, this.#overview());
     if (method === 'GET' && parts[0] === 'limits' && !parts[1]) return send(res, 200, { accounts: await readLimits(this.#opts.ctx, this.#opts.providers, url.searchParams.get('platform') ?? undefined) });
-    if (parts[0] === 'presets') return send(res, 200, await this.#presets(method, parts[1] ? decodeURIComponent(parts[1]) : undefined, req));
+    if (parts[0] === 'presets') return send(res, 200, await this.#presets(method, parts[1] ? decode(parts[1]) : undefined, req));
     if (method === 'POST' && parts[0] === 'media' && parts.length === 1) return send(res, 201, await this.#upload(req));
     if (method === 'POST' && parts[0] === 'assets' && (parts[1] === 'thumbnail' || parts[1] === 'caption')) return send(res, 201, await this.#uploadAsset(req, parts[1]));
     if (method === 'GET' && parts[0] === 'posts' && parts.length === 1) {
@@ -385,7 +401,7 @@ export class Dashboard {
     if (method === 'GET' && parts[0] === 'settings') return send(res, 200, this.#settings(req));
     if (method === 'PUT' && parts[0] === 'apps' && parts[1]) return send(res, 200, this.#saveApp(parts[1], await readJson(req)));
     if (method === 'POST' && parts[0] === 'connect' && parts[1]) return send(res, 200, await this.#connect(req, parts[1], await readJson(req)));
-    if (method === 'DELETE' && parts[0] === 'accounts' && parts[1] && parts[2]) return send(res, 200, await this.#disconnect(parts[1], decodeURIComponent(parts[2])));
+    if (method === 'DELETE' && parts[0] === 'accounts' && parts[1] && parts[2]) return send(res, 200, await this.#disconnect(parts[1], decode(parts[2])));
     if (method === 'POST' && parts[0] === 'doctor' && parts[1]) return send(res, 200, await this.#doctor(parts[1], await readJson(req)));
     throw new HttpError(404, 'not found');
   }
@@ -671,7 +687,7 @@ export class Dashboard {
   }
 
   async #upload(req: IncomingMessage) {
-    const name = decodeURIComponent(String(req.headers['x-filename'] ?? 'video.mp4'));
+    const name = decode(String(req.headers['x-filename'] ?? 'video.mp4'));
     const ext = extname(name).toLowerCase();
     if (!VIDEO_EXT.has(ext)) throw new HttpError(415, msg('지원하지 않는 확장자: {ext}', { ext: ext || msg('(없음)') }));
     const id = `${randomUUID()}${ext}`;
@@ -689,7 +705,7 @@ export class Dashboard {
 
   async #uploadAsset(req: IncomingMessage, kind: AssetKind) {
     const rule = ASSET_KINDS[kind];
-    const name = decodeURIComponent(String(req.headers['x-filename'] ?? ''));
+    const name = decode(String(req.headers['x-filename'] ?? ''));
     const ext = extname(name).toLowerCase();
     if (!(rule.ext as ReadonlySet<string>).has(ext)) {
       throw new HttpError(415, (kind === 'thumbnail' ? msg('썸네일 형식이 아닙니다: {ext} (가능: {allowed})', { ext: ext || msg('(없음)'), allowed: [...rule.ext].join(', ') }) : msg('자막 형식이 아닙니다: {ext} (가능: {allowed})', { ext: ext || msg('(없음)'), allowed: [...rule.ext].join(', ') })));

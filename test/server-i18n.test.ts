@@ -30,6 +30,7 @@ const CONVERTED = [
   'src/core/restore.ts',
   'src/core/accounts.ts',
   'src/core/limits.ts',
+  'src/core/assets.ts',
 ];
 const LITERAL = /'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
 

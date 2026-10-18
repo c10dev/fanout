@@ -37,6 +37,7 @@ http://127.0.0.1:8780/ 에서 대시보드가 열리고, 데이터는 `fanout-da
 
 - 포트를 `0.0.0.0`이나 다른 기기에서 접속할 수 있는 주소에 열 때는 `FANOUT_ASSUME_LOCAL`을 켜지 마세요. 그때는 `FANOUT_DASHBOARD_TOKEN`이 필요합니다.
 - 대시보드가 Host 헤더를 검사하므로 호스트 포트와 컨테이너 포트를 같게 두세요.
+- `FANOUT_ASSUME_LOCAL=1`이면 같은 Docker 네트워크의 다른 컨테이너도 대시보드 토큰 없이 들어올 수 있습니다. 기본 `docker-compose.yml`처럼 fanout만 쓰는 네트워크에 두세요.
 
 **소스에서 실행**
 
@@ -68,10 +69,10 @@ node src/cli.ts status
 
 | 방법 | 문서 |
 |---|---|
-| 웹 대시보드: 업로드 폼, 게시 전 미리보기, 게시 현황과 반응 통계, 댓글 모아보기와 답글, 게시 후 수정·삭제, 설정(앱 등록·계정 연결·점검) | [docs/dashboard.md](docs/dashboard.md) |
+| 웹 대시보드: 업로드 폼, 게시 전 미리보기, 게시 현황과 반응 통계, 댓글 모아보기와 답글, 게시 후 수정·삭제, 남은 게시 한도, 설정(앱 등록·계정 연결·점검) | [docs/dashboard.md](docs/dashboard.md) |
 | 감시 폴더: 폴더에 영상을 넣으면 정해 둔 대로 자동 게시 | [docs/watch-folder.md](docs/watch-folder.md) |
 | AI 에이전트(MCP): Claude 등이 영상 검사·미리보기·게시 | [docs/mcp.md](docs/mcp.md) |
-| 플랫폼별 방식·제약·실제 확인 결과·정책 | [docs/platforms.md](docs/platforms.md) |
+| 플랫폼별 방식·제약·남은 한도(`fanout limits`)·실제 확인 결과·정책(YouTube 데이터 보관 포함) | [docs/platforms.md](docs/platforms.md) |
 | 알림(Slack·Discord webhook), 백업·내보내기, 디스크 정리, 여러 프로세스 함께 쓰기 | [docs/operations.md](docs/operations.md) |
 | 구조, 테스트, 중복 게시를 막는 규칙 | [docs/development.md](docs/development.md) |
 

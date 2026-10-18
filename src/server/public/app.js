@@ -754,7 +754,7 @@ function statsLine(st, trend) {
 
 function targetRow(t) {
   const detail = h('div', { class: 'tdetail' });
-  if (t.remoteUrl) detail.append(h('a', { href: t.remoteUrl, target: '_blank', rel: 'noopener noreferrer' }, t.remoteUrl));
+  if (t.remoteUrl) detail.append(webUrl(t.remoteUrl) ? h('a', { href: t.remoteUrl, target: '_blank', rel: 'noopener noreferrer' }, t.remoteUrl) : h('span', {}, t.remoteUrl));
   else if (t.state === 'queued' && t.notBefore) detail.append(h('span', { class: 'muted' }, tr('{time}에 시작', { time: fmtTime(t.notBefore) })));
   if (t.errorCode) detail.append(h('div', { class: 'err' }, `${t.errorCode}: ${t.errorMessage ?? ''}`));
   for (const w of t.warnings) detail.append(h('div', { class: 'warnline' }, `⚠ ${w}`));
@@ -895,7 +895,7 @@ function commentsPanel(postId) {
                   { class: 'comment-meta' },
                   h('strong', {}, c.author || tr('(이름 없음)')),
                   h('span', { class: 'muted' }, ` · ${c.at ? fmtTime(c.at) : ''}${c.likes ? ` · ♥ ${fmtNum(c.likes)}` : ''}${c.replies ? ` · ${tr('답글 {n}', { n: fmtNum(c.replies) })}` : ''}`),
-                  c.url ? h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer', class: 'comment-link' }, tr('열기')) : null,
+                  webUrl(c.url) ? h('a', { href: c.url, target: '_blank', rel: 'noopener noreferrer', class: 'comment-link' }, tr('열기')) : null,
                 ),
                 h('div', { class: 'comment-text' }, c.text),
                 repliedComments.has(`${r.targetId}:${c.id}`) ? h('div', { class: 'okline' }, tr('✓ 답글을 달았습니다')) : null,
@@ -1383,6 +1383,15 @@ const NOTIFY_EVENTS = [
   ['needs_reauth', tr('재연결 필요')],
   ['removed', tr('삭제됨')],
 ];
+
+/** Links from platform responses are only followed when they are web links (never javascript:). */
+function webUrl(u) {
+  try {
+    return ['http:', 'https:'].includes(new URL(u).protocol);
+  } catch {
+    return false;
+  }
+}
 
 /** Remaining posting limits of every account that has them, read when the card is shown. */
 function limitsCard() {

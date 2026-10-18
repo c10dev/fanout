@@ -570,4 +570,14 @@ export const MESSAGES_EN: Record<string, string> = {
   "남은 {remaining}": "{remaining} left",
   "{platform}/{name}: 접근이 거부됐습니다 ({err}). {days}일 안에 다시 연결하지 않으면 플랫폼에서 받은 데이터(반응 통계, 프로필)를 지웁니다": "{platform}/{name}: access was refused ({err}). Unless it is reconnected within {days} days, the data read from the platform (reaction stats, profile) will be deleted",
   "삭제됨 (플랫폼에서 받은 반응 통계를 지웠습니다. 토큰은 철회하지 않았습니다)": "Removed (the reaction stats read from the platform were deleted; the token was not revoked)",
+  // assets and security
+  "일반 파일이 아닙니다: {path}": "Not a regular file: {path}",
+  "파일이 없습니다: {path}": "No such file: {path}",
+  "{exts} 파일만 받습니다": "only {exts} files are accepted",
+  "{max}MB 이하여야 합니다": "must be {max}MB or smaller",
+  "{field}: 감시 폴더 안의 상대 경로만 쓸 수 있습니다 ({path})": "{field}: only paths relative to the watch folder are allowed ({path})",
+  "{field}: 감시 폴더 밖의 파일은 쓸 수 없습니다 ({path})": "{field}: files outside the watch folder can't be used ({path})",
+  "잘못된 주소 인코딩입니다": "Malformed URL encoding",
+  "Bluesky 서버 주소가 올바르지 않습니다: {url}": "The Bluesky server address is invalid: {url}",
+  "Bluesky 서버 주소는 https여야 합니다: {url}": "The Bluesky server address must use https: {url}",
 };

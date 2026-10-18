@@ -12,13 +12,14 @@ import { defaultAccountName } from '../core/inbox.ts';
 import { isShort } from '../providers/youtube.ts';
 import { currentLang, local, msg, translateDeep } from '../core/i18n.ts';
 import { readLimits } from '../core/limits.ts';
+import { ASSET_RULES } from '../core/assets.ts';
 
 // Model Context Protocol over stdio: newline-delimited JSON-RPC 2.0.
 // Spec: https://modelcontextprotocol.io/specification
 
 const SUPPORTED_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
-const THUMBNAIL_EXT = ['.jpg', '.jpeg', '.png'] as const;
-const CAPTION_EXT = ['.srt', '.vtt', '.sbv', '.scc', '.ttml', '.dfxp'] as const;
+const THUMBNAIL_EXT = ASSET_RULES.thumbnail.exts;
+const CAPTION_EXT = ASSET_RULES.caption.exts;
 
 function packageVersion(): string {
   for (const rel of ['../../package.json', '../package.json']) {
@@ -422,6 +423,7 @@ export class McpServer {
   /** Thumbnail and caption files: same type and size rules as the dashboard's uploads. */
   #asset(value: unknown, field: string, exts: readonly string[], maxBytes: number): string {
     const path = this.#file(value, field);
+    if (!statSync(path).isFile()) throw new ToolError(msg('{field}: 파일이 없습니다: {path}', { field, path }));
     if (!exts.includes(extname(path).toLowerCase())) throw new ToolError(msg('{field}: {exts} 파일만 받습니다', { field, exts: exts.join(', ') }));
     if (statSync(path).size > maxBytes) throw new ToolError(msg('{field}: {maxBytes}MB 이하여야 합니다', { field, maxBytes: maxBytes / 1024 / 1024 }));
     return path;
@@ -454,14 +456,14 @@ export class McpServer {
     if (args.scheduledAt !== undefined && Number.isNaN(Date.parse(String(args.scheduledAt)))) throw new ToolError(msg('scheduledAt은 ISO-8601 시각이어야 합니다'));
     const targets = this.#targetArgs(args.targets);
     const captions: CaptionFile[] = Array.isArray(args.captions)
-      ? (args.captions as Array<Record<string, unknown>>).map((c, i) => ({ language: String(c.language ?? ''), path: this.#asset(c.path, `captions[${i}].path`, CAPTION_EXT, 5 * 1024 * 1024) }))
+      ? (args.captions as Array<Record<string, unknown>>).map((c, i) => ({ language: String(c.language ?? ''), path: this.#asset(c.path, `captions[${i}].path`, CAPTION_EXT, ASSET_RULES.caption.maxBytes) }))
       : [];
     const input: PostInput = {
       mediaPath,
       title,
       description: typeof args.description === 'string' ? args.description : '',
       tags: Array.isArray(args.tags) ? args.tags.map(String).map((t) => t.trim()).filter(Boolean) : [],
-      thumbnailPath: args.thumbnailPath ? this.#asset(args.thumbnailPath, 'thumbnailPath', THUMBNAIL_EXT, 2 * 1024 * 1024) : undefined,
+      thumbnailPath: args.thumbnailPath ? this.#asset(args.thumbnailPath, 'thumbnailPath', THUMBNAIL_EXT, ASSET_RULES.thumbnail.maxBytes) : undefined,
       captions,
       containsSyntheticMedia: Boolean(args.aiGenerated),
       scheduledAt: args.scheduledAt ? new Date(String(args.scheduledAt)).toISOString() : undefined,

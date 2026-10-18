@@ -97,7 +97,22 @@ async function xrpc<T>(
 
 function pdsFromDidDoc(doc: unknown): string | undefined {
   const services = (doc as { service?: Array<{ id?: string; type?: string; serviceEndpoint?: string }> } | undefined)?.service;
-  return services?.find((s) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer')?.serviceEndpoint;
+  const endpoint = services?.find((s) => s.id === '#atproto_pds' || s.type === 'AtprotoPersonalDataServer')?.serviceEndpoint;
+  return endpoint === undefined ? undefined : httpsOnly(endpoint);
+}
+
+/** Session tokens go to this server on every call: never over plain http (except a local test server). */
+export function httpsOnly(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new ProviderError('rejected', 'bluesky.bad_service', msg('Bluesky 서버 주소가 올바르지 않습니다: {url}', { url: raw }));
+  }
+  if (url.protocol !== 'https:' && url.hostname !== 'localhost' && url.hostname !== '127.0.0.1') {
+    throw new ProviderError('rejected', 'bluesky.insecure', msg('Bluesky 서버 주소는 https여야 합니다: {url}', { url: raw }));
+  }
+  return raw;
 }
 
 async function serviceAuth(ctx: ProviderContext, c: BlueskyCredentials, aud: string, lxm: string): Promise<string> {
@@ -261,7 +276,7 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
         rl.close();
       }
     }
-    const service = typeof flags.service === 'string' && flags.service.trim() ? flags.service.trim() : DEFAULT_SERVICE;
+    const service = httpsOnly(typeof flags.service === 'string' && flags.service.trim() ? flags.service.trim() : DEFAULT_SERVICE);
     const s = await xrpc<{ did: string; handle: string; accessJwt: string; refreshJwt: string; didDoc?: unknown; emailConfirmed?: boolean }>(
       ctx,
       service,
