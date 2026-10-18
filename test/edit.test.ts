@@ -11,7 +11,7 @@ const POST: PostInput = { mediaPath: '/v.mp4', title: '옛 제목', description:
 describe('editing published posts', () => {
   it('updates YouTube, Facebook and Mastodon and skips the rest with a reason', async () => {
     const { fetch, calls } = mockFetch([
-      ['GET', '/youtube/v3/videos?part=snippet&id=V', () => json({ items: [{ snippet: { title: '옛 제목', description: '옛 설명', categoryId: '27', defaultLanguage: 'ko', channelId: 'UC' } }] })],
+      ['GET', '/youtube/v3/videos?part=snippet&id=V', () => json({ items: [{ snippet: { title: '옛 제목', description: '옛 설명', categoryId: '27', defaultLanguage: 'ko', defaultAudioLanguage: 'ko', channelId: 'UC' } }] })],
       ['PUT', '/youtube/v3/videos?part=snippet', () => json({ id: 'V' })],
       ['POST', '/R1', () => json({ success: true })],
       ['PUT', '/api/v1/statuses/S1', () => json({ id: 'S1' })],
@@ -44,7 +44,7 @@ describe('editing published posts', () => {
     assert.equal(store.getPost(post.id)!.title, '새 제목');
 
     const yt = JSON.parse(String(calls.find((c) => c.method === 'PUT' && c.url.includes('youtube'))!.body));
-    assert.deepEqual(yt, { id: 'V', snippet: { title: '새 제목', description: '새 설명', tags: ['new'], categoryId: '27', defaultLanguage: 'ko' } });
+    assert.deepEqual(yt, { id: 'V', snippet: { title: '새 제목', description: '새 설명', tags: ['new'], categoryId: '27', defaultLanguage: 'ko', defaultAudioLanguage: 'ko' } }, 'the audio language is kept');
     assert.equal(new URLSearchParams(String(calls.find((c) => c.url.endsWith('/R1'))!.body)).get('description'), '새 제목\n\n새 설명\n\n#new');
     assert.deepEqual(JSON.parse(String(calls.find((c) => c.url.includes('/statuses/S1'))!.body)), { status: '새 제목\n\n새 설명\n\n#new', media_ids: ['m1'] });
   });

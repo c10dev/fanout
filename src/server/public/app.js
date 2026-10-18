@@ -98,6 +98,20 @@ const OPTION_FORMS = {
     opt(tr('카테고리'), select('categoryId', [['22', tr('인물/블로그'), true], ['24', tr('엔터테인먼트')], ['10', tr('음악')], ['20', tr('게임')], ['26', tr('노하우/스타일')], ['27', tr('교육')], ['28', tr('과학기술')], ['19', tr('여행/이벤트')], ['17', tr('스포츠')], ['15', tr('동물')]])),
     opt(tr('재생목록 ID (선택)'), h('input', { type: 'text', name: 'playlistId', autocomplete: 'off' })),
     checkbox('notifySubscribers', tr('구독자에게 알림'), true),
+    h(
+      'details',
+      { class: 'opt wide more' },
+      h('summary', {}, tr('더 보기: 언어, 라이선스, 다른 언어 제목')),
+      h(
+        'div',
+        { class: 'opts' },
+        opt(tr('제목·설명 언어 (예: ko)'), h('input', { type: 'text', name: 'defaultLanguage', autocomplete: 'off' })),
+        opt(tr('영상 음성 언어 (예: ko)'), h('input', { type: 'text', name: 'audioLanguage', autocomplete: 'off' })),
+        opt(tr('라이선스'), select('license', [['', tr('표준 YouTube 라이선스')], ['creativeCommon', tr('크리에이티브 커먼즈 - 저작자 표시')]])),
+        h('div', { class: 'choices' }, checkbox('embeddable', tr('퍼가기 허용'), true), checkbox('publicStatsViewable', tr('좋아요·조회수 공개'), true), checkbox('paidPromotion', tr('유료 PPL·협찬 포함'))),
+        localizationRows(),
+      ),
+    ),
   ],
   tiktok: () => [
     group(tr('게시 방식'), radios('mode', [['inbox', tr('TikTok 앱 수신함으로 보내기'), true], ['direct', tr('바로 게시 (Direct Post)')]]), true),
@@ -166,6 +180,13 @@ function readOptions(platform, body) {
         categoryId: val('categoryId').value,
         playlistId: text('playlistId'),
         notifySubscribers: on('notifySubscribers') ? undefined : false,
+        defaultLanguage: text('defaultLanguage'),
+        audioLanguage: text('audioLanguage'),
+        license: val('license').value || undefined,
+        embeddable: on('embeddable') ? undefined : false,
+        publicStatsViewable: on('publicStatsViewable') ? undefined : false,
+        paidPromotion: on('paidPromotion') || undefined,
+        localizations: readLocalizations(body),
       };
     }
     case 'tiktok': {
@@ -210,6 +231,10 @@ function applyOptions(platform, body, options) {
   for (const [key, raw] of Object.entries(options ?? {})) {
     // undefined means "left at the form's default" (e.g. notifySubscribers on): don't touch it.
     if (raw === undefined) continue;
+    if (platform === 'youtube' && key === 'localizations') {
+      body.querySelector('[data-localizations]')?.replaceWith(localizationRows(raw));
+      continue;
+    }
     const value = platform === 'youtube' && key === 'madeForKids' ? (raw ? 'yes' : 'no') : Array.isArray(raw) ? raw.join(', ') : raw;
     const radios = body.querySelectorAll(`input[type="radio"][name="${key}"]`);
     if (radios.length) {
@@ -504,6 +529,32 @@ function exitAddMode() {
 }
 
 /** Show direct-post fields only in direct mode. */
+/** Other-language titles and descriptions for YouTube: one row per language, added on demand. */
+function localizationRows(values = {}) {
+  const rows = h('div', { class: 'loc-rows' });
+  const add = (lang = '', title = '', description = '') =>
+    rows.append(
+      h(
+        'div',
+        { class: 'loc-row' },
+        h('input', { type: 'text', 'data-loc': 'lang', value: lang, placeholder: tr('언어 (예: en)'), 'aria-label': tr('언어'), size: 6 }),
+        h('input', { type: 'text', 'data-loc': 'title', value: title, placeholder: tr('제목'), 'aria-label': tr('제목') }),
+        h('textarea', { 'data-loc': 'description', rows: 1, placeholder: tr('설명 (선택)'), 'aria-label': tr('설명') }, description),
+      ),
+    );
+  for (const [lang, l] of Object.entries(values)) add(lang, l.title, l.description ?? '');
+  return h('div', { class: 'opt wide', 'data-localizations': '' }, h('span', {}, tr('다른 언어 제목·설명')), rows, h('button', { class: 'small', type: 'button', onclick: () => add() }, tr('+ 언어 추가')));
+}
+
+function readLocalizations(body) {
+  const out = {};
+  for (const row of body.querySelectorAll('.loc-row')) {
+    const get = (k) => row.querySelector(`[data-loc="${k}"]`).value.trim();
+    if (get('lang') && get('title')) out[get('lang')] = { title: get('title'), ...(get('description') ? { description: get('description') } : {}) };
+  }
+  return Object.keys(out).length ? out : undefined;
+}
+
 /** TikTok creator_info per account, fetched once per page. */
 const tiktokRules = new Map();
 

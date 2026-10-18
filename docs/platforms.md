@@ -4,7 +4,7 @@
 
 | 플랫폼 | 방식 | 기본 동작 | 예약 | 알아둘 제약 |
 |---|---|---|---|---|
-| YouTube | `videos.insert` 재개형 업로드 | 공개 범위·아동용 여부를 직접 지정해야 함 | 네이티브 `publishAt` | 프로젝트당 하루 100회 업로드. 3분 이하 세로 영상은 Shorts로 분류. 썸네일·자막·재생목록 지원 |
+| YouTube | `videos.insert` 재개형 업로드 | 공개 범위·아동용 여부를 직접 지정해야 함 | 네이티브 `publishAt` | 프로젝트당 하루 100회 업로드. 3분 이하 세로 영상은 Shorts로 분류. 썸네일·자막·재생목록 지원. 제목·설명 언어와 음성 언어, 다른 언어 제목·설명(`localizations`, `--yt-localizations 파일.json`), 크리에이티브 커먼즈 라이선스, 퍼가기·통계 공개 끄기, 유료 PPL 표시. 게시 후 제목을 고쳐도 언어 설정은 유지 |
 | TikTok | Content Posting API `FILE_UPLOAD` | **inbox**: TikTok 앱 수신함으로 보내고 앱에서 마무리 | fanout worker | 심사 전 direct는 비공개 계정 SELF_ONLY만, 24시간 5명. direct 모드는 TikTok이 요구하는 UX 필드(공개 범위 기본값 없음, 댓글·듀엣·이어찍기 기본 끔, 음악 사용 동의, 브랜디드 콘텐츠)를 요구 |
 | Instagram Reels | 컨테이너 → rupload → `media_publish` | 프로페셔널 계정 + 연결된 Facebook 페이지 | fanout worker | 3초~15분, 300MB. 24시간 한도는 매번 `content_publishing_limit`로 조회. 공동 작업자(3명까지, `--ig-collab`)·오디오 이름(`--ig-audio`)·AI 표시(`--ai` → `is_ai_generated`). 캡션 2200자·해시태그 30개·@멘션 20개 |
 | Facebook Reels | `video_reels` start → rupload → finish | 페이지만 가능 | 네이티브 (10분~29일). 29일보다 먼 예약은 28일 전까지 fanout이 기다렸다가 올림 | 9:16, 3~90초 |

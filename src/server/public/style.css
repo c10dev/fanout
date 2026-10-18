@@ -267,3 +267,8 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 details.unconnected { margin-top: 8px; }
 details.unconnected > summary { cursor: pointer; color: var(--muted); padding: 6px 0; }
 details.unconnected > .target { margin-top: 8px; }
+details.more > summary { cursor: pointer; color: var(--muted); }
+details.more .opts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; margin-top: 8px; }
+details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1; }
+.loc-row { display: grid; grid-template-columns: 6em 1fr 1.4fr; gap: 6px; margin: 4px 0; }
+[data-localizations] > button { justify-self: start; width: auto; }
