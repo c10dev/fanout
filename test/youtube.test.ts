@@ -263,6 +263,13 @@ describe('youtube resumable upload', () => {
     const next = await youtube.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
     assert.equal((next.credentials as { scope?: string }).scope, 'https://www.googleapis.com/auth/youtube.force-ssl');
     const scope = new URL(youtube.oauthBegin!(ctx, 'http://127.0.0.1:1/cb').url).searchParams.get('scope')!;
-    assert.deepEqual(scope.split(' '), ['https://www.googleapis.com/auth/youtube.force-ssl', 'https://www.googleapis.com/auth/yt-analytics.readonly']);
+    assert.deepEqual(scope.split(' '), ['https://www.googleapis.com/auth/youtube.force-ssl', 'https://www.googleapis.com/auth/youtube.readonly', 'https://www.googleapis.com/auth/yt-analytics.readonly']);
+  });
+
+  it('refuses a connect where the manage scope was unticked', async () => {
+    const { fetch } = mockFetch([['POST', 'oauth2.googleapis.com/token', () => json({ access_token: 'N', refresh_token: 'R', expires_in: 3600, scope: 'https://www.googleapis.com/auth/yt-analytics.readonly' })]]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('youtube', { clientId: 'cid', clientSecret: 'cs' });
+    await assert.rejects(youtube.oauthFinish!(ctx, 'main', new URLSearchParams('code=C'), 'http://127.0.0.1:1/cb', 'v'), (e: ProviderError) => e.code === 'youtube.partial_grant');
   });
 });

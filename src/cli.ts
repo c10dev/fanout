@@ -247,6 +247,7 @@ function deeper(stats: PostStats | undefined, fmt: (n?: number) => string): stri
     stats.saves !== undefined ? local(msg('저장 {n}', { n: fmt(stats.saves) })) : '',
     stats.avgWatchSec !== undefined ? local(msg('평균 시청 {s}초', { s: stats.avgWatchSec })) : '',
     stats.avgViewPct !== undefined ? local(msg('평균 {p}% 시청', { p: stats.avgViewPct })) : '',
+    stats.watchTimeSec !== undefined ? local(msg('총 시청 {h}시간', { h: Math.round(stats.watchTimeSec / 360) / 10 })) : '',
     stats.subscribersGained !== undefined ? local(msg('구독 +{n}', { n: fmt(stats.subscribersGained) })) : '',
   ].filter(Boolean);
   return parts.length ? ` · ${parts.join(' · ')}` : '';
