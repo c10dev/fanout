@@ -115,7 +115,7 @@ async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> 
     const spec = provider.specFor?.(post, target) ?? provider.spec;
 
     if (target.state === 'queued') {
-      const issues = provider.validate(post, target, media);
+      const issues = provider.validate(post, target, media, account);
       const violations = checkMedia(media, spec);
       const blocking = [
         ...issues.filter((i) => i.severity === 'error').map((i) => i.message),

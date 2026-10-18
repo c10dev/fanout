@@ -32,6 +32,14 @@ describe('x text', () => {
     const codes = x.validate(post({ description: 'https://x.dev' }), target({ text: '가'.repeat(141) + ' https://x.dev' }), fakeMedia()).map((i) => i.code);
     assert.ok(codes.includes('text') && codes.includes('url_cost'));
   });
+
+  it('stops a long post before the upload when the account is known to have no Premium', () => {
+    const long = target({ text: 'a'.repeat(300) });
+    const withTier = (subscriptionType?: string) => x.validate(post(), long, fakeMedia(), { ...account, credentials: { ...account.credentials, subscriptionType } }).filter((i) => i.code === 'text');
+    assert.deepEqual(withTier('None').map((i) => i.severity), ['error']);
+    assert.deepEqual(withTier('Premium'), [], 'Premium may post long');
+    assert.deepEqual(withTier(undefined).map((i) => i.severity), ['warning'], 'unknown tier: warn only');
+  });
 });
 
 describe('x auth', () => {

@@ -30,6 +30,8 @@ export interface XCredentials {
   expiresAt: number;
   userId: string;
   username: string;
+  /** X Premium tier of the account ("None", "Basic", "Premium", "PremiumPlus"); decides long posts. */
+  subscriptionType?: string;
 }
 
 export interface XOptions {
@@ -199,8 +201,8 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     if (!code) throw new ProviderError('auth', 'x.denied', msg('인증 거부: {params}', { params: params.get('error_description') ?? params.get('error') ?? 'unknown' }));
     const tok = await tokenRequest(ctx, { code, grant_type: 'authorization_code', redirect_uri: redirectUri, code_verifier: verifier });
     const account: Account = { platform: 'x', name, credentials: { ...tok, userId: '', username: '' }, profile: {} };
-    const me = await api<{ data: { id: string; username: string; name: string } }>(ctx, account, '/2/users/me');
-    account.credentials = { ...tok, userId: me.data.id, username: me.data.username };
+    const me = await api<{ data: { id: string; username: string; name: string; subscription_type?: string } }>(ctx, account, '/2/users/me?user.fields=subscription_type');
+    account.credentials = { ...tok, userId: me.data.id, username: me.data.username, subscriptionType: me.data.subscription_type };
     account.profile = { username: me.data.username, displayName: me.data.name };
     return account;
   },
@@ -226,12 +228,18 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     }
   },
 
-  validate(post, target) {
+  validate(post, target, _media, account) {
     const issues: Issue[] = [];
     const text = tweetText(post, target.options as XOptions);
     const len = weightedLength(text);
     if (len > TEXT_MAX) {
-      issues.push({ severity: 'warning', code: 'text', message: msg('X 글이 {len}(가중치) / {TEXT_MAX}입니다. Premium이 아니면 거부됩니다 — options.text로 줄이세요', { len, TEXT_MAX }) });
+      // Long posts need a Premium tier. Known to be without one: stop here, before the upload is paid for.
+      const tier = account ? creds(account).subscriptionType : undefined;
+      if (tier === 'None') {
+        issues.push({ severity: 'error', code: 'text', message: msg('X 글이 {len}(가중치) / {TEXT_MAX}입니다. 이 계정은 X Premium이 아니라 거부됩니다 — options.text로 줄이세요', { len, TEXT_MAX }) });
+      } else if (tier === undefined) {
+        issues.push({ severity: 'warning', code: 'text', message: msg('X 글이 {len}(가중치) / {TEXT_MAX}입니다. Premium이 아니면 거부됩니다 — options.text로 줄이세요', { len, TEXT_MAX }) });
+      }
     }
     if (hasUrl(text)) issues.push({ severity: 'warning', code: 'url_cost', message: msg('X는 URL이 들어간 게시물 요금이 훨씬 비쌉니다(약 $0.20)') });
     if (post.scheduledAt) issues.push({ severity: 'warning', code: 'schedule', message: msg('X는 API 예약 게시가 없어 fanout이 예약 시각에 올립니다 (fanout worker 필요)') });
@@ -356,8 +364,15 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       return checks;
     }
     try {
-      const me = await api<{ data: { username: string } }>(ctx, acct, '/2/users/me');
+      const me = await api<{ data: { username: string; subscription_type?: string } }>(ctx, acct, '/2/users/me?user.fields=subscription_type');
       checks.push({ name: msg('계정'), status: 'ok', detail: `@${me.data.username}` });
+      const tier = me.data.subscription_type;
+      if (tier !== undefined) {
+        checks.push({ name: 'X Premium', status: 'info', detail: tier === 'None' ? msg('없음 (글은 280 가중치까지)') : tier });
+        // Kept for validate(): a long post on a non-Premium account is stopped before the upload.
+        const stored = ctx.store.getAccount('x', acct.name);
+        if (stored) ctx.store.saveAccount({ ...stored, credentials: { ...stored.credentials, subscriptionType: tier } });
+      }
     } catch (err) {
       checks.push({ name: msg('계정'), status: 'fail', detail: (err as Error).message });
     }

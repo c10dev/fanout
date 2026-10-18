@@ -40,6 +40,12 @@ describe('tiktok options', () => {
     assert.equal(captionFor(post, { mode: 'direct' }), '제목\n\n본문\n\n#짧은영상 #vlog');
   });
 
+  it('counts the caption the way TikTok does (UTF-16 units: an emoji is 2)', () => {
+    const caption = (text: string) => tiktok.validate(post, target({ mode: 'direct', privacyLevel: 'SELF_ONLY', musicConsent: true, caption: text }), fakeMedia()).filter((i) => i.code === 'caption');
+    assert.deepEqual(caption('😀'.repeat(1100)), [], '2200 units');
+    assert.equal(caption('😀'.repeat(1101)).length, 1, '2202 units, though only 1101 characters');
+  });
+
   it('requires an explicit privacy level and music consent for direct posts', () => {
     const codes = tiktok.validate(post, target({ mode: 'direct' }), fakeMedia()).map((i) => i.code);
     assert.ok(codes.includes('privacy'));
