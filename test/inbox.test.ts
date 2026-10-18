@@ -116,6 +116,15 @@ describe('planPost', () => {
     assert.throws(() => planPost({ ...base, config: { to: ['myspace'] }, sidecar: {} }), /myspace/);
     assert.throws(() => planPost({ ...base, config: { to: ['youtube'], captions: { ko: 'nope.srt' } }, sidecar: {} }), WatchConfigError);
   });
+
+  it('a platform without ":name" means main, or its only account, and asks when there are several', () => {
+    const dir = folder();
+    const base = { videoPath: video(dir, 'a.mp4'), dir, media: fakeMedia(), providers, now: NOW, sidecar: {}, config: { to: ['tiktok', 'youtube:second'] } };
+    const one = [{ platform: 'tiktok', name: 'mainmain' }];
+    assert.deepEqual(planPost({ ...base, accounts: one }).targets.map((t) => `${t.platform}/${t.account}`), ['tiktok/mainmain', 'youtube/second']);
+    assert.deepEqual(planPost({ ...base, accounts: [] }).targets.map((t) => t.account), ['main', 'second'], 'none connected: main, as before');
+    assert.throws(() => planPost({ ...base, accounts: [...one, { platform: 'tiktok', name: 'brand' }] }), /tiktok:/);
+  });
 });
 
 describe('watch-folder captions and thumbnails', () => {

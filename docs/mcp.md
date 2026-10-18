@@ -37,6 +37,16 @@ claude mcp add fanout -- fanout mcp
 
 결과와 오류 메시지는 영어로 나갑니다(MCP 클라이언트는 대개 영어로 쓰므로, `fanout mcp`만 기본이 영어이고 나머지 CLI는 한국어가 기본입니다). 한국어로 받으려면 `"env": { "FANOUT_LANG": "ko" }`을 함께 넣거나 `claude mcp add fanout -e FANOUT_LANG=ko -- fanout mcp`로 등록하세요. 제목·설명·댓글처럼 사용자가 쓴 내용은 바꾸지 않습니다.
 
+## 읽을 수 있는 폴더 제한
+
+에이전트가 넘기는 영상·썸네일·자막 경로는 기본으로 사용자가 읽을 수 있는 어디든 됩니다. 프롬프트 주입 같은 위험을 줄이려면 폴더를 정해 두세요:
+
+```bash
+claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
+```
+
+또는 `"env": { "FANOUT_MCP_ROOTS": "/home/me/videos:/home/me/fanout-inbox" }`(경로 구분자는 macOS·Linux `:`, Windows `;`). 심볼릭 링크는 실제 위치로 따져서, 허용한 폴더 안의 링크가 밖을 가리키면 거절합니다.
+
 ## 도구
 
 | 도구 | 하는 일 |

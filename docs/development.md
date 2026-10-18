@@ -64,7 +64,7 @@ test/                     node:test + HTTP mock (실제 플랫폼 호출 없음)
 ## 테스트와 빌드
 
 ```bash
-npm test           # node --test (ffmpeg가 있으면 실제 트랜스코딩 테스트 포함)
+npm test           # node --test (ffmpeg가 있으면 실제 트랜스코딩 테스트 포함). 실행마다 전용 임시 폴더(TMPDIR)를 쓰고 끝나면 지움
 npm run typecheck
 ```
 

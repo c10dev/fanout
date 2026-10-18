@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, statSync } from 'node:fs';
-import { extname, isAbsolute, join, resolve } from 'node:path';
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
@@ -238,6 +238,8 @@ export interface McpDeps {
   providers: Map<string, Provider>;
   worker?: Worker;
   probe?: (path: string) => Promise<MediaInfo>;
+  /** Folders (real paths) agents may read files from; unset means anywhere the user can read. */
+  roots?: string[];
 }
 
 export class McpServer {
@@ -463,6 +465,14 @@ export class McpServer {
     if (typeof value !== 'string' || !value.trim()) throw new ToolError(msg('{field}: 파일 경로가 필요합니다', { field }));
     const path = isAbsolute(value) ? value : resolve(value);
     if (!existsSync(path)) throw new ToolError(msg('{field}: 파일이 없습니다: {path}', { field, path }));
+    const roots = this.#deps.roots;
+    // Symlinks resolved first, so a link inside an allowed folder can't point outside it.
+    if (roots?.length) {
+      const real = realpathSync(path);
+      if (!roots.some((r) => real === r || real.startsWith(r.endsWith(sep) ? r : r + sep))) {
+        throw new ToolError(msg('{field}: 허용된 폴더 밖의 파일입니다 ({roots})', { field, roots: roots.join(', ') }));
+      }
+    }
     return path;
   }
 
