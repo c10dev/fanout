@@ -96,7 +96,7 @@ const OPTION_FORMS = {
     opt(tr('공개 범위'), select('privacy', [['public', tr('공개')], ['unlisted', tr('일부 공개')], ['private', tr('비공개')]], { placeholder: tr('선택하세요') })),
     group(tr('아동용 영상인가요?'), radios('madeForKids', [['no', tr('아니요')], ['yes', tr('예')]])),
     opt(tr('카테고리'), select('categoryId', [['22', tr('인물/블로그'), true], ['24', tr('엔터테인먼트')], ['10', tr('음악')], ['20', tr('게임')], ['26', tr('노하우/스타일')], ['27', tr('교육')], ['28', tr('과학기술')], ['19', tr('여행/이벤트')], ['17', tr('스포츠')], ['15', tr('동물')]])),
-    opt(tr('재생목록 ID (선택)'), h('input', { type: 'text', name: 'playlistId', autocomplete: 'off' })),
+    opt(tr('재생목록 (선택)'), playlistInput()),
     checkbox('notifySubscribers', tr('구독자에게 알림'), true),
     h(
       'details',
@@ -120,6 +120,7 @@ const OPTION_FORMS = {
     group(tr('허용할 상호작용'), h('div', { class: 'choices' }, checkbox('allowComment', tr('댓글')), checkbox('allowDuet', tr('듀엣')), checkbox('allowStitch', tr('이어찍기')))),
     group(tr('콘텐츠 공개'), h('div', { class: 'choices' }, checkbox('brandOrganic', tr('내 브랜드 홍보')), checkbox('brandedContent', tr('브랜디드 콘텐츠 (유료 협찬)')))),
     opt(tr('캡션 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
+    opt(tr('커버로 쓸 장면 (초, 선택)'), h('input', { type: 'number', name: 'coverSec', min: 0, step: 0.1, inputmode: 'decimal' })),
     h('div', { class: 'opt wide' }, checkbox('musicConsent', tr('게시하면 TikTok 음악 사용 확인(Music Usage Confirmation)에 동의합니다'))),
     h('p', { class: 'note' }, tr('심사 전 앱은 비공개 계정에 "나만 보기"로만 바로 게시할 수 있습니다.')),
   ],
@@ -128,6 +129,7 @@ const OPTION_FORMS = {
     opt(tr('캡션 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
     opt(tr('공동 작업자 (선택, 쉼표로 구분, 3명까지)'), h('input', { type: 'text', name: 'collaborators', autocomplete: 'off', placeholder: 'user1, user2' })),
     opt(tr('오디오 이름 (선택)'), h('input', { type: 'text', name: 'audioName', autocomplete: 'off' })),
+    opt(tr('커버로 쓸 장면 (초, 선택)'), h('input', { type: 'number', name: 'coverSec', min: 0, step: 0.1, inputmode: 'decimal' })),
   ],
   facebook: () => [
     opt(tr('설명 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
@@ -171,6 +173,8 @@ function readOptions(platform, body) {
   const checked = (n) => body.querySelector(`[name="${n}"]:checked`)?.value;
   const on = (n) => Boolean(val(n)?.checked);
   const text = (n) => val(n)?.value.trim() || undefined;
+  // A frame picked in seconds, sent in milliseconds.
+  const seconds = (n) => (text(n) === undefined || Number.isNaN(Number(text(n))) ? undefined : Math.round(Number(text(n)) * 1000));
   switch (platform) {
     case 'youtube': {
       const kids = checked('madeForKids');
@@ -202,6 +206,7 @@ function readOptions(platform, body) {
         brandedContent: on('brandedContent'),
         musicConsent: on('musicConsent'),
         caption: text('caption'),
+        coverTimestampMs: seconds('coverSec'),
       };
     }
     case 'instagram':
@@ -210,6 +215,7 @@ function readOptions(platform, body) {
         caption: text('caption'),
         collaborators: text('collaborators')?.split(',').map((u) => u.trim()).filter(Boolean),
         audioName: text('audioName'),
+        thumbOffsetMs: seconds('coverSec'),
       };
     case 'facebook':
       return { caption: text('caption') };
@@ -231,6 +237,11 @@ function applyOptions(platform, body, options) {
   for (const [key, raw] of Object.entries(options ?? {})) {
     // undefined means "left at the form's default" (e.g. notifySubscribers on): don't touch it.
     if (raw === undefined) continue;
+    if (key === 'thumbOffsetMs' || key === 'coverTimestampMs') {
+      const input = body.querySelector('[name="coverSec"]');
+      if (input) input.value = String(raw / 1000);
+      continue;
+    }
     if (platform === 'youtube' && key === 'localizations') {
       body.querySelector('[data-localizations]')?.replaceWith(localizationRows(raw));
       continue;
@@ -529,6 +540,26 @@ function exitAddMode() {
 }
 
 /** Show direct-post fields only in direct mode. */
+/** The playlist id field, with the account's playlists offered once it gets focus. */
+function playlistInput() {
+  const list = h('datalist', { id: `playlists-${Math.random().toString(36).slice(2)}` });
+  const input = h('input', { type: 'text', name: 'playlistId', autocomplete: 'off', list: list.id, placeholder: tr('목록에서 고르거나 ID 입력') });
+  let loaded = '';
+  input.addEventListener('focus', async () => {
+    const block = input.closest('.target');
+    const name = block?.querySelector('select[name="account"]')?.value ?? block?.querySelector('[data-account]')?.dataset.account;
+    if (!name || loaded === name) return;
+    loaded = name;
+    try {
+      const { playlists } = await api(`/accounts/youtube/${encodeURIComponent(name)}/playlists`);
+      list.replaceChildren(...playlists.map((p) => h('option', { value: p.id, label: p.title }, p.title)));
+    } catch {
+      loaded = '';
+    }
+  });
+  return h('div', {}, input, list);
+}
+
 /** Other-language titles and descriptions for YouTube: one row per language, added on demand. */
 function localizationRows(values = {}) {
   const rows = h('div', { class: 'loc-rows' });

@@ -166,6 +166,8 @@ export interface Provider {
    * long a video may be. The dashboard shapes its form from them.
    */
   accountRules?(args: { ctx: ProviderContext; account: Account }): Promise<AccountRules>;
+  /** The account's playlists to pick from (YouTube), newest first as the platform lists them. */
+  listPlaylists?(args: { ctx: ProviderContext; account: Account }): Promise<Array<{ id: string; title: string }>>;
   /** Checks of a planned post that need the account's live settings; run at preview, like limits. */
   previewChecks?(args: { ctx: ProviderContext; account: Account; post: Post; target: Target; media: MediaInfo }): Promise<Issue[]>;
 
