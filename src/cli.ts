@@ -121,11 +121,13 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         caption: str(args, 'ig-caption'),
         shareToFeed: args.flags['ig-no-feed'] ? false : undefined,
         thumbOffsetMs: num(args, 'ig-thumb-ms'),
+        collaborators: str(args, 'ig-collab')?.split(',').map((u) => u.trim()).filter(Boolean),
+        audioName: str(args, 'ig-audio'),
       });
     case 'facebook':
       return drop({ caption: str(args, 'fb-caption') });
     case 'x':
-      return drop({ text: str(args, 'x-text') });
+      return drop({ text: str(args, 'x-text'), paidPartnership: bool(args, 'x-paid-partnership'), replySettings: str(args, 'x-reply') });
     case 'mastodon':
       return drop({ visibility: str(args, 'md-visibility'), text: str(args, 'md-text'), alt: str(args, 'md-alt'), language: str(args, 'md-lang'), spoilerText: str(args, 'md-cw') });
     case 'peertube':
@@ -278,7 +280,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
 
 post 공통 옵션
   --description 텍스트 | --description-file 파일   --tags a,b,c
-  --thumbnail 이미지   --caption ko:subs.srt (여러 번)   --ai (AI 생성·합성 콘텐츠 표시)
+  --thumbnail 이미지   --caption ko:subs.srt (여러 번)   --ai (AI 생성·합성 콘텐츠 표시: YouTube·TikTok·Instagram·X)
   --at 2026-10-20T09:00:00+09:00 (예약)   --yes (확인 생략)   --no-wait
 
 플랫폼별 옵션
@@ -288,9 +290,9 @@ post 공통 옵션
              direct 전용: --tt-privacy public|friends|followers|private (필수)
              --tt-music-consent yes (필수)  --tt-allow-comment/--tt-allow-duet/--tt-allow-stitch yes
              --tt-brand-organic yes  --tt-branded yes  --tt-caption 텍스트  --tt-cover-ms 1000
-  Instagram  --ig-caption 텍스트  --ig-no-feed  --ig-thumb-ms 1000
+  Instagram  --ig-caption 텍스트  --ig-no-feed  --ig-thumb-ms 1000  --ig-collab 사용자1,사용자2 (공동 작업자, 3명까지)  --ig-audio 오디오이름
   Facebook   --fb-caption 텍스트
-  X          --x-text 텍스트 (가중치 280 이하, 한글은 2로 셈)
+  X          --x-text 텍스트 (가중치 280 이하, 한글은 2로 셈)  --x-paid-partnership yes  --x-reply following|mentionedUsers|subscribers|verified
   Bluesky    --bsky-text 텍스트(300자 이하)  --bsky-alt 대체텍스트  --bsky-lang ko,en
   Mastodon   --md-visibility public|unlisted|private (필수)  --md-text 텍스트  --md-alt 대체텍스트
              --md-lang ko  --md-cw 내용경고

@@ -36,6 +36,7 @@
 - 기존 게시물에 플랫폼 추가: 대시보드 "플랫폼 추가", `fanout add`, MCP `add_to_post`
 - 댓글 모아보기(#30)와 답글: 대시보드, `fanout reply`, MCP `reply_to_comment`
 - Slack·Discord·JSON webhook 알림(#26)
+- Instagram: 공동 작업자·오디오 이름·AI 표시, @멘션 20개 검사. X: AI 표시·유료 파트너십·답글 허용 범위, Premium이 아닌 계정의 긴 글은 업로드 전에 막음. TikTok 캡션 길이를 TikTok 방식(UTF-16)으로 셈
 - 하루 한도(YouTube 업로드, Instagram 24시간 게시, TikTok 하루 게시)에 걸린 대상은 실패 대신 한도가 다시 차는 때에 자동으로 다시 시도
 - 남은 게시 한도: `fanout limits`, 대시보드 설정 탭, MCP `get_limits` (YouTube·Instagram·Bluesky·PeerTube). 미리보기에서도 다 썼거나 거의 다 쓴 한도, 남은 용량보다 큰 영상을 경고
 - YouTube 데이터 정책: 연결을 끊으면 토큰을 철회하고 반응 통계를 지움. 작업 처리기가 하루 한 번 권한과 채널 이름을 확인하고, 접근이 21일 넘게 거부되면 받은 데이터를 지움

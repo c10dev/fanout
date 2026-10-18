@@ -112,6 +112,8 @@ const OPTION_FORMS = {
   instagram: () => [
     checkbox('shareToFeed', tr('프로필 피드에도 표시'), true),
     opt(tr('캡션 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
+    opt(tr('공동 작업자 (선택, 쉼표로 구분, 3명까지)'), h('input', { type: 'text', name: 'collaborators', autocomplete: 'off', placeholder: 'user1, user2' })),
+    opt(tr('오디오 이름 (선택)'), h('input', { type: 'text', name: 'audioName', autocomplete: 'off' })),
   ],
   facebook: () => [
     opt(tr('설명 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
@@ -119,6 +121,11 @@ const OPTION_FORMS = {
   ],
   x: () => [
     opt(tr('글 (비우면 제목·설명·태그로 만듦, 가중치 280 이하·한글은 2로 셈)'), h('textarea', { name: 'text', rows: 2 }), true),
+    opt(
+      tr('답글 허용'),
+      select('replySettings', [['', tr('모두')], ['following', tr('내가 팔로우하는 계정')], ['mentionedUsers', tr('언급한 계정만')], ['verified', tr('인증된 계정')], ['subscribers', tr('구독자')]]),
+    ),
+    checkbox('paidPartnership', tr('유료 파트너십 표시')),
     h('p', { class: 'note' }, tr('X API는 종량제입니다. URL이 들어간 게시물은 요금이 훨씬 비쌉니다.')),
   ],
   mastodon: () => [
@@ -177,11 +184,16 @@ function readOptions(platform, body) {
       };
     }
     case 'instagram':
-      return { shareToFeed: on('shareToFeed') ? undefined : false, caption: text('caption') };
+      return {
+        shareToFeed: on('shareToFeed') ? undefined : false,
+        caption: text('caption'),
+        collaborators: text('collaborators')?.split(',').map((u) => u.trim()).filter(Boolean),
+        audioName: text('audioName'),
+      };
     case 'facebook':
       return { caption: text('caption') };
     case 'x':
-      return { text: text('text') };
+      return { text: text('text'), replySettings: val('replySettings').value || undefined, paidPartnership: on('paidPartnership') || undefined };
     case 'mastodon':
       return { visibility: val('visibility').value || undefined, text: text('text'), alt: text('alt'), language: text('language'), spoilerText: text('spoilerText') };
     case 'peertube':

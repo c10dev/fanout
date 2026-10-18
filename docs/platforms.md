@@ -6,9 +6,9 @@
 |---|---|---|---|---|
 | YouTube | `videos.insert` 재개형 업로드 | 공개 범위·아동용 여부를 직접 지정해야 함 | 네이티브 `publishAt` | 프로젝트당 하루 100회 업로드. 3분 이하 세로 영상은 Shorts로 분류. 썸네일·자막·재생목록 지원 |
 | TikTok | Content Posting API `FILE_UPLOAD` | **inbox**: TikTok 앱 수신함으로 보내고 앱에서 마무리 | fanout worker | 심사 전 direct는 비공개 계정 SELF_ONLY만, 24시간 5명. direct 모드는 TikTok이 요구하는 UX 필드(공개 범위 기본값 없음, 댓글·듀엣·이어찍기 기본 끔, 음악 사용 동의, 브랜디드 콘텐츠)를 요구 |
-| Instagram Reels | 컨테이너 → rupload → `media_publish` | 프로페셔널 계정 + 연결된 Facebook 페이지 | fanout worker | 3초~15분, 300MB. 24시간 한도는 매번 `content_publishing_limit`로 조회 |
+| Instagram Reels | 컨테이너 → rupload → `media_publish` | 프로페셔널 계정 + 연결된 Facebook 페이지 | fanout worker | 3초~15분, 300MB. 24시간 한도는 매번 `content_publishing_limit`로 조회. 공동 작업자(3명까지, `--ig-collab`)·오디오 이름(`--ig-audio`)·AI 표시(`--ai` → `is_ai_generated`). 캡션 2200자·해시태그 30개·@멘션 20개 |
 | Facebook Reels | `video_reels` start → rupload → finish | 페이지만 가능 | 네이티브 (10분~29일). 29일보다 먼 예약은 28일 전까지 fanout이 기다렸다가 올림 | 9:16, 3~90초 |
-| X | v2 `initialize` → 4MB `append` → `finalize` → STATUS → `POST /2/tweets` | 내 X 앱(OAuth 2.0 PKCE), **종량제 크레딧 필요** | fanout worker | 기본 20분·8GB(Premium은 더 김). 글은 가중치 280(한글 2). URL이 들어가면 요금이 높음. 게시 응답을 잃으면 중복을 피하려고 멈추고 확인을 요청 |
+| X | v2 `initialize` → 4MB `append` → `finalize` → STATUS → `POST /2/tweets` | 내 X 앱(OAuth 2.0 PKCE), **종량제 크레딧 필요** | fanout worker | 기본 20분·8GB(Premium은 더 김). 글은 가중치 280(한글 2). URL이 들어가면 요금이 높음. 계정이 Premium이 아니면(연결·점검 때 확인) 280을 넘는 글은 올리기 전에 막음. AI 표시(`--ai` → `made_with_ai`)·유료 파트너십(`--x-paid-partnership`)·답글 허용 범위(`--x-reply`). 게시 응답을 잃으면 중복을 피하려고 멈추고 확인을 요청 |
 | Bluesky | 영상 서비스 `uploadVideo` → 처리 완료 blob → `createRecord` | 앱 비밀번호로 연결 (개발자 앱 필요 없음) | fanout worker | mp4 최대 300MB, 글 300자, 자막은 VTT만(20KB 이하). 이메일 인증된 계정만 영상 가능, 하루 한도는 `getUploadLimits`로 조회 |
 | Mastodon | `POST /api/v2/media`(썸네일 포함) → 처리 대기 → `POST /api/v1/statuses` | 인스턴스에서 만든 액세스 토큰 (개발자 앱 심사 없음) | 네이티브 `scheduled_at` (5분 뒤부터) | 공개 범위 직접 지정. 영상 크기는 인스턴스마다 다르며(기본 99MB) 올리기 전에 조회. `Idempotency-Key`로 중복 게시 방지 |
 | PeerTube | `upload-resumable` 재개형 업로드(8MiB 조각) → 썸네일·자막 → 트랜스코딩 대기 | 인스턴스 계정 로그인. 비밀번호는 토큰을 받는 데만 쓰고 저장하지 않음 (개발자 앱 없음) | 네이티브 `scheduleUpdate`(비공개로 올렸다가 그 시각에 공개 범위 변경) | 공개 범위 직접 지정, 제목 3~120자, 태그 5개(각 2~30자). 올리기 전에 저장 용량 조회. 마지막 조각을 보낸 뒤 세션이 사라지면 멈추고 확인을 요청. 로그인은 2~4주 안 쓰면 만료 |
