@@ -721,7 +721,8 @@ async function cmdComments(ctx: ProviderContext, deps: RunnerDeps, args: Args): 
     console.log(`\n${r.platform}/${r.account}${r.skipped ? ` — ${local(r.skipped)}` : r.error ? ` — ✗ ${local(r.error)}` : ` — ${local(msg('댓글 {count}개', { count: r.comments!.length }))}`}`);
     for (const c of r.comments ?? []) {
       const author = printable(c.author) || local(msg('(이름 없음)'));
-      console.log(`  ${c.at.slice(0, 16).replace('T', ' ')}  ${author}${c.likes ? `  ♥${c.likes}` : ''}${c.replies ? `  ↳${c.replies}` : ''}${r.canReply ? `  [${c.id}]` : ''}`);
+      const hidden = c.hidden ? '  ' + local(msg('(숨김 — hide-comment --show로 되돌림)')) : '';
+      console.log(`  ${c.at.slice(0, 16).replace('T', ' ')}  ${author}${c.likes ? `  ♥${c.likes}` : ''}${c.replies ? `  ↳${c.replies}` : ''}${r.canReply || r.canHide ? `  [${c.id}]` : ''}${hidden}`);
       console.log(`    ${printable(c.text).slice(0, 200)}`);
     }
   }

@@ -4,7 +4,7 @@ import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
 import { withTimeout } from '../src/core/posting.ts';
-import { creatorIssues, captionFor, chunkPlan, statusOutcome, tiktok, tiktokError } from '../src/providers/tiktok.ts';
+import { creatorIssues, captionFor, chunkPlan, parseExactJson, statusOutcome, tiktok, tiktokError } from '../src/providers/tiktok.ts';
 import { fakeMedia, json, makeCtx, mockFetch, slowFetch, tempFile } from './helpers.ts';
 
 const MB = 1024 * 1024;
@@ -233,5 +233,24 @@ describe('tiktok stats', () => {
     const { fetch } = mockFetch([['POST', '/v2/video/query/', () => json({ data: { videos: [] }, error: { code: 'ok' } })]]);
     const { ctx } = makeCtx(fetch, () => NOW);
     assert.match((await tiktok.stats!({ ctx, account: withList, target: t('7300000000000000002') })).note!, /찾을 수 없습니다/);
+  });
+});
+
+describe('tiktok post ids', () => {
+  it('keep all 19 digits (JSON numbers past 2^53 would round to another video)', async () => {
+    const body = '{"data":{"status":"PUBLISH_COMPLETE","publicaly_available_post_id":[7412345678901234567]},"error":{"code":"ok"}}';
+    const { fetch } = mockFetch([['POST', '/v2/post/publish/status/fetch/', () => new Response(body, { headers: { 'content-type': 'application/json' } })]]);
+    const { ctx } = makeCtx(fetch, () => NOW);
+    const t = { ...target({ mode: 'direct' }), remoteId: 'v_pub_file~1', resume: { username: 'c10e2' } };
+    const out = await tiktok.poll({ ctx, post, target: t, account });
+    assert.deepEqual([out.remoteId, out.remoteUrl], ['7412345678901234567', 'https://www.tiktok.com/@c10e2/video/7412345678901234567']);
+  });
+
+  it('parses everything else as JSON would, strings untouched', () => {
+    assert.deepEqual(parseExactJson('{"a":[1,-2.5e3,9007199254740991],"s":"x\\" 7412345678901234567]","b":-9007199254740993}'), {
+      a: [1, -2500, 9007199254740991],
+      s: 'x" 7412345678901234567]',
+      b: '-9007199254740993',
+    });
   });
 });

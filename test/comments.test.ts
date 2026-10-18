@@ -164,9 +164,24 @@ describe('hiding comments', () => {
       ]);
       const [r] = await fetchComments(ctx, providerMap(), ctx.store.getTarget(id)!.postId);
       assert.equal(r!.comments![0]!.hidden, true, platform);
-      // Listed on the post, so showing it again is allowed; the platform's refusal says what's missing.
-      await assert.rejects(hideComment(ctx, providerMap(), id, 'C1', false), (e: Error) => e.message.includes(scope));
+      // Hidden by Meta's filters or another admin, not by fanout: not for an agent to show again.
+      await assert.rejects(hideComment(ctx, providerMap(), id, 'C1', false), /fanout이 이 게시물에서 숨긴 댓글만/);
+      // Hiding without the permission says which one is missing.
+      await assert.rejects(hideComment(ctx, providerMap(), id, 'C1'), (e: Error) => e.message.includes(scope));
     }
+  });
+
+  it('a comment deleted since it was hidden leaves the hidden list', async () => {
+    let gone = false;
+    const { ctx, id } = setup('facebook', [
+      ['GET', '/V/comments', () => json({ data: gone ? [] : [{ id: 'C1', message: 'spam', created_time: '2026-10-17T00:00:00+0000' }] })],
+      ['POST', '/C1', () => (gone ? json({ error: { message: 'Unsupported post request. Object does not exist', type: 'GraphMethodException', code: 100, error_subcode: 33 } }, 400) : json({ success: true }))],
+    ]);
+    await hideComment(ctx, providerMap(), id, 'C1');
+    gone = true;
+    await assert.rejects(hideComment(ctx, providerMap(), id, 'C1', false), /더 이상 없습니다/);
+    const [r] = await fetchComments(ctx, providerMap(), ctx.store.getTarget(id)!.postId);
+    assert.deepEqual(r!.comments, []);
   });
 
   it('Instagram and Facebook hide with their own flags', async () => {
