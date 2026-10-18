@@ -140,7 +140,8 @@ export interface Provider {
   refresh(ctx: ProviderContext, account: Account): Promise<Account>;
 
   /** Validate per-platform options and post fields before any upload. Media spec is checked separately. */
-  validate(post: Post, target: Target, media: MediaInfo): Issue[];
+  /** `account` is the target's connected account when known (e.g. its subscription tier decides a limit). */
+  validate(post: Post, target: Target, media: MediaInfo, account?: Account): Issue[];
 
   /** Adjust the generic spec for this specific post, e.g. TikTok's per-creator max duration. */
   specFor?(post: Post, target: Target): MediaSpec;

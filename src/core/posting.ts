@@ -123,7 +123,7 @@ export function previewPost(
     const base = { platform: t.platform, account: t.account, connected: Boolean(account), visibility: visibilityLabel(t, input.scheduledAt) };
     if (!provider) return { ...base, verdict: 'blocked' as const, errors: [msg('알 수 없는 플랫폼: {platform}', { platform: t.platform })], warnings: [], transcode: [] };
     const target: Target = { id: 'preview', postId: post.id, platform: t.platform, account: t.account, options: t.options, state: 'queued', warnings: [], attempts: 0, updatedAt: post.createdAt };
-    const issues = provider.validate(post, target, media);
+    const issues = provider.validate(post, target, media, account ?? undefined);
     const violations = checkMedia(media, provider.specFor?.(post, target) ?? provider.spec);
     const errors = [...issues.filter((i) => i.severity === 'error').map((i) => i.message), ...violations.filter((v) => !v.fixable).map((v) => v.message)];
     if (!account) errors.push(msg('연결되지 않은 계정: {platform}/{account}', { platform: t.platform, account: t.account }));

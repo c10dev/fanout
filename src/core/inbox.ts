@@ -440,7 +440,7 @@ export async function ingest(args: {
       const kept: TargetInput[] = [];
       for (const t of plan.targets) {
         const target: Target = { id: 'plan', postId: 'plan', platform: t.platform, account: t.account, options: t.options, state: 'queued', warnings: [], attempts: 0, updatedAt: draft.createdAt };
-        const errors = providers.get(t.platform)!.validate(draft, target, media).filter((i) => i.severity === 'error').map((i) => i.message);
+        const errors = providers.get(t.platform)!.validate(draft, target, media, store.getAccount(t.platform, t.account)).filter((i) => i.severity === 'error').map((i) => i.message);
         if (!errors.length) kept.push(t);
         else if ((config.onBlocked ?? 'skip') === 'fail') throw new WatchConfigError(`${t.platform}: ${errors.join(' / ')}`);
         else plan.skipped.push({ platform: t.platform, reason: errors.join(' / ') });

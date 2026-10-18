@@ -426,8 +426,9 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
         issues.push({ severity: 'error', code: 'branded_private', message: msg('TikTok 브랜디드 콘텐츠는 SELF_ONLY로 게시할 수 없습니다') });
       }
       const caption = captionFor(post, o as TikTokOptions);
-      if ([...caption].length > CAPTION_MAX) {
-        issues.push({ severity: 'error', code: 'caption', message: msg('TikTok 캡션은 {CAPTION_MAX}자 이하 (현재 {length})', { CAPTION_MAX, length: [...caption].length }) });
+      // TikTok counts UTF-16 code units: an emoji is 2 (or more), as in JavaScript's length.
+      if (caption.length > CAPTION_MAX) {
+        issues.push({ severity: 'error', code: 'caption', message: msg('TikTok 캡션은 {CAPTION_MAX}자 이하 (현재 {length})', { CAPTION_MAX, length: caption.length }) });
       }
     } else {
       issues.push({ severity: 'warning', code: 'inbox', message: msg('TikTok inbox 모드: 업로드 후 TikTok 앱에서 직접 게시를 마무리해야 합니다') });
