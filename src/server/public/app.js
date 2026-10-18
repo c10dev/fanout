@@ -133,6 +133,8 @@ const OPTION_FORMS = {
   ],
   facebook: () => [
     opt(tr('설명 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
+    opt(tr('릴스 제목 (선택)'), h('input', { type: 'text', name: 'title', autocomplete: 'off' })),
+    checkbox('draft', tr('게시하지 않고 초안으로 저장 (Meta Business Suite에서 마무리)')),
     h('p', { class: 'note' }, tr('Facebook Reels는 9:16, 3~90초 영상만 받습니다.')),
   ],
   x: () => [
@@ -218,7 +220,7 @@ function readOptions(platform, body) {
         thumbOffsetMs: seconds('coverSec'),
       };
     case 'facebook':
-      return { caption: text('caption') };
+      return { caption: text('caption'), title: text('title'), draft: on('draft') || undefined };
     case 'x':
       return { text: text('text'), replySettings: val('replySettings').value || undefined, paidPartnership: on('paidPartnership') || undefined };
     case 'mastodon':
