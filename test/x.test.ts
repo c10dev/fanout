@@ -327,3 +327,40 @@ describe('x alt text and subtitles', () => {
     assert.equal(calls.filter((c) => c.url.endsWith('/2/media/subtitles')).length, 1, 'one EN track, attached once');
   });
 });
+
+describe('x thumbnail', () => {
+  it('uploads the thumbnail as the preview image, and posts without it if X refuses', async () => {
+    let refusePreview = true;
+    const bodies: Array<Record<string, any>> = [];
+    const { fetch, calls } = mockFetch([
+      ['GET', '/2/media/upload?', () => json({ data: { id: 'M1', processing_info: { state: 'succeeded' } } })],
+      ['POST', '/2/media/upload/initialize', () => json({ data: { id: 'P1' } })],
+      ['POST', '/append', () => new Response(null, { status: 204 })],
+      ['POST', '/finalize', () => json({ data: {} })],
+      ['POST', '/2/tweets', (c) => {
+        const body = JSON.parse(String(c.body));
+        bodies.push(body);
+        return refusePreview && body.media.preview_media_id ? json({ detail: 'Invalid preview_media_id' }, 400) : json({ data: { id: 'T1' } }, 201);
+      }],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    const thumb = join(mkdtempSync(join(tmpdir(), 'fanout-xthumb-')), 'cover.png');
+    writeFileSync(thumb, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const p = post({ thumbnailPath: thumb });
+    const run = async () => {
+      const { targets } = store.createPost(p, [{ platform: 'x', account: 'main', options: {} }]);
+      return x.poll({ ctx, post: p, target: { ...store.getTarget(targets[0]!.id)!, remoteId: 'M1', resume: { mediaId: 'M1', finalized: true } }, account });
+    };
+    const out = await run();
+    assert.deepEqual(JSON.parse(String(calls.find((c) => c.url.endsWith('/initialize'))!.body)), { media_type: 'image/png', total_bytes: 4, media_category: 'tweet_image' });
+    assert.deepEqual(bodies.map((b) => b.media.preview_media_id), ['P1', undefined], 'refused, then once more without it');
+    assert.equal(out.state, 'published');
+    assert.match(out.warnings![0]!, /썸네일을 받지 않아/);
+
+    refusePreview = false;
+    bodies.length = 0;
+    const ok = await run();
+    assert.deepEqual([bodies.length, bodies[0]!.media], [1, { media_ids: ['M1'], preview_media_id: 'P1' }]);
+    assert.equal(ok.warnings, undefined);
+  });
+});

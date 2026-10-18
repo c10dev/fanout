@@ -1,8 +1,10 @@
+import { existsSync } from 'node:fs';
 import { ProviderError } from '../core/errors.ts';
+import { imageMime } from '../core/http.ts';
 import type { DoctorCheck, PollOutcome, Provider, PublishOutcome } from '../core/provider.ts';
 import type { ProviderContext } from '../core/provider.ts';
 import type { Issue, Post } from '../core/types.ts';
-import { connectPage, copyrightCheck, definedOnly, graph, META_APP_FIELDS, META_SETUP_GUIDE, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
+import { connectPage, copyrightCheck, definedOnly, graph, graphUpload, META_APP_FIELDS, META_SETUP_GUIDE, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
 import { msg } from '../core/i18n.ts';
 
 export interface FacebookOptions {
@@ -85,7 +87,7 @@ export const facebook: Provider = {
   scheduleMaxAheadMs: SCHEDULE_MAX_MS,
   displayName: 'Facebook Reels (Page)',
   appKey: 'meta',
-  capabilities: { nativeSchedule: true, thumbnail: false, captions: false, syntheticMediaFlag: false },
+  capabilities: { nativeSchedule: true, thumbnail: true, captions: false, syntheticMediaFlag: false },
   spec: {
     minDurationSec: 3,
     maxDurationSec: 90,
@@ -120,7 +122,8 @@ export const facebook: Provider = {
         issues.push({ severity: 'warning', code: 'schedule_window', message: msg('Facebook은 29일 안쪽만 예약할 수 있어, 예약 28일 전에 올립니다 (그때 fanout이 켜져 있어야 합니다)') });
       }
     }
-    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: msg('Facebook Reels API는 썸네일 업로드를 지원하지 않아 무시됩니다') });
+    // The thumbnails edge is documented for Page videos; for Reels it is still to be confirmed live.
+    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: msg('Facebook 릴스 커버는 처리가 끝난 뒤 썸네일로 바꿉니다 (릴스에서 되는지 아직 확인 전, 안 되면 경고만 남김)') });
     return issues;
   },
 
@@ -162,10 +165,22 @@ export const facebook: Provider = {
     return { state: 'processing', remoteId: start.video_id, remoteUrl: o.draft ? undefined : `https://www.facebook.com/reel/${start.video_id}` };
   },
 
-  async poll({ ctx, target, account }) {
+  async poll({ ctx, post, target, account }) {
     const c = pageCreds(account);
     const s = await graph<ReelStatus>(ctx, 'GET', `/${target.remoteId}`, { fields: 'status', access_token: c.pageToken });
-    return reelOutcome(target.remoteId, s, (target.options as FacebookOptions).draft === true);
+    const out = reelOutcome(target.remoteId, s, (target.options as FacebookOptions).draft === true);
+    // The post's thumbnail as the reel's cover, once it has processed: tried once, a failure only warns.
+    const resume = (target.resume ?? {}) as { coverSent?: boolean };
+    if (post.thumbnailPath && !resume.coverSent && s.status?.processing_phase?.status === 'complete' && existsSync(post.thumbnailPath)) {
+      ctx.store.updateTarget(target.id, { resume: { ...target.resume, coverSent: true } });
+      const path = post.thumbnailPath;
+      const failed = await graphUpload(ctx, `/${target.remoteId}/thumbnails`, { field: 'source', path, type: imageMime(path) }, { is_preferred: 'true', access_token: c.pageToken }).then(
+        () => undefined,
+        (err: unknown) => msg('Facebook 커버 이미지를 바꾸지 못했습니다: {err} — 페이지에서 직접 바꾸세요', { err: (err as Error).message }),
+      );
+      if (failed) return { ...out, warnings: [...(out.warnings ?? []), failed] };
+    }
+    return out;
   },
 
   async doctor({ ctx, account }): Promise<DoctorCheck[]> {

@@ -20,6 +20,8 @@ export interface InstagramOptions {
    * app, 'auto' to let Instagram do it when it performs well (trial_params.graduation_strategy).
    */
   trialReel?: 'manual' | 'auto';
+  /** The "Paid partnership" label (is_paid_partnership). */
+  paidPartnership?: boolean;
 }
 
 const TRIAL = { manual: 'MANUAL', auto: 'SS_PERFORMANCE' } as const;
@@ -108,6 +110,8 @@ export const instagram: Provider = {
       if (collaboratorsOf(o).length) issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스와 공동 작업자는 함께 쓰지 못할 수 있습니다') });
       if (o.shareToFeed === true) issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스는 피드 공유(shareToFeed)와 함께 쓰지 못할 수 있습니다') });
     }
+    // Documented on the container ("Facebook Login API only", which fanout uses), media type not stated.
+    if (o.paidPartnership) issues.push({ severity: 'warning', code: 'paid_partnership', message: msg('Instagram 유료 파트너십 표시는 릴스에서 되는지 아직 확인 전입니다 — 올린 뒤 앱에서 라벨을 확인하세요') });
     const ratio = media.video.width / media.video.height;
     if (Math.abs(ratio - 9 / 16) > 0.02) {
       issues.push({ severity: 'warning', code: 'aspect', message: msg('Instagram Reels 권장 화면비는 9:16 (현재 {width}x{height}) — 잘리거나 여백이 생길 수 있습니다', { width: media.video.width, height: media.video.height }) });
@@ -133,6 +137,7 @@ export const instagram: Provider = {
     const o = target.options as InstagramOptions;
     const container = await graph<{ id: string; uri?: string }>(ctx, 'POST', `/${c.igUserId}/media`, {
       trial_params: o.trialReel && o.trialReel in TRIAL ? JSON.stringify({ graduation_strategy: TRIAL[o.trialReel] }) : undefined,
+      is_paid_partnership: o.paidPartnership ? true : undefined,
       media_type: 'REELS',
       upload_type: 'resumable',
       caption: metaCaption(post, o.caption),

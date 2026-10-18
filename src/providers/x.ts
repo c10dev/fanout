@@ -1,7 +1,7 @@
-import { readFileSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, statSync } from 'node:fs';
 import { extname } from 'node:path';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { jsonOr, openBrowser, pkcePair, readChunk, rotationContext, startLoopback, waitForRedirect } from '../core/http.ts';
+import { imageMime, jsonOr, openBrowser, pkcePair, readChunk, rotationContext, startLoopback, waitForRedirect } from '../core/http.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
@@ -58,6 +58,8 @@ interface XResume {
   extras?: string[];
   /** Their failures, shown once the post is up. */
   extraWarnings?: string[];
+  /** The post's thumbnail, uploaded as an image to be the video's preview. */
+  previewMediaId?: string;
 }
 
 const REPLY_SETTINGS = ['following', 'mentionedUsers', 'subscribers', 'verified'];
@@ -112,10 +114,10 @@ export function weightedLength(text: string): number {
 }
 
 /** The POST /2/tweets body: text, the video, and the disclosures and reply setting asked for. */
-export function xPostBody(post: Post, opts: XOptions, mediaId: string): Record<string, unknown> {
+export function xPostBody(post: Post, opts: XOptions, mediaId: string, previewMediaId?: string): Record<string, unknown> {
   return {
     text: tweetText(post, opts),
-    media: { media_ids: [mediaId] },
+    media: { media_ids: [mediaId], ...(previewMediaId ? { preview_media_id: previewMediaId } : {}) },
     ...(post.containsSyntheticMedia ? { made_with_ai: true } : {}),
     ...(opts.paidPartnership ? { paid_partnership: true } : {}),
     ...(opts.replySettings ? { reply_settings: opts.replySettings } : {}),
@@ -222,6 +224,20 @@ async function applyExtras(
     // Setting metadata replaces it, so this one is always safe to send again: no commit.
     await attempt('alt_text', msg('X 대체 텍스트'), () => api(ctx, account, '/2/media/metadata', json({ id: mediaId, metadata: { alt_text: { text } } })));
   }
+  if (post.thumbnailPath && existsSync(post.thumbnailPath)) {
+    const path = post.thumbnailPath;
+    // An image nobody uses costs nothing, so this one needs no commit either.
+    await attempt('preview', msg('X 썸네일'), async () => {
+      const file = readFileSync(path);
+      const init = await api<{ data: { id: string } }>(ctx, account, '/2/media/upload/initialize', json({ media_type: imageMime(path), total_bytes: file.length, media_category: 'tweet_image' }));
+      const form = new FormData();
+      form.set('segment_index', '0');
+      form.set('media', new Blob([new Uint8Array(file)]), 'preview');
+      await api(ctx, account, `/2/media/upload/${init.data.id}/append`, { method: 'POST', body: form });
+      await api(ctx, account, `/2/media/upload/${init.data.id}/finalize`, { method: 'POST' });
+      resume = { ...resume, previewMediaId: init.data.id };
+    });
+  }
   const seen = new Set<string>();
   for (const cap of post.captions) {
     const type = SUBTITLE_TYPES[extname(cap.path).toLowerCase()];
@@ -251,7 +267,7 @@ async function applyExtras(
 export const x: Provider = {
   id: 'x',
   displayName: 'X (Twitter)',
-  capabilities: { nativeSchedule: false, thumbnail: false, captions: true, syntheticMediaFlag: true },
+  capabilities: { nativeSchedule: false, thumbnail: true, captions: true, syntheticMediaFlag: true },
   spec: {
     // Default per-user caps; Premium accounts get more (125 min / 16GB) and X re-checks on post.
     maxBytes: 8 * 1024 ** 3,
@@ -373,7 +389,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     if (alt !== undefined && (typeof alt !== 'string' || [...alt].length > ALT_TEXT_MAX)) {
       issues.push({ severity: 'error', code: 'alt_text', message: msg('alt는 {max}자 이하 문자열', { max: ALT_TEXT_MAX }) });
     }
-    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'extras', message: msg('X에는 썸네일을 보내지 않습니다') });
+    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'extras', message: msg('X 썸네일(preview_media_id)은 아직 실제로 확인 전입니다 — X가 받지 않으면 썸네일 없이 올립니다') });
     const tracks = new Set<string>();
     for (const cap of post.captions) {
       const code = subtitleLanguage(cap.language);
@@ -472,15 +488,24 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       throw new ProviderError('rejected', 'x.maybe_posted', msg('이전 시도에서 이미 게시됐을 수 있습니다. https://x.com/{username} 에서 확인한 뒤, 없으면 다시 시도하세요', { username }), undefined, { keepResume: true });
     }
     ctx.store.updateTarget(target.id, { resume: { ...resume, posting: true } });
-    const tweet = await api<{ data: { id: string } }>(ctx, account, '/2/tweets', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(xPostBody(post, target.options as XOptions, mediaId)),
-    }).catch((err: unknown) => {
-      // A clear rejection means nothing was posted, so a later retry is safe.
-      if (err instanceof ProviderError && err.kind !== 'retryable') ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false } });
-      throw err;
-    });
+    const send = (preview?: string) =>
+      api<{ data: { id: string } }>(ctx, account, '/2/tweets', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(xPostBody(post, target.options as XOptions, mediaId, preview)),
+      });
+    const tweet = await send(resume.previewMediaId)
+      .catch(async (err: unknown) => {
+        // A refused preview image mustn't cost the post: a clear rejection posted nothing, so once more without it.
+        if (!resume.previewMediaId || !(err instanceof ProviderError) || err.kind !== 'rejected' || err.code !== 'x.http_400') throw err;
+        resume = { ...resume, extraWarnings: [...(resume.extraWarnings ?? []), msg('X가 썸네일을 받지 않아 빼고 올렸습니다: {err}', { err: err.message })] };
+        return send();
+      })
+      .catch((err: unknown) => {
+        // A clear rejection means nothing was posted, so a later retry is safe.
+        if (err instanceof ProviderError && err.kind !== 'retryable') ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false } });
+        throw err;
+      });
     ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false, tweetId: tweet.data.id } });
     return { state: 'published', remoteId: tweet.data.id, remoteUrl: `https://x.com/${username}/status/${tweet.data.id}`, warnings: resume.extraWarnings?.length ? resume.extraWarnings : undefined };
   },

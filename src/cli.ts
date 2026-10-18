@@ -121,7 +121,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         allowDuet: bool(args, 'tt-allow-duet'),
         allowStitch: bool(args, 'tt-allow-stitch'),
         brandOrganic: bool(args, 'tt-brand-organic'),
-        brandedContent: bool(args, 'tt-branded'),
+        brandedContent: bool(args, 'tt-branded') ?? bool(args, 'paid-partnership'),
         musicConsent: bool(args, 'tt-music-consent'),
         coverTimestampMs: num(args, 'tt-cover-ms'),
       });
@@ -134,11 +134,12 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         collaborators: str(args, 'ig-collab')?.split(',').map((u) => u.trim()).filter(Boolean),
         audioName: str(args, 'ig-audio'),
         trialReel: str(args, 'ig-trial'),
+        paidPartnership: bool(args, 'paid-partnership'),
       });
     case 'facebook':
       return drop({ caption: str(args, 'fb-caption'), title: str(args, 'fb-title'), draft: args.flags['fb-draft'] ? true : undefined });
     case 'x':
-      return drop({ text: str(args, 'x-text'), paidPartnership: bool(args, 'x-paid-partnership'), replySettings: str(args, 'x-reply'), alt: str(args, 'x-alt') });
+      return drop({ text: str(args, 'x-text'), paidPartnership: bool(args, 'x-paid-partnership') ?? bool(args, 'paid-partnership'), replySettings: str(args, 'x-reply'), alt: str(args, 'x-alt') });
     case 'mastodon':
       return drop({ visibility: str(args, 'md-visibility'), text: str(args, 'md-text'), alt: str(args, 'md-alt'), language: str(args, 'md-lang'), spoilerText: str(args, 'md-cw') });
     case 'peertube':
@@ -325,6 +326,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
 post 공통 옵션
   --description 텍스트 | --description-file 파일   --tags a,b,c
   --thumbnail 이미지   --caption ko:subs.srt (여러 번)   --ai (AI 생성·합성 콘텐츠 표시: YouTube·TikTok·Instagram·X)
+  --paid-partnership yes (유료 파트너십·광고 표시: X·TikTok(direct)·Instagram)
   --at 2026-10-20T09:00:00+09:00 (예약)   --yes (확인 생략)   --no-wait
 
 플랫폼별 옵션
