@@ -45,7 +45,7 @@ const TARGETS_SCHEMA = {
   minItems: 1,
   description:
     'Where to post. options per platform — youtube: {privacy: "public"|"unlisted"|"private" (required), madeForKids: boolean (required), categoryId?, playlistId?, notifySubscribers?, defaultLanguage?, audioLanguage?, license?: "youtube"|"creativeCommon", embeddable?, publicStatsViewable?, paidPromotion?, localizations?: {"en": {title, description?}} (needs defaultLanguage)}; ' +
-    'tiktok: {mode: "inbox"|"direct", and for direct: privacyLevel (required; one the account allows — preview_post reports the allowed values, the max duration and interactions the account turned off), musicConsent: true (required), allowComment?, allowDuet?, allowStitch?, brandOrganic?, brandedContent?, caption?}; ' +
+    'tiktok: {mode: "inbox"|"direct", and for direct: privacyLevel (required; one the account allows — preview_post reports the allowed values, the max duration and interactions the account turned off), musicConsent: true (required), allowComment?, allowDuet?, allowStitch?, brandOrganic?, brandedContent?, caption?, coverTimestampMs? (frame used as the cover)}; ' +
     'instagram: {caption?, shareToFeed?, thumbOffsetMs?, collaborators? (≤3 usernames), audioName?}; facebook: {caption?}; x: {text? (≤280 weighted; Korean counts double), paidPartnership?, replySettings?: "following"|"mentionedUsers"|"subscribers"|"verified"}; bluesky: {text? (≤300 chars), alt?, langs?}; mastodon: {visibility: "public"|"unlisted"|"private" (required), text?, alt?, language?, spoilerText?}; ' +
     'peertube: {privacy: "public"|"unlisted"|"private"|"internal" (required), channel? (name or id; default first channel), commentsPolicy?: "enabled"|"disabled"|"approval", nsfw?, downloadEnabled?, language?}.',
   items: {

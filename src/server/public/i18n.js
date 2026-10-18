@@ -49,6 +49,9 @@ function translateStatic(root = document) {
 // English for every tr() key in app.js and data-i18n key in index.html (test/i18n.test.ts checks).
 const MESSAGES_EN = {
   '남은 한도': 'Remaining limits',
+  '재생목록 (선택)': 'Playlist (optional)',
+  '목록에서 고르거나 ID 입력': 'Pick from the list or paste an id',
+  '커버로 쓸 장면 (초, 선택)': 'Cover frame (seconds, optional)',
   '더 보기: 언어, 라이선스, 다른 언어 제목': 'More: language, license, other-language titles',
   '제목·설명 언어 (예: ko)': 'Title and description language (e.g. en)',
   '영상 음성 언어 (예: ko)': 'Spoken language (e.g. en)',

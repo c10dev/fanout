@@ -34,6 +34,15 @@ const account: Account = {
 };
 
 describe('youtube metadata', () => {
+  it('lists the account\'s playlists to pick from', async () => {
+    const { fetch, calls } = mockFetch([['GET', '/playlists?part=snippet&mine=true', () => json({ items: [{ id: 'PL1', snippet: { title: '가사 영상' } }, { id: 'PL2' }] })]]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('youtube', { clientId: 'cid', clientSecret: 'cs' });
+    const account = { platform: 'youtube', name: 'main', credentials: { accessToken: 'AT', refreshToken: 'RT', expiresAt: ctx.now().getTime() + 3600_000 }, profile: {} };
+    assert.deepEqual(await youtube.listPlaylists!({ ctx, account }), [{ id: 'PL1', title: '가사 영상' }, { id: 'PL2', title: 'PL2' }]);
+    assert.equal(calls.length, 1);
+  });
+
   it('sends language, license, embedding, stats visibility, paid promotion and other-language titles', () => {
     const opts = {
       privacy: 'public' as const,

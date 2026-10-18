@@ -409,6 +409,7 @@ export class Dashboard {
     if (method === 'POST' && parts[0] === 'connect' && parts[1]) return send(res, 200, await this.#connect(req, parts[1], await readJson(req)));
     if (method === 'DELETE' && parts[0] === 'accounts' && parts[1] && parts[2]) return send(res, 200, await this.#disconnect(parts[1], decode(parts[2])));
     if (method === 'GET' && parts[0] === 'accounts' && parts[1] && parts[2] && parts[3] === 'rules' && parts.length === 4) return send(res, 200, await this.#accountRules(parts[1], decode(parts[2])));
+    if (method === 'GET' && parts[0] === 'accounts' && parts[1] && parts[2] && parts[3] === 'playlists' && parts.length === 4) return send(res, 200, await this.#playlists(parts[1], decode(parts[2])));
     if (method === 'POST' && parts[0] === 'doctor' && parts[1]) return send(res, 200, await this.#doctor(parts[1], await readJson(req)));
     throw new HttpError(404, 'not found');
   }
@@ -655,6 +656,14 @@ export class Dashboard {
       return describe();
     }
     throw new HttpError(404, 'not found');
+  }
+
+  /** The account's playlists (YouTube), for picking one instead of pasting its id. */
+  async #playlists(platform: string, name: string) {
+    const provider = this.#provider(platform);
+    const account = this.#opts.ctx.store.getAccount(platform, name);
+    if (!account) throw new HttpError(404, msg('해당 계정이 없습니다'));
+    return { playlists: provider.listPlaylists ? await provider.listPlaylists({ ctx: withTimeout(this.#opts.ctx), account }) : [] };
   }
 
   /** The account's own posting rules (TikTok creator_info), for shaping the post form. */

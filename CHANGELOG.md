@@ -36,6 +36,7 @@
 - 기존 게시물에 플랫폼 추가: 대시보드 "플랫폼 추가", `fanout add`, MCP `add_to_post`
 - 댓글 모아보기(#30)와 답글: 대시보드, `fanout reply`, MCP `reply_to_comment`
 - Slack·Discord·JSON webhook 알림(#26)
+- 대시보드: Instagram·TikTok 커버 장면(초) 선택, YouTube 재생목록을 내 목록에서 고르기
 - YouTube: 제목·설명 언어와 음성 언어, 다른 언어 제목·설명, 크리에이티브 커먼즈 라이선스, 퍼가기·통계 공개 설정, 유료 PPL 표시(CLI·대시보드 "더 보기"·MCP)
 - Instagram·Facebook 반응에 도달·저장·평균 시청 시간·총 시청 시간 추가(대시보드, `fanout stats`, 내보내기)
 - TikTok: 바로 게시할 때 계정 규칙(creator_info)을 미리보기에서 검사(허용 공개 범위, 최대 길이, 꺼진 댓글·듀엣·이어찍기). 대시보드는 게시할 계정 이름을 보여 주고 허용된 공개 범위만 고를 수 있게 함

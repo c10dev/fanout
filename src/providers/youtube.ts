@@ -567,6 +567,12 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     ];
   },
 
+  async listPlaylists({ ctx, account }) {
+    const acct = await youtube.refresh(ctx, account);
+    const res = await api<{ items?: Array<{ id: string; snippet?: { title?: string } }> }>(ctx, acct, '/playlists?part=snippet&mine=true&maxResults=50');
+    return (res.items ?? []).map((p) => ({ id: p.id, title: p.snippet?.title ?? p.id }));
+  },
+
   // III.E.4.b–c: statistics may be kept while authorization is re-checked every 30 days, and the
   // channel title re-read within 30 days. One channels.list call (1 quota unit) does both.
   async verify(ctx, account) {
