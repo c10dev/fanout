@@ -166,7 +166,7 @@ function applyOutcome(deps: RunnerDeps, target: Target, outcome: PublishOutcome)
   const { store } = deps.ctx;
   if (!stillOwner(deps, target.id)) return store.getTarget(target.id)!;
   const warnings = [...target.warnings, ...(outcome.warnings ?? []).filter((w) => !target.warnings.includes(w))];
-  const patch = { remoteId: outcome.remoteId, remoteUrl: outcome.remoteUrl ?? target.remoteUrl, warnings, errorCode: undefined, errorMessage: undefined };
+  const patch = { remoteId: outcome.remoteId, remoteUrl: outcome.remoteUrl ?? target.remoteUrl, warnings, errorCode: undefined, errorMessage: undefined, notBefore: undefined };
   if (outcome.state === target.state) return store.updateTarget(target.id, patch);
   return store.transition(target.id, outcome.state, patch);
 }
@@ -184,8 +184,9 @@ function handleError(deps: RunnerDeps, targetId: string, err: unknown): Target {
   if (pe.retryAt && target.state === 'processing') {
     // The video is up; only the status check hit the limit. Keep its ids and check again later:
     // failing here would clear them, and a retry would upload the video a second time.
-    log.warn(msg('{platform}: 상태 조회 실패, 다음에 다시 확인 — {message}', { platform: target.platform, message: pe.message }));
-    return store.updateTarget(target.id, fields);
+    log.warn(msg('{platform}: {message} — {notBefore}에 다시 시도합니다', { platform: target.platform, message: pe.message, notBefore: pe.retryAt }));
+    // Parked until the limit resets: checking every few seconds until then would only repeat the error.
+    return store.updateTarget(target.id, { ...fields, notBefore: pe.retryAt });
   }
   if (pe.retryAt) {
     // A daily limit, not a broken post: wait for its reset rather than fail and need a manual retry.
@@ -251,7 +252,7 @@ export async function settle(deps: RunnerDeps, targetIds: string[], opts: Settle
           // Someone else is working on it; this loop would only spin.
           const holder = store.leaseHolder(id);
           if ((holder && holder !== (deps.owner ?? PROCESS_OWNER) && !isStaleOwner(holder)) || inFlight.has(id)) break;
-          if (current.state === 'queued' && current.notBefore && new Date(current.notBefore) > deps.ctx.now()) {
+          if ((current.state === 'queued' || current.state === 'processing') && current.notBefore && new Date(current.notBefore) > deps.ctx.now()) {
             // Waiting past the deadline (a daily limit's reset, a far schedule) would only hold up the
             // platform's other targets: leave it to the worker.
             if (new Date(current.notBefore).getTime() - deps.ctx.now().getTime() > deadline - Date.now()) break;

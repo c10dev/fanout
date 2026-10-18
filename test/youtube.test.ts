@@ -43,24 +43,20 @@ describe('youtube metadata', () => {
     assert.equal(calls.length, 1);
   });
 
-  it('sends language, license, embedding, stats visibility, paid promotion and other-language titles', () => {
+  it('sends license, embedding, stats visibility and other-language titles', () => {
     const opts = {
       privacy: 'public' as const,
       madeForKids: false,
       defaultLanguage: 'ko',
-      audioLanguage: 'ko',
       license: 'creativeCommon' as const,
       embeddable: false,
       publicStatsViewable: false,
-      paidPromotion: true,
       localizations: { en: { title: 'Ditto lyrics', description: 'English' } },
     };
     const m = buildMetadata(post({}), opts) as Record<string, Record<string, unknown>>;
-    assert.equal(m.snippet!.defaultAudioLanguage, 'ko');
     assert.deepEqual([m.status!.license, m.status!.embeddable, m.status!.publicStatsViewable], ['creativeCommon', false, false]);
-    assert.deepEqual(m.paidProductPlacementDetails, { hasPaidProductPlacement: true });
     assert.deepEqual(m.localizations, { en: { title: 'Ditto lyrics', description: 'English' } });
-    assert.equal(insertParts(opts), 'snippet,status,paidProductPlacementDetails,localizations');
+    assert.equal(insertParts(opts), 'snippet,status,localizations');
     // Defaults stay out of the request entirely.
     const plain = buildMetadata(post({}), { privacy: 'public', madeForKids: false }) as Record<string, Record<string, unknown>>;
     assert.deepEqual(Object.keys(plain), ['snippet', 'status']);
@@ -73,6 +69,10 @@ describe('youtube metadata', () => {
     assert.ok(!codes({ defaultLanguage: 'ko', localizations: { en: { title: 'Hi' } } }).includes('localizations'));
     assert.ok(codes({ defaultLanguage: 'ko', localizations: { en: { title: 'x'.repeat(101) } } }).includes('localizations'));
     assert.ok(codes({ license: 'cc0' }).includes('license'));
+    // Malformed shapes (MCP, a watch-folder JSON) are issues, not crashes.
+    for (const bad of [{ en: null }, { en: { title: 5 } }, { en: { title: 'x', description: 5 } }, 'en:Hi', ['x']]) {
+      assert.ok(codes({ defaultLanguage: 'ko', localizations: bad }).includes('localizations'), JSON.stringify(bad));
+    }
   });
 
   it('maps the post and discloses synthetic media', () => {

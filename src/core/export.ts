@@ -54,7 +54,7 @@ export function exportRows(store: Store, limit = 100_000): ExportRow[] {
 
 /** RFC 4180 CSV with a BOM so spreadsheet apps open Korean text correctly. */
 export function toCsv(rows: ExportRow[]): string {
-  const cols: Array<keyof ExportRow> = ['postId', 'createdAt', 'title', 'scheduledAt', 'platform', 'account', 'state', 'url', 'error', 'views', 'likes', 'comments', 'shares', 'reach', 'saves', 'avgWatchSec', 'statsAt'];
+  const cols: Array<keyof ExportRow> = ['postId', 'createdAt', 'title', 'scheduledAt', 'platform', 'account', 'state', 'url', 'error', 'views', 'likes', 'comments', 'shares', 'statsAt', 'reach', 'saves', 'avgWatchSec'];
   const cell = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   // Cells starting with = + - @ would run as formulas in spreadsheets; prefix them.
   const safe = (v: string) => (/^[=+\-@]/.test(v) ? `'${v}` : v);

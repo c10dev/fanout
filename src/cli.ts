@@ -100,11 +100,9 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         playlistId: str(args, 'yt-playlist'),
         notifySubscribers: args.flags['yt-no-notify'] ? false : undefined,
         defaultLanguage: str(args, 'yt-lang'),
-        audioLanguage: str(args, 'yt-audio-lang'),
         license: str(args, 'yt-license'),
         embeddable: bool(args, 'yt-embeddable'),
         publicStatsViewable: args.flags['yt-hide-stats'] ? false : undefined,
-        paidPromotion: bool(args, 'yt-paid-promo'),
         localizations: localizationsFile(str(args, 'yt-localizations')),
       });
     case 'tiktok': {
@@ -317,8 +315,8 @@ post 공통 옵션
 
 플랫폼별 옵션
   YouTube    --yt-privacy public|unlisted|private (필수)  --yt-made-for-kids yes|no (필수)
-             --yt-category 22  --yt-playlist ID  --yt-no-notify  --yt-lang ko  --yt-audio-lang ko
-             --yt-license creativeCommon  --yt-embeddable no  --yt-hide-stats  --yt-paid-promo yes
+             --yt-category 22  --yt-playlist ID  --yt-no-notify  --yt-lang ko
+             --yt-license creativeCommon  --yt-embeddable no  --yt-hide-stats (확장 통계 숨김)
              --yt-localizations titles.json ({"en": {"title": "…", "description": "…"}})
   TikTok     --tt-mode inbox|direct (기본 inbox)
              direct 전용: --tt-privacy public|friends|followers|private (필수)

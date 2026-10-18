@@ -393,8 +393,8 @@ export class Store {
     const rows = this.#db
       .prepare(
         `SELECT * FROM targets
-         WHERE (state = 'queued' AND (not_before IS NULL OR not_before <= ?))
-            OR state IN ('transcoding', 'uploading', 'processing')
+         WHERE (state IN ('queued', 'processing') AND (not_before IS NULL OR not_before <= ?))
+            OR state IN ('transcoding', 'uploading')
          ORDER BY updated_at`,
       )
       .all(now) as unknown as TargetRow[];

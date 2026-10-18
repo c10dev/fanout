@@ -106,9 +106,8 @@ const OPTION_FORMS = {
         'div',
         { class: 'opts' },
         opt(tr('제목·설명 언어 (예: ko)'), h('input', { type: 'text', name: 'defaultLanguage', autocomplete: 'off' })),
-        opt(tr('영상 음성 언어 (예: ko)'), h('input', { type: 'text', name: 'audioLanguage', autocomplete: 'off' })),
         opt(tr('라이선스'), select('license', [['', tr('표준 YouTube 라이선스')], ['creativeCommon', tr('크리에이티브 커먼즈 - 저작자 표시')]])),
-        h('div', { class: 'choices' }, checkbox('embeddable', tr('퍼가기 허용'), true), checkbox('publicStatsViewable', tr('좋아요·조회수 공개'), true), checkbox('paidPromotion', tr('유료 PPL·협찬 포함'))),
+        h('div', { class: 'choices' }, checkbox('embeddable', tr('퍼가기 허용'), true), checkbox('publicStatsViewable', tr('확장 통계 공개 (조회수·좋아요는 늘 공개)'), true)),
         localizationRows(),
       ),
     ),
@@ -187,11 +186,9 @@ function readOptions(platform, body) {
         playlistId: text('playlistId'),
         notifySubscribers: on('notifySubscribers') ? undefined : false,
         defaultLanguage: text('defaultLanguage'),
-        audioLanguage: text('audioLanguage'),
         license: val('license').value || undefined,
         embeddable: on('embeddable') ? undefined : false,
         publicStatsViewable: on('publicStatsViewable') ? undefined : false,
-        paidPromotion: on('paidPromotion') || undefined,
         localizations: readLocalizations(body),
       };
     }
@@ -541,7 +538,6 @@ function exitAddMode() {
   renderTargets();
 }
 
-/** Show direct-post fields only in direct mode. */
 /** The playlist id field, with the account's playlists offered once it gets focus. */
 function playlistInput() {
   const list = h('datalist', { id: `playlists-${Math.random().toString(36).slice(2)}` });
@@ -583,7 +579,8 @@ function readLocalizations(body) {
   const out = {};
   for (const row of body.querySelectorAll('.loc-row')) {
     const get = (k) => row.querySelector(`[data-loc="${k}"]`).value.trim();
-    if (get('lang') && get('title')) out[get('lang')] = { title: get('title'), ...(get('description') ? { description: get('description') } : {}) };
+    // A language without a title is kept (as an empty title) so the preview says what's missing.
+    if (get('lang')) out[get('lang')] = { title: get('title'), ...(get('description') ? { description: get('description') } : {}) };
   }
   return Object.keys(out).length ? out : undefined;
 }
@@ -644,6 +641,7 @@ function wireTikTokRules(block, body) {
   });
 }
 
+/** Show direct-post fields only in direct mode. */
 function wireTikTokMode(body) {
   const sync = () => {
     const direct = body.querySelector('[name="mode"]:checked')?.value === 'direct';
@@ -902,7 +900,7 @@ function statsLine(st, trend) {
     [tr('댓글'), st.comments, trend?.comments],
     [tr('공유'), st.shares, trend?.shares],
     [tr('도달'), st.reach],
-    [tr('저장'), st.saves],
+    [tr('저장 수'), st.saves],
   ].filter(([, v]) => v !== undefined && v !== null);
   const watch = st.avgWatchSec !== undefined && st.avgWatchSec !== null ? tr('평균 시청 {s}초', { s: fmtNum(st.avgWatchSec) }) : null;
   // Growth since the reading a day ago (the worker records one every few hours).

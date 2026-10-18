@@ -46,15 +46,11 @@ export interface YouTubeOptions {
   notifySubscribers?: boolean;
   /** Language of the title and description (needed for localizations). */
   defaultLanguage?: string;
-  /** Spoken language of the video. */
-  audioLanguage?: string;
   license?: 'youtube' | 'creativeCommon';
   /** Others may embed the video on their sites (YouTube's default: yes). */
   embeddable?: boolean;
-  /** Show like and view counts publicly (YouTube's default: yes). */
+  /** Show the extended statistics on the watch page (YouTube's default: yes; view and like counts stay public either way). */
   publicStatsViewable?: boolean;
-  /** Disclose paid product placement, sponsorship or endorsement. */
-  paidPromotion?: boolean;
   /** Title and description in other languages, by language code. */
   localizations?: Record<string, { title: string; description?: string }>;
 }
@@ -204,7 +200,6 @@ export function buildMetadata(post: Post, opts: YouTubeOptions): Record<string, 
       tags: post.tags,
       categoryId: opts.categoryId ?? '22',
       ...(opts.defaultLanguage ? { defaultLanguage: opts.defaultLanguage } : {}),
-      ...(opts.audioLanguage ? { defaultAudioLanguage: opts.audioLanguage } : {}),
     },
     status: {
       // A scheduled video must be private until publishAt; YouTube then makes it public.
@@ -216,7 +211,6 @@ export function buildMetadata(post: Post, opts: YouTubeOptions): Record<string, 
       ...(opts.embeddable === false ? { embeddable: false } : {}),
       ...(opts.publicStatsViewable === false ? { publicStatsViewable: false } : {}),
     },
-    ...(opts.paidPromotion ? { paidProductPlacementDetails: { hasPaidProductPlacement: true } } : {}),
     ...(hasLocalizations(opts) ? { localizations: opts.localizations } : {}),
   };
 }
@@ -225,7 +219,7 @@ const hasLocalizations = (opts: YouTubeOptions) => Boolean(opts.localizations &&
 
 /** The resource parts videos.insert must be told about: the ones buildMetadata filled in. */
 export function insertParts(opts: YouTubeOptions): string {
-  return ['snippet', 'status', ...(opts.paidPromotion ? ['paidProductPlacementDetails'] : []), ...(hasLocalizations(opts) ? ['localizations'] : [])].join(',');
+  return ['snippet', 'status', ...(hasLocalizations(opts) ? ['localizations'] : [])].join(',');
 }
 
 function forcedPrivateWarning(requested: YouTubeOptions['privacy'], video: VideoResource, scheduled: boolean): string | undefined {
@@ -616,12 +610,20 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     if (o.license !== undefined && o.license !== 'youtube' && o.license !== 'creativeCommon') {
       issues.push({ severity: 'error', code: 'license', message: msg('YouTube 라이선스는 youtube 또는 creativeCommon') });
     }
-    const localizations = Object.entries(o.localizations ?? {});
+    // Shape checked too: options can come from MCP or a watch-folder JSON.
+    const raw = o.localizations as unknown;
+    const localizations = raw && typeof raw === 'object' && !Array.isArray(raw) ? Object.entries(raw as Record<string, unknown>) : [];
+    if (raw !== undefined && (typeof raw !== 'object' || raw === null || Array.isArray(raw))) {
+      issues.push({ severity: 'error', code: 'localizations', message: msg('localizations 형식: {"en": {"title": "…", "description": "…"}}') });
+    }
     if (localizations.length && !o.defaultLanguage) {
       issues.push({ severity: 'error', code: 'localizations', message: msg('다른 언어 제목·설명을 쓰려면 기본 언어(defaultLanguage)를 정해야 합니다') });
     }
-    for (const [lang, l] of localizations) {
-      if (!l.title?.trim() || [...l.title].length > 100 || Buffer.byteLength(l.description ?? '') > 5000) {
+    for (const [lang, value] of localizations) {
+      const l = value as { title?: unknown; description?: unknown } | null;
+      const title = typeof l?.title === 'string' ? l.title : '';
+      const description = l?.description === undefined ? '' : typeof l.description === 'string' ? l.description : null;
+      if (!title.trim() || [...title].length > 100 || description === null || Buffer.byteLength(description) > 5000) {
         issues.push({ severity: 'error', code: 'localizations', message: msg('{lang} 제목은 1~100자, 설명은 5000바이트 이하여야 합니다', { lang }) });
       }
     }
@@ -840,12 +842,12 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const res = await api<{ items?: Array<{ snippet: Record<string, unknown> }> }>(ctx, account, `/videos?part=snippet&id=${target.remoteId}`);
     const snippet = res.items?.[0]?.snippet;
     if (!snippet) throw new ProviderError('rejected', 'youtube.not_found', msg('영상을 찾을 수 없습니다'));
-    const { title, description, tags, categoryId, defaultLanguage, defaultAudioLanguage } = { ...snippet, title: post.title, description: post.description, tags: post.tags } as Record<string, unknown>;
-    // videos.update replaces the whole snippet: carry over what fanout doesn't edit, or it is cleared.
+    const { title, description, tags, categoryId, defaultLanguage } = { ...snippet, title: post.title, description: post.description, tags: post.tags } as Record<string, unknown>;
+    // videos.update replaces the whole snippet: carry over the settable fields fanout doesn't edit.
     await api(ctx, account, '/videos?part=snippet', {
       method: 'PUT',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id: target.remoteId, snippet: { title, description, tags, categoryId, ...(defaultLanguage ? { defaultLanguage } : {}), ...(defaultAudioLanguage ? { defaultAudioLanguage } : {}) } }),
+      body: JSON.stringify({ id: target.remoteId, snippet: { title, description, tags, categoryId, ...(defaultLanguage ? { defaultLanguage } : {}) } }),
     });
   },
 

@@ -46,6 +46,12 @@ describe('dashboard translations', () => {
     assert.deepEqual(left, []);
   });
 
+  it('no Korean key is listed twice in the English table (the later one would silently win)', () => {
+    const table = readFileSync(join(dir, 'i18n.js'), 'utf8');
+    const keys = [...table.matchAll(/^ {2}(['"])((?:\\.|(?!\1).)*)\1:/gm)].map((m) => m[2]);
+    assert.deepEqual(keys.filter((k, i) => keys.indexOf(k) !== i), []);
+  });
+
   it('every Korean line in index.html is marked for translation', () => {
     assert.deepEqual(html.split('\n').filter((l) => KOREAN.test(l) && !l.includes('data-i18n')), []);
   });
