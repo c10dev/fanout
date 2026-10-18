@@ -18,6 +18,9 @@ export interface ExportRow {
   reach: string;
   saves: string;
   avgWatchSec: string;
+  watchTimeSec: string;
+  avgViewPct: string;
+  subscribersGained: string;
   statsAt: string;
 }
 
@@ -45,6 +48,9 @@ export function exportRows(store: Store, limit = 100_000): ExportRow[] {
         reach: n(t.stats?.reach),
         saves: n(t.stats?.saves),
         avgWatchSec: n(t.stats?.avgWatchSec),
+        watchTimeSec: n(t.stats?.watchTimeSec),
+        avgViewPct: n(t.stats?.avgViewPct),
+        subscribersGained: n(t.stats?.subscribersGained),
         statsAt: t.stats?.fetchedAt ?? '',
       });
     }
@@ -54,7 +60,7 @@ export function exportRows(store: Store, limit = 100_000): ExportRow[] {
 
 /** RFC 4180 CSV with a BOM so spreadsheet apps open Korean text correctly. */
 export function toCsv(rows: ExportRow[]): string {
-  const cols: Array<keyof ExportRow> = ['postId', 'createdAt', 'title', 'scheduledAt', 'platform', 'account', 'state', 'url', 'error', 'views', 'likes', 'comments', 'shares', 'statsAt', 'reach', 'saves', 'avgWatchSec'];
+  const cols: Array<keyof ExportRow> = ['postId', 'createdAt', 'title', 'scheduledAt', 'platform', 'account', 'state', 'url', 'error', 'views', 'likes', 'comments', 'shares', 'statsAt', 'reach', 'saves', 'avgWatchSec', 'watchTimeSec', 'avgViewPct', 'subscribersGained'];
   const cell = (v: string) => (/[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v);
   // Cells starting with = + - @ would run as formulas in spreadsheets; prefix them.
   const safe = (v: string) => (/^[=+\-@]/.test(v) ? `'${v}` : v);

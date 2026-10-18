@@ -925,8 +925,10 @@ function statsLine(st, trend) {
     [tr('공유'), st.shares, trend?.shares],
     [tr('도달'), st.reach],
     [tr('저장 수'), st.saves],
+    [tr('구독 증가'), st.subscribersGained],
   ].filter(([, v]) => v !== undefined && v !== null);
-  const watch = st.avgWatchSec !== undefined && st.avgWatchSec !== null ? tr('평균 시청 {s}초', { s: fmtNum(st.avgWatchSec) }) : null;
+  const pct = st.avgViewPct !== undefined && st.avgViewPct !== null ? ` (${tr('평균 {p}% 시청', { p: fmtNum(st.avgViewPct) })})` : '';
+  const watch = st.avgWatchSec !== undefined && st.avgWatchSec !== null ? tr('평균 시청 {s}초', { s: fmtNum(st.avgWatchSec) }) + pct : null;
   // Growth since the reading a day ago (the worker records one every few hours).
   const delta = (d) => (d === undefined || d === null || d === 0 ? null : h('span', { class: d > 0 ? 'up' : 'down' }, ` ${d > 0 ? '+' : ''}${fmtNum(d)}`));
   return h(

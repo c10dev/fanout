@@ -239,13 +239,15 @@ function sayErr(text: string): void {
 
 const LOCALE = () => (currentLang() === 'en' ? 'en-US' : 'ko-KR');
 
-/** Reach, saves and average watch time where the platform reports them (Instagram, Facebook). */
+/** Reach, saves, watch time and subscribers gained where the platform reports them (Instagram, Facebook, YouTube). */
 function deeper(stats: PostStats | undefined, fmt: (n?: number) => string): string {
   if (!stats) return '';
   const parts = [
     stats.reach !== undefined ? local(msg('도달 {n}', { n: fmt(stats.reach) })) : '',
     stats.saves !== undefined ? local(msg('저장 {n}', { n: fmt(stats.saves) })) : '',
     stats.avgWatchSec !== undefined ? local(msg('평균 시청 {s}초', { s: stats.avgWatchSec })) : '',
+    stats.avgViewPct !== undefined ? local(msg('평균 {p}% 시청', { p: stats.avgViewPct })) : '',
+    stats.subscribersGained !== undefined ? local(msg('구독 +{n}', { n: fmt(stats.subscribersGained) })) : '',
   ].filter(Boolean);
   return parts.length ? ` · ${parts.join(' · ')}` : '';
 }
