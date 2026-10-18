@@ -2,7 +2,7 @@ import { ProviderError } from '../core/errors.ts';
 import type { DoctorCheck, PollOutcome, Provider, PublishOutcome } from '../core/provider.ts';
 import type { ProviderContext } from '../core/provider.ts';
 import type { Issue, Post } from '../core/types.ts';
-import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
+import { connectPage, definedOnly, graph, META_APP_FIELDS, META_SETUP_GUIDE, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
 import { msg } from '../core/i18n.ts';
 
 export interface FacebookOptions {
@@ -183,7 +183,21 @@ export const facebook: Provider = {
     );
     // Plays come from video insights (read_insights on the Page token).
     const ins = await readInsights(ctx, `/${target.remoteId}/video_insights`, { metric: 'fb_reels_total_plays', period: 'lifetime', access_token: c.pageToken }, 'read_insights·pages_manage_engagement');
-    return { views: ins.values.fb_reels_total_plays ?? (ins.transient ? target.stats?.views : undefined), likes: v.likes?.summary?.total_count, comments: v.comments?.summary?.total_count, ...(ins.note ? { note: ins.note } : {}) };
+    const last = ins.transient ? target.stats : undefined;
+    // Reach and watch time in a call of their own: a metric this reel lacks can't cost the plays.
+    const more = ins.note
+      ? undefined
+      : await readInsights(ctx, `/${target.remoteId}/video_insights`, { metric: 'post_impressions_unique,post_video_avg_time_watched,post_video_view_time', period: 'lifetime', access_token: c.pageToken }, 'read_insights·pages_manage_engagement');
+    const ms = (n?: number) => (n === undefined ? undefined : Math.round(n / 100) / 10);
+    return definedOnly({
+      views: ins.values.fb_reels_total_plays ?? last?.views,
+      likes: v.likes?.summary?.total_count,
+      comments: v.comments?.summary?.total_count,
+      reach: more?.values.post_impressions_unique ?? last?.reach,
+      avgWatchSec: ms(more?.values.post_video_avg_time_watched) ?? last?.avgWatchSec,
+      watchTimeSec: ms(more?.values.post_video_view_time) ?? last?.watchTimeSec,
+      ...(ins.note ? { note: ins.note } : {}),
+    });
   },
 
   async remove({ ctx, account, target }) {

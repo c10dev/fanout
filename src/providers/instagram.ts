@@ -2,7 +2,7 @@ import { ProviderError } from '../core/errors.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue } from '../core/types.ts';
-import { META_APP_FIELDS, META_SETUP_GUIDE, connectPage, graph, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
+import { connectPage, definedOnly, graph, META_APP_FIELDS, META_SETUP_GUIDE, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
 import { msg } from '../core/i18n.ts';
 
 export interface InstagramOptions {
@@ -196,13 +196,20 @@ export const instagram: Provider = {
     // Views and shares come from media insights (instagram_manage_insights; up to 48 hours late).
     const ins = await readInsights(ctx, `/${target.remoteId}/insights`, { metric: 'views,shares', access_token: c.pageToken }, 'instagram_manage_insights');
     const last = ins.transient ? target.stats : undefined;
-    return {
+    // Deeper Reels metrics in a call of their own: one the media doesn't have can't cost the views.
+    const more = ins.note ? undefined : await readInsights(ctx, `/${target.remoteId}/insights`, { metric: 'reach,saved,ig_reels_avg_watch_time,ig_reels_video_view_total_time', access_token: c.pageToken }, 'instagram_manage_insights');
+    const ms = (v?: number) => (v === undefined ? undefined : Math.round(v / 100) / 10);
+    return definedOnly({
       views: ins.values.views ?? last?.views,
       likes: m.like_count,
       comments: m.comments_count,
       shares: ins.values.shares ?? last?.shares,
+      reach: more?.values.reach ?? last?.reach,
+      saves: more?.values.saved ?? last?.saves,
+      avgWatchSec: ms(more?.values.ig_reels_avg_watch_time) ?? last?.avgWatchSec,
+      watchTimeSec: ms(more?.values.ig_reels_video_view_total_time) ?? last?.watchTimeSec,
       ...(ins.note ? { note: ins.note } : {}),
-    };
+    });
   },
 
   // Needs the instagram_manage_comments permission on the token (see the Meta setup guide).

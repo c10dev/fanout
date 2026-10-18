@@ -601,4 +601,7 @@ export const MESSAGES_EN: Record<string, string> = {
   "댓글": "comments",
   "듀엣": "duets",
   "이어찍기": "stitches",
+  "도달 {n}": "reach {n}",
+  "저장 {n}": "saves {n}",
+  "평균 시청 {s}초": "avg watch {s} s",
 };
