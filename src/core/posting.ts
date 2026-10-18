@@ -6,7 +6,7 @@ import { checkMedia, type MediaInfo, type Violation } from './media.ts';
 import { isTerminal } from './state.ts';
 import type { Provider, ProviderContext } from './provider.ts';
 import type { Store } from './store.ts';
-import { statsTrend } from './stats.ts';
+import { FIND_HANDED_OFF_DAYS, statsTrend } from './stats.ts';
 import type { Comment, Post, PostInput, PostStats, StatsTrend, Target, TargetInput } from './types.ts';
 import { msg } from './i18n.ts';
 
@@ -268,10 +268,20 @@ export async function refreshStats(
 ): Promise<StatsResult[]> {
   const ctx = withTimeout(baseCtx);
   const out: StatsResult[] = [];
-  for (const t of ctx.store.targetsForPost(postId)) {
+  for (let t of ctx.store.targetsForPost(postId)) {
     if (opts.platform && t.platform !== opts.platform) continue;
     const base = { targetId: t.id, platform: t.platform, account: t.account };
     const provider = providers.get(t.platform);
+    if (t.state === 'handed_off' && provider?.findHandedOff) {
+      const found = await findHandedOff(ctx, provider, t);
+      if (!found.target) {
+        // Marked as looked at, so the background refresh moves on until it is due again.
+        ctx.store.saveStats(t.id, { ...(t.stats ?? {}), fetchedAt: ctx.now().toISOString(), note: found.note });
+        out.push({ ...base, skipped: found.note });
+        continue;
+      }
+      t = found.target;
+    }
     if (t.state !== 'published' || !t.remoteId) {
       const why = t.state === 'handed_off' ? msg('앱에서 마무리한 게시물은 id를 몰라 가져올 수 없습니다') : t.state === 'removed' ? msg('플랫폼에서 삭제했습니다') : msg('게시되지 않았습니다');
       out.push({ ...base, skipped: why });
@@ -306,6 +316,34 @@ export async function refreshStats(
     out.push({ ...base, stats, trend: statsTrend(ctx.store, t.id, ctx.now()) });
   }
   return out;
+}
+
+/**
+ * Link a handed-off target (TikTok inbox) to the post the creator finished in the app: only when
+ * exactly one of the platform's candidates fits and no other target already has it, else a note.
+ */
+async function findHandedOff(ctx: ProviderContext, provider: Provider, t: Target): Promise<{ target?: Target; note: string }> {
+  const since = ctx.store.stateSince(t.id, 'handed_off') ?? new Date(t.updatedAt);
+  if (ctx.now().getTime() - since.getTime() > FIND_HANDED_OFF_DAYS * 86_400_000) {
+    return { note: msg('앱에서 마무리한 게시물을 {days}일 동안 찾지 못해 더 찾지 않습니다', { days: FIND_HANDED_OFF_DAYS }) };
+  }
+  let account = ctx.store.getAccount(t.platform, t.account);
+  if (!account) return { note: msg('연결된 계정이 없습니다') };
+  try {
+    account = await provider.refresh(ctx, account);
+    const { matches, note } = await provider.findHandedOff!({ ctx, account, target: t, since });
+    const free = matches.filter((m) => !ctx.store.remoteIdInUse(t.platform, t.account, m.remoteId, t.id));
+    if (free.length === 1) {
+      const m = free[0]!;
+      const target = ctx.store.transition(t.id, 'published', { remoteId: m.remoteId, remoteUrl: m.remoteUrl }, 'found the post finished in the app');
+      ctx.log.info(msg('{platform}/{account}: 앱에서 마무리한 게시물을 찾았습니다 ({url})', { platform: t.platform, account: t.account, url: m.remoteUrl ?? m.remoteId }));
+      return { target, note: '' };
+    }
+    if (free.length > 1) return { note: msg('앱에서 올린 게시물 후보가 {n}개라 고르지 않았습니다', { n: free.length }) };
+    return { note: note ?? msg('아직 앱에서 게시된 영상을 찾지 못했습니다 (마무리하면 다음 확인 때 연결됩니다)') };
+  } catch (err) {
+    return { note: msg('가져오지 못함: {err}', { err: err instanceof Error ? err.message : String(err) }) };
+  }
 }
 
 /**

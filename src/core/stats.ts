@@ -2,6 +2,9 @@ import type { Provider, ProviderContext } from './provider.ts';
 import type { Store } from './store.ts';
 import type { StatsTrend } from './types.ts';
 
+/** How long after a hand-off fanout keeps looking for the post the creator finished in the app. */
+export const FIND_HANDED_OFF_DAYS = 14;
+
 const METRICS = ['views', 'likes', 'comments', 'shares'] as const;
 
 /**
@@ -43,7 +46,11 @@ export async function refreshDueStats(
 ): Promise<number> {
   const now = ctx.now().getTime();
   const readable = [...providers.values()].filter((p) => p.stats && !p.statsCost).map((p) => p.id);
-  const due = ctx.store.statsDue(new Date(now - (opts.windowDays ?? 30) * 86_400_000).toISOString(), new Date(now - opts.everyMs).toISOString(), readable, opts.limit ?? 50);
+  const stale = new Date(now - opts.everyMs).toISOString();
+  const due = ctx.store.statsDue(new Date(now - (opts.windowDays ?? 30) * 86_400_000).toISOString(), stale, readable, opts.limit ?? 50);
+  // Posts finished in the platform app: look for them on the same rhythm while they are recent.
+  const findable = [...providers.values()].filter((p) => p.findHandedOff).map((p) => p.id);
+  due.push(...ctx.store.statsDue(new Date(now - FIND_HANDED_OFF_DAYS * 86_400_000).toISOString(), stale, findable, opts.limit ?? 50, 'handed_off'));
   // One call per post and platform covers every account of that platform on the post.
   const done = new Set<string>();
   for (const t of due) {

@@ -547,19 +547,19 @@ export class Store {
    * Published targets of posts created since `postedSince` whose stats are older than `staleBefore`
    * (or were never read), oldest reading first.
    */
-  statsDue(postedSince: string, staleBefore: string, platforms: readonly string[], limit = 50): Array<{ id: string; postId: string; platform: string }> {
+  statsDue(postedSince: string, staleBefore: string, platforms: readonly string[], limit = 50, state: 'published' | 'handed_off' = 'published'): Array<{ id: string; postId: string; platform: string }> {
     // Filter platforms here, not after the LIMIT: targets that are never read would otherwise sit
     // at the front of the queue forever and starve everything behind them.
     if (!platforms.length) return [];
     return this.#db
       .prepare(
         `SELECT t.id, t.post_id AS postId, t.platform FROM targets t JOIN posts p ON p.id = t.post_id
-         WHERE t.state = 'published' AND t.remote_id IS NOT NULL AND (p.created_at >= ? OR t.updated_at >= ?)
+         WHERE t.state = ? AND t.remote_id IS NOT NULL AND (p.created_at >= ? OR t.updated_at >= ?)
            AND t.platform IN (${platforms.map(() => '?').join(', ')})
            AND (t.stats IS NULL OR json_extract(t.stats, '$.fetchedAt') < ?)
          ORDER BY json_extract(t.stats, '$.fetchedAt') LIMIT ?`,
       )
-      .all(postedSince, postedSince, ...platforms, staleBefore, limit) as Array<{ id: string; postId: string; platform: string }>;
+      .all(state, postedSince, postedSince, ...platforms, staleBefore, limit) as Array<{ id: string; postId: string; platform: string }>;
   }
 
   /** The latest stats reading at or before `atOrBefore`. */

@@ -7,7 +7,8 @@ const TRANSITIONS: Record<TargetState, readonly TargetState[]> = {
   uploading: ['processing', 'published', 'handed_off', 'queued', 'failed', 'needs_reauth'],
   processing: ['published', 'handed_off', 'failed', 'needs_reauth'],
   published: ['removed'],
-  handed_off: [],
+  // handed_off → published: the post the creator finished in the app was found (core/posting.ts).
+  handed_off: ['published'],
   failed: ['queued', 'canceled'],
   needs_reauth: ['queued', 'canceled'],
   removed: [],

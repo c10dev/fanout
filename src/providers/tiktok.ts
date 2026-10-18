@@ -158,6 +158,16 @@ function creds(account: Account): TikTokCredentials {
   return account.credentials as unknown as TikTokCredentials;
 }
 
+/** A link from TikTok's API, kept only if it really is an https tiktok.com address. */
+function tiktokUrl(url: string | undefined): string | undefined {
+  try {
+    const u = new URL(url ?? '');
+    return u.protocol === 'https:' && /(^|\.)tiktok\.com$/.test(u.hostname) ? u.toString() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 /** TikTok returns the granted scopes comma-separated. */
 function hasScope(account: Account, scope: string): boolean {
   return (creds(account).scope ?? '').split(/[,\s]+/).includes(scope);
@@ -536,9 +546,11 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     const size = statSync(mediaPath).size;
     const plan = chunkPlan(size);
     const { publish_id, upload_url } = await init(ctx, account, post, opts, plan, size);
-    saveResume({ publishId: publish_id, uploaded: false, username });
-    await upload(ctx, upload_url, mediaPath, size, plan, () => saveResume({ publishId: publish_id, uploaded: false, finalSent: true, username }));
-    saveResume({ publishId: publish_id, uploaded: true, username });
+    // The length is kept to recognise the video later if the creator finishes it in the app.
+    const durationSec = media.durationSec;
+    saveResume({ publishId: publish_id, uploaded: false, username, durationSec });
+    await upload(ctx, upload_url, mediaPath, size, plan, () => saveResume({ publishId: publish_id, uploaded: false, finalSent: true, username, durationSec }));
+    saveResume({ publishId: publish_id, uploaded: true, username, durationSec });
     return { state: 'processing', remoteId: publish_id };
   },
 
@@ -630,6 +642,25 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
       checks.push({ name: msg('미심사 앱 수신함 업로드'), status: 'fail', detail: `${e.platformCode ?? e.code}: ${e.message}` });
     }
     return checks;
+  },
+
+  // Inbox posts: the creator's videos since the hand-off with the same length (video.list scope).
+  async findHandedOff({ ctx, account, target, since }) {
+    if (!hasScope(account, 'video.list')) return { matches: [], note: msg('TikTok 통계는 video.list 권한이 필요합니다 — 앱 scopes에 더하고 다시 연결하세요') };
+    const length = (target.resume as { durationSec?: number } | undefined)?.durationSec;
+    if (length === undefined) return { matches: [], note: msg('영상 길이 기록이 없어 앱에서 올린 게시물을 찾지 않습니다') };
+    const data = await call<{ videos?: Array<{ id?: string; create_time?: number; duration?: number; share_url?: string }> }>(
+      ctx,
+      account,
+      '/video/list/?fields=id,create_time,duration,share_url',
+      { max_count: 20 },
+    );
+    // A few minutes' slack before the hand-off for clock differences; TikTok reports whole seconds.
+    const from = since.getTime() - 10 * 60_000;
+    const matches = (data?.videos ?? [])
+      .filter((v) => v.id && typeof v.create_time === 'number' && v.create_time * 1000 >= from && typeof v.duration === 'number' && Math.abs(v.duration - length) <= 1.5)
+      .map((v) => ({ remoteId: String(v.id), remoteUrl: tiktokUrl(v.share_url) }));
+    return { matches };
   },
 
   // video.list scope (not in the default set: the app has to have it). Only the account's own videos.
