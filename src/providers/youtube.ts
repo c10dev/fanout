@@ -2,7 +2,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { imageMime, jsonOrThrow, openBrowser, pkcePair, readChunk, sleep, startLoopback } from '../core/http.ts';
+import { imageMime, jsonOr, jsonOrThrow, openBrowser, pkcePair, readChunk, sleep, startLoopback } from '../core/http.ts';
 import { makeTestClip, probe, type MediaInfo, type MediaSpec } from '../core/media.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
@@ -111,7 +111,7 @@ async function tokenRequest(ctx: ProviderContext, params: Record<string, string>
     body: new URLSearchParams(params),
   });
   if (res.status === 400 || res.status === 401) {
-    const body = (await res.json().catch(() => ({}))) as GoogleError;
+    const body = (await jsonOr(res, {})) as GoogleError;
     const code = typeof body.error === 'string' ? body.error : 'token_error';
     const error = body.error_description ?? code;
     throw new ProviderError(
@@ -301,7 +301,7 @@ async function applyExtras(
     try {
       const res = await send();
       if (!res.ok) {
-        const { code, message } = describeGoogle(await res.json().catch(() => undefined));
+        const { code, message } = describeGoogle(await jsonOr(res, undefined));
         const vars = { label, code: code ?? res.status, message: message ?? '', hint: hint(res.status) };
         warnings.push(vars.hint ? msg('{label} 실패 ({code}): {message} — {hint}', vars) : msg('{label} 실패 ({code}): {message}', vars));
       }
@@ -506,7 +506,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       signal: AbortSignal.timeout(15_000),
     });
     if (res.ok) return true;
-    const body = (await res.json().catch(() => ({}))) as GoogleError;
+    const body = (await jsonOr(res, {})) as GoogleError;
     // Already expired or revoked: nothing left to revoke.
     if (res.status === 400 && body.error === 'invalid_token') return true;
     throw new ProviderError(kindForStatus(res.status), 'youtube.revoke', describeGoogle(body).message ?? `HTTP ${res.status}`, describeGoogle(body).code);

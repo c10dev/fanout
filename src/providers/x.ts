@@ -1,6 +1,6 @@
 import { statSync } from 'node:fs';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { openBrowser, pkcePair, readChunk, rotationContext, startLoopback } from '../core/http.ts';
+import { jsonOr, openBrowser, pkcePair, readChunk, rotationContext, startLoopback } from '../core/http.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
@@ -100,7 +100,7 @@ async function tokenRequest(ctx: ProviderContext, params: Record<string, string>
   if (a.clientSecret) headers.authorization = `Basic ${Buffer.from(`${a.clientId}:${a.clientSecret}`).toString('base64')}`;
   else body.set('client_id', a.clientId);
   const res = await ctx.fetch(`${API}/2/oauth2/token`, { method: 'POST', headers, body });
-  const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const data = (await jsonOr(res, {})) as Record<string, unknown>;
   if (!res.ok || !data.access_token) {
     throw new ProviderError(res.status === 429 || res.status >= 500 ? 'retryable' : 'auth', 'x.token', msg('X 토큰 오류: {error}', { error: (data.error_description as string) ?? (data.error as string) ?? res.status }), data.error as string | undefined);
   }
@@ -113,7 +113,7 @@ async function tokenRequest(ctx: ProviderContext, params: Record<string, string>
 
 async function api<T>(ctx: ProviderContext, account: Account, path: string, init: RequestInit = {}): Promise<T> {
   const res = await ctx.fetch(`${API}${path}`, { ...init, headers: { authorization: `Bearer ${creds(account).accessToken}`, ...(init.headers as Record<string, string>) } });
-  const body = (await res.json().catch(() => ({}))) as T & { detail?: string; title?: string; errors?: Array<{ message?: string; detail?: string }> };
+  const body = (await jsonOr(res, {})) as T & { detail?: string; title?: string; errors?: Array<{ message?: string; detail?: string }> };
   if (!res.ok) {
     const detail = body.detail ?? body.errors?.[0]?.message ?? body.errors?.[0]?.detail ?? body.title ?? `HTTP ${res.status}`;
     const kind = res.status === 402 ? 'rejected' : kindForStatus(res.status);

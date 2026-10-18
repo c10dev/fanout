@@ -2,7 +2,7 @@ import { openAsBlob, statSync } from 'node:fs';
 import { basename, extname } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { imageMime, readChunk, rotationContext } from '../core/http.ts';
+import { imageMime, jsonOr, readChunk, rotationContext } from '../core/http.ts';
 import { liveRoundTrip } from '../core/livecheck.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
@@ -130,7 +130,7 @@ async function tokenRequest(ctx: ProviderContext, instance: string, form: Record
     headers: { 'content-type': 'application/x-www-form-urlencoded', ...(otp ? { 'x-peertube-otp': otp } : {}) },
     body: new URLSearchParams(form),
   });
-  const body = (await res.json().catch(() => ({}))) as ApiError & { access_token?: string; refresh_token?: string; expires_in?: number };
+  const body = (await jsonOr(res, {})) as ApiError & { access_token?: string; refresh_token?: string; expires_in?: number };
   if (res.ok && body.access_token && body.refresh_token) return body as { access_token: string; refresh_token: string; expires_in?: number };
   const code = body.code ?? (typeof body.error === 'string' ? body.error : body.error?.code);
   if (code === 'missing_two_factor') throw new ProviderError('rejected', 'peertube.otp', msg('2단계 인증이 켜진 계정입니다. 인증 앱의 코드(otp)를 함께 넣어 주세요'));
@@ -249,7 +249,7 @@ type Put = (headers: Record<string, string>, body?: Buffer) => Promise<Response>
 async function uploadOffset(put: Put, total: number): Promise<number | { id: number; shortUUID?: string }> {
   const res = await put({ 'content-length': '0', 'content-range': `bytes */${total}` });
   if (res.status === 308) return nextOffset(res.headers);
-  const body = (await res.json().catch(() => ({}))) as ApiError & { video?: { id: number; shortUUID?: string } };
+  const body = (await jsonOr(res, {})) as ApiError & { video?: { id: number; shortUUID?: string } };
   if (res.ok && body.video) return body.video;
   throw apiError(res.status, body, 'upload');
 }
@@ -310,7 +310,7 @@ export const peertube: Provider = {
     const otp = typeof flags.otp === 'string' && flags.otp.trim() ? flags.otp.trim() : undefined;
     // The instance's own web client credentials; nothing is shipped with fanout.
     const clientRes = await ctx.fetch(`${instance}/api/v1/oauth-clients/local`);
-    const client = (await clientRes.json().catch(() => ({}))) as ApiError & { client_id?: string; client_secret?: string };
+    const client = (await jsonOr(clientRes, {})) as ApiError & { client_id?: string; client_secret?: string };
     if (!clientRes.ok || !client.client_id || !client.client_secret) {
       throw new ProviderError('rejected', 'peertube.client', msg('PeerTube 로그인 클라이언트를 받지 못했습니다. 인스턴스의 공개 주소로 연결했는지 확인하세요 ({client})', { client: client.detail ?? clientRes.status }));
     }
@@ -491,7 +491,7 @@ export const peertube: Provider = {
           offset = nextOffset(res.headers);
           continue;
         }
-        const out = (await res.json().catch(() => ({}))) as ApiError & { video?: { id: number; shortUUID?: string } };
+        const out = (await jsonOr(res, {})) as ApiError & { video?: { id: number; shortUUID?: string } };
         if (res.ok && out.video) return finishUpload(out.video);
         // The server refused the file itself (unreadable, upload filter, too large, wrong type): it
         // deleted the upload and made no video, so the next try starts clean instead of looking for

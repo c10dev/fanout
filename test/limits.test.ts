@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { openContext } from '../src/core/context.ts';
+import { rotationContext } from '../src/core/http.ts';
 import { addLimitWarnings, readLimits } from '../src/core/limits.ts';
+import type { ProviderContext } from '../src/core/provider.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { nextPacificMidnight, pacificDay } from '../src/providers/youtube.ts';
 import { json, makeCtx, mockFetch } from './helpers.ts';
@@ -67,27 +69,34 @@ describe('posting limits', () => {
     assert.equal(yt!.limits[0]!.used, 0, 'YouTube still read');
   });
 
-  it('stops waiting without cutting the read off, so a token refresh it started still lands', async () => {
-    let finished = false;
-    let aborted = false;
-    const slow = {
-      id: 'slow',
-      async limits({ ctx }: { ctx: { fetch: typeof fetch } }) {
-        await ctx.fetch('https://slow.example/', {}).catch(() => (aborted = true));
-        finished = true;
+  it('times out a slow read, but never a token rotation inside it', async () => {
+    // A rotation answers after 80 ms; the limits read has 30 ms. Cutting the rotation off would lose
+    // the new refresh token (and a CLI exits right after), so it keeps its own longer deadline.
+    let rotated = false;
+    const delayed = ((_: unknown, init?: RequestInit) =>
+      new Promise((resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+        setTimeout(() => resolve(json({})), 80);
+      })) as typeof fetch;
+    const rotating = {
+      async limits({ ctx }: { ctx: ProviderContext }) {
+        await rotationContext(ctx).fetch('https://pds.example/refresh');
+        rotated = true;
         return [];
       },
     };
-    const { ctx, store } = makeCtx((async (_: unknown, init?: RequestInit) => {
-      if (init?.signal) aborted = true;
-      await new Promise((r) => setTimeout(r, 80));
-      return json({});
-    }) as typeof fetch);
+    const slow = {
+      async limits({ ctx }: { ctx: ProviderContext }) {
+        await ctx.fetch('https://pds.example/slow');
+        return [];
+      },
+    };
+    const { ctx, store } = makeCtx(delayed);
+    store.saveAccount({ platform: 'rotating', name: 'main', credentials: {}, profile: {} });
     store.saveAccount({ platform: 'slow', name: 'main', credentials: {}, profile: {} });
-    const [r] = await readLimits(ctx, new Map([['slow', slow as never]]), undefined, 20);
-    assert.match(r!.error!, /초 안에 답이 없습니다/);
-    await new Promise((r) => setTimeout(r, 120));
-    assert.deepEqual({ finished, aborted }, { finished: true, aborted: false });
+    const [r, s] = await readLimits(ctx, new Map([['rotating', rotating as never], ['slow', slow as never]]), undefined, 30);
+    assert.deepEqual([r!.error, rotated], [undefined, true]);
+    assert.ok(s!.error, 'a plain slow read is cut off at the deadline');
   });
 
   it('Bluesky reports what is left today, and nothing left when uploads are refused', async () => {

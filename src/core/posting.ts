@@ -391,11 +391,8 @@ export async function editPost(
  * API calls (stats, comments, edit, delete) — never for uploads, which can legitimately run long.
  */
 export function withTimeout(ctx: ProviderContext, ms = 20_000): ProviderContext {
-  return {
-    ...ctx,
-    baseFetch: ctx.baseFetch ?? ctx.fetch,
-    fetch: ((input, init) => ctx.fetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(ms) })) as typeof fetch,
-  };
+  // A request that brings its own signal keeps it: token rotations pass a longer one (http.rotationContext).
+  return { ...ctx, fetch: ((input, init) => ctx.fetch(input, { ...init, signal: init?.signal ?? AbortSignal.timeout(ms) })) as typeof fetch };
 }
 
 export interface CommentsResult {

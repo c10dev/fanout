@@ -72,3 +72,12 @@ export function tempFile(size: number): string {
   writeFileSync(path, Buffer.alloc(size, 7));
   return path;
 }
+
+/** A server that answers every request with `body` after `ms`, and honours an abort signal. */
+export function slowFetch(body: unknown, ms: number): typeof fetch {
+  return ((_: unknown, init?: RequestInit) =>
+    new Promise((resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+      setTimeout(() => resolve(json(body)), ms);
+    })) as typeof fetch;
+}

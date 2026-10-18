@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus, type ErrorKind } from '../core/errors.ts';
-import { openBrowser, pkcePair, readChunk, sleep, startLoopback } from '../core/http.ts';
+import { jsonOr, openBrowser, pkcePair, readChunk, rotationContext, sleep, startLoopback } from '../core/http.ts';
 import { makeTestClip } from '../core/media.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
@@ -111,7 +111,7 @@ async function call<T>(ctx: ProviderContext, account: Account, path: string, bod
     headers: { authorization: `Bearer ${creds(account).accessToken}`, 'content-type': 'application/json; charset=UTF-8' },
     body: JSON.stringify(body),
   });
-  const parsed = (await res.json().catch(() => undefined)) as TikTokEnvelope<T> | undefined;
+  const parsed = (await jsonOr(res, undefined)) as TikTokEnvelope<T> | undefined;
   if (!res.ok || (parsed?.error?.code && parsed.error.code !== 'ok')) throw tiktokError(res.status, parsed);
   return parsed?.data as T;
 }
@@ -153,7 +153,7 @@ async function tokenRequest(ctx: ProviderContext, params: Record<string, string>
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(params),
   });
-  const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+  const body = (await jsonOr(res, {})) as Record<string, unknown>;
   if (!res.ok || body.error) {
     // Only a refused grant means reconnecting; a TikTok outage or rate limit is worth retrying.
     throw new ProviderError(
@@ -395,7 +395,7 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
       const next: Account = {
         ...(stored ?? account),
         credentials: {
-          ...(await tokenRequest(ctx, { client_key: a.clientKey, client_secret: a.clientSecret, grant_type: 'refresh_token', refresh_token: sc.refreshToken }, sc)),
+          ...(await tokenRequest(rotationContext(ctx), { client_key: a.clientKey, client_secret: a.clientSecret, grant_type: 'refresh_token', refresh_token: sc.refreshToken }, sc)),
         },
       };
       ctx.store.saveAccount(next);

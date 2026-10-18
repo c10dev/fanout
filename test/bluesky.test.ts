@@ -6,8 +6,9 @@ import { describe, it } from 'node:test';
 import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
+import { withTimeout } from '../src/core/posting.ts';
 import { bluesky, facets, graphemes, httpsOnly, jwtExpiry, postText } from '../src/providers/bluesky.ts';
-import { fakeMedia, json, makeCtx, mockFetch, tempFile } from './helpers.ts';
+import { fakeMedia, json, makeCtx, mockFetch, slowFetch, tempFile } from './helpers.ts';
 
 const NOW = new Date('2026-10-17T03:00:00Z');
 const jwt = (expMs: number) => `h.${Buffer.from(JSON.stringify({ exp: Math.floor(expMs / 1000) })).toString('base64url')}.s`;
@@ -80,6 +81,14 @@ describe('bluesky connect and refresh', () => {
     const bad = mockFetch([['POST', 'com.atproto.server.refreshSession', () => json({ error: 'ExpiredToken', message: 'Token has expired' }, 400)]]);
     const env2 = makeCtx(bad.fetch, () => NOW);
     await assert.rejects(bluesky.refresh(env2.ctx, expiring), (e: ProviderError) => e.kind === 'auth' && e.code === 'bluesky.session_expired');
+  });
+
+  it('a short deadline on the caller never cuts the session refresh off', async () => {
+    const expiring = { ...account, credentials: { ...account.credentials, accessJwt: jwt(NOW.getTime() + 60_000) } };
+    const env = makeCtx(slowFetch({ accessJwt: 'A2', refreshJwt: 'R2', handle: 'me.bsky.social' }, 80), () => NOW);
+    env.store.saveAccount(expiring);
+    await bluesky.refresh(withTimeout(env.ctx, 30), expiring);
+    assert.equal((env.store.getAccount('bluesky', expiring.name)!.credentials as { refreshJwt: string }).refreshJwt, 'R2');
   });
 
   it('never refreshes against a plain-http server, and keeps new tokens when the DID document points to one', async () => {

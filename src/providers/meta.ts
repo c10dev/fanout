@@ -1,6 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus, type ErrorKind } from '../core/errors.ts';
+import { jsonOr } from '../core/http.ts';
 import type { ProviderContext } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Post } from '../core/types.ts';
@@ -96,7 +97,7 @@ export async function graph<T>(
     method === 'GET'
       ? await ctx.fetch(`${url}?${qs}`)
       : await ctx.fetch(url, { method, headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: qs });
-  const body = (await res.json().catch(() => undefined)) as (T & GraphError) | undefined;
+  const body = (await jsonOr(res, undefined)) as (T & GraphError) | undefined;
   if (!res.ok || body?.error) throw graphError(res.status, body);
   return body as T;
 }
@@ -109,7 +110,7 @@ export async function rupload(ctx: ProviderContext, url: string, token: string, 
     headers: { authorization: `OAuth ${token}`, offset: '0', file_size: String(size), 'content-type': 'application/octet-stream' },
     body: readFileSync(path),
   });
-  const body = (await res.json().catch(() => undefined)) as (GraphError & { success?: boolean }) | undefined;
+  const body = (await jsonOr(res, undefined)) as (GraphError & { success?: boolean }) | undefined;
   if (!res.ok || body?.error || body?.success === false) throw graphError(res.status, body);
 }
 
