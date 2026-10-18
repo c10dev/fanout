@@ -49,6 +49,8 @@ function translateStatic(root = document) {
 // English for every tr() key in app.js and data-i18n key in index.html (test/i18n.test.ts checks).
 const MESSAGES_EN = {
   '남은 한도': 'Remaining limits',
+  '연결을 해제했습니다. 토큰을 철회하고 플랫폼에서 받은 반응 통계도 지웠습니다.': 'Disconnected. The token was revoked and the reaction stats read from the platform were deleted.',
+  '연결을 해제하고 플랫폼에서 받은 반응 통계를 지웠습니다. 토큰은 철회하지 못했습니다(같은 채널을 다른 이름으로도 연결했거나 요청이 실패함).': "Disconnected and deleted the reaction stats read from the platform. The token wasn't revoked (the same channel is connected under another name, or the request failed).",
   '새로고침': 'Refresh',
   '불러오는 중…': 'Loading…',
   '읽지 못함': "Couldn't read",

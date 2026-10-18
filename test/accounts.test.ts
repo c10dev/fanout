@@ -147,11 +147,17 @@ describe('YouTube account upkeep (Developer Policies III.D.2, III.E.4)', () => {
   });
 
   it('a check still running when the account is removed or reconnected changes nothing', async () => {
-    for (const change of ['remove', 'reconnect'] as const) {
+    // Gated at the channel read (token still valid) and at the token refresh (the usual case: a
+    // day later the access token has expired, and the refresh saves too).
+    for (const [change, step] of [['remove', '/channels'], ['reconnect', '/channels'], ['remove', '/token'], ['reconnect', '/token']] as const) {
       const env = setup();
+      if (step === '/token') env.advance(2 * 3600_000);
       let release!: () => void;
       const gate = new Promise<void>((r) => (release = r));
-      env.ctx.fetch = mockFetch([['GET', '/channels', async () => (await gate, json({ items: [{ id: 'UC1', snippet: { title: 'Stale' } }] }))]]).fetch;
+      env.ctx.fetch = mockFetch([
+        ['POST', 'oauth2.googleapis.com/token', async () => (step === '/token' && (await gate), json({ access_token: 'AT2', expires_in: 3600 }))],
+        ['GET', '/channels', async () => (step === '/channels' && (await gate), json({ items: [{ id: 'UC1', snippet: { title: 'Stale' } }] }))],
+      ]).fetch;
       const running = verifyDueAccounts(env.ctx, providerMap());
       await new Promise((r) => setImmediate(r));
       const fresh = { platform: 'youtube', name: 'main', credentials: { accessToken: 'NEW', refreshToken: 'RT_NEW', expiresAt: 0 }, profile: { channelId: 'UC2', channelTitle: 'Other' } };
@@ -159,7 +165,7 @@ describe('YouTube account upkeep (Developer Policies III.D.2, III.E.4)', () => {
       else env.store.saveAccount(fresh);
       release();
       await running;
-      assert.deepEqual(env.store.getAccount('youtube', 'main'), change === 'remove' ? undefined : fresh, change);
+      assert.deepEqual(env.store.getAccount('youtube', 'main'), change === 'remove' ? undefined : fresh, `${change} during ${step}`);
     }
   });
 });

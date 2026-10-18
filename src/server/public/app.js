@@ -1313,7 +1313,8 @@ function accountRow(p, a) {
         onclick: async () => {
           if (!confirm(tr('{platform} {account} 연결을 해제할까요? 저장된 토큰을 지웁니다.', { platform: p.displayName, account: a.label }))) return;
           try {
-            await api(`/accounts/${p.id}/${encodeURIComponent(a.name)}`, { method: 'DELETE' });
+            const done = await api(`/accounts/${p.id}/${encodeURIComponent(a.name)}`, { method: 'DELETE' });
+            if (done.forgot) alert(done.revoked ? tr('연결을 해제했습니다. 토큰을 철회하고 플랫폼에서 받은 반응 통계도 지웠습니다.') : tr('연결을 해제하고 플랫폼에서 받은 반응 통계를 지웠습니다. 토큰은 철회하지 못했습니다(같은 채널을 다른 이름으로도 연결했거나 요청이 실패함).'));
             await refreshAll();
           } catch (err) {
             alert(err.message);
@@ -1413,13 +1414,19 @@ function limitsCard() {
 
 function limitRow(a, what, value, l) {
   const extra = [l?.resetsAt ? tr('{time}에 초기화', { time: new Date(l.resetsAt).toLocaleString(LOCALE) }) : '', l?.note ?? ''].filter(Boolean).join(' · ');
-  const low = l && l.remaining !== undefined && (l.remaining === 0 || (l.total && l.remaining / l.total < 0.1));
+  // Nearly out: under a tenth of the total, or (with no total, e.g. Bluesky bytes) under a typical video.
+  const low = l && l.remaining !== undefined && (l.total ? l.remaining / l.total < 0.1 : l.remaining === 0 || (l.unit === 'bytes' && l.remaining < 100e6));
   return h('tr', {}, h('th', {}, `${a.platform}/${a.account}`), h('td', {}, what), h('td', { class: low ? 'warn' : '' }, value), h('td', { class: 'muted' }, extra));
+}
+
+function bytesText(v) {
+  const [size, unit] = v >= 1e9 ? [v / 1e9, 'GB'] : v >= 1e6 ? [v / 1e6, 'MB'] : [v / 1e3, 'KB'];
+  return `${size.toLocaleString(LOCALE, { maximumFractionDigits: size < 10 ? 1 : 0 })}${unit}`;
 }
 
 /** "3/100, 97 left". */
 function limitText(l) {
-  const n = (v) => (l.unit === 'bytes' ? `${(v / 1048576).toLocaleString(LOCALE, { maximumFractionDigits: 0 })}MB` : v.toLocaleString(LOCALE));
+  const n = (v) => (l.unit === 'bytes' ? bytesText(v) : v.toLocaleString(LOCALE));
   if (l.unlimited) return l.used === undefined ? tr('무제한') : tr('{used} 씀, 무제한', { used: n(l.used) });
   const parts = [];
   if (l.used !== undefined && l.total !== undefined) parts.push(`${n(l.used)}/${n(l.total)}`);

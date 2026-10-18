@@ -481,7 +481,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     });
     // Spread the old credentials first: they also carry fanout's upkeep marks (core/accounts.ts).
     const next: Account = { ...account, credentials: { ...account.credentials, ...credsFromToken(tok, ctx.now().getTime(), c) } };
-    ctx.store.saveAccount(next);
+    // Only over the same grant: the account may have been disconnected or reconnected meanwhile.
+    ctx.store.saveAccountIf(next, (stored) => creds(stored).refreshToken === c.refreshToken);
     return next;
   },
 

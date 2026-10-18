@@ -214,6 +214,20 @@ export class Store {
       .run(account.platform, account.name, this.#box.seal(JSON.stringify(account.credentials)), JSON.stringify(account.profile));
   }
 
+  /**
+   * Save `account` only if the stored one still passes `same` (e.g. holds the refresh token just
+   * used): a token refresh that finishes after the account was removed or reconnected elsewhere
+   * must not bring the old one back. Returns whether it saved.
+   */
+  saveAccountIf(account: Account<unknown>, same: (stored: Account) => boolean): boolean {
+    return this.transaction(() => {
+      const stored = this.getAccount(account.platform, account.name);
+      if (!stored || !same(stored)) return false;
+      this.saveAccount(account);
+      return true;
+    });
+  }
+
   getAccount<C = Record<string, unknown>>(platform: string, name: string): Account<C> | undefined {
     const row = this.#db.prepare('SELECT * FROM accounts WHERE platform = ? AND name = ?').get(platform, name) as
       | { platform: string; name: string; credentials: string; profile: string }

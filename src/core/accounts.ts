@@ -31,11 +31,12 @@ interface Upkeep {
 const RETRY_MS = 3 * 3600_000;
 
 /**
- * Refusals that are fanout's own setup (no app, an app secret that changed), not the user taking
- * access back: they never start the deletion clock.
+ * Refusals that are fanout's own setup (no app, an app secret that changed, an OAuth client deleted
+ * or disabled in the Cloud console), not the user taking access back: they never start the
+ * deletion clock.
  */
 function isSetupError(err: ProviderError): boolean {
-  return err.code.endsWith('.app_missing') || err.platformCode === 'invalid_client' || err.platformCode === 'unauthorized_client';
+  return err.code.endsWith('.app_missing') || ['invalid_client', 'unauthorized_client', 'deleted_client', 'disabled_client'].includes(err.platformCode ?? '');
 }
 
 /** A token that identifies the stored grant, to notice a reconnect while a check was running. */
