@@ -63,7 +63,7 @@ node src/cli.ts post video.mp4 --title "제목" --description "설명" --tags �
 node src/cli.ts status
 ```
 
-`npm run fanout -- <명령>`으로도 실행할 수 있습니다. `--to tiktok`처럼 계정 이름을 생략하면 `main`을 쓰고, `main`이 없고 연결된 계정이 하나뿐이면 그 계정을 씁니다. CLI·로그·MCP 서버는 한국어가 기본이고, `FANOUT_LANG=en`을 주면 영어로 출력합니다. 데이터는 `FANOUT_HOME`(기본 `~/.fanout`)에 저장되고, 토큰과 앱 비밀값은 AES-256-GCM으로 암호화합니다. 키는 `FANOUT_SECRET_KEY` 환경 변수나 `~/.fanout/secret.key`(권한 0600)에 둡니다.
+`npm run fanout -- <명령>`으로도 실행할 수 있습니다. `--to tiktok`처럼 계정 이름을 생략하면 `main`을 쓰고, `main`이 없고 연결된 계정이 하나뿐이면 그 계정을 씁니다. CLI와 로그는 한국어가 기본이고 `FANOUT_LANG=en`을 주면 영어로 출력합니다. MCP 서버(`fanout mcp`)는 영어가 기본이고 `FANOUT_LANG=ko`를 주면 한국어로 답합니다. 데이터는 `FANOUT_HOME`(기본 `~/.fanout`)에 저장되고, 토큰과 앱 비밀값은 AES-256-GCM으로 암호화합니다. 키는 `FANOUT_SECRET_KEY` 환경 변수나 `~/.fanout/secret.key`(권한 0600)에 둡니다.
 
 ## 쓰는 방법
 
@@ -71,7 +71,7 @@ node src/cli.ts status
 |---|---|
 | 웹 대시보드: 업로드 폼, 게시 전 미리보기, 게시 현황과 반응 통계, 댓글 모아보기와 답글, 게시 후 수정·삭제, 남은 게시 한도, 설정(앱 등록·계정 연결·점검) | [docs/dashboard.md](docs/dashboard.md) |
 | 감시 폴더: 폴더에 영상을 넣으면 정해 둔 대로 자동 게시 | [docs/watch-folder.md](docs/watch-folder.md) |
-| AI 에이전트(MCP): Claude 등이 영상 검사·미리보기·게시 | [docs/mcp.md](docs/mcp.md) |
+| AI 에이전트(MCP): Claude 등이 영상 검사·미리보기·게시. Claude Code 플러그인(`/plugin marketplace add c10dev/fanout`) | [docs/mcp.md](docs/mcp.md) |
 | 플랫폼별 방식·제약·남은 한도(`fanout limits`)·실제 확인 결과·정책(YouTube 데이터 보관 포함) | [docs/platforms.md](docs/platforms.md) |
 | 알림(Slack·Discord webhook), 백업·내보내기, 디스크 정리, 여러 프로세스 함께 쓰기 | [docs/operations.md](docs/operations.md) |
 | 구조, 테스트, 중복 게시를 막는 규칙 | [docs/development.md](docs/development.md) |

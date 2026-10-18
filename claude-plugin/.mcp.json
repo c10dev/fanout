@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "fanout": {
+      "command": "fanout",
+      "args": ["mcp"]
+    }
+  }
+}

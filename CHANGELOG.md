@@ -25,7 +25,8 @@
   - 알림 설정(#28)
 - 감시 폴더: 폴더에 넣은 영상을 설정대로 자동 게시(#4). 하루 게시 시각(`slots`)을 정하면 다음 빈 슬롯에 하나씩 예약
 - MCP 서버: AI 에이전트용 도구(#14)
-- `FANOUT_LANG=en`: CLI 출력·도움말·로그와 MCP 결과를 영어로
+- Claude Code 플러그인: `/plugin marketplace add c10dev/fanout` 후 `/plugin install fanout@fanout`. MCP 서버 등록과, 미리보기를 보여 주고 매번 승인받은 뒤 게시하는 `fanout-post` 스킬. MCP 문서 영어판(docs/mcp.en.md)
+- `FANOUT_LANG=en`: CLI 출력·도움말·로그를 영어로. MCP 서버(`fanout mcp`)는 영어가 기본이고 `FANOUT_LANG=ko`면 한국어
 
 ### 관리
 - 같은 영상을 같은 계정에 다시 올리려 하면 경고. 감시 폴더는 기본으로 건너뜀(#23)

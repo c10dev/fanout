@@ -1,8 +1,29 @@
 # AI 에이전트 연결 (MCP)
 
-[← README](../README.md)
+[← README](../README.md) · [English](mcp.en.md)
 
 `fanout mcp`는 [Model Context Protocol](https://modelcontextprotocol.io/) 서버입니다(stdio). Claude Code, Claude Desktop 같은 MCP 클라이언트가 fanout으로 영상을 검사하고 올릴 수 있습니다. 서버 안에서 업로드 작업도 처리하므로 대시보드를 따로 켜 둘 필요는 없습니다. 함께 켜 둬도 같은 작업을 두 번 올리지 않습니다.
+
+## Claude Code 플러그인
+
+이 저장소는 Claude Code 플러그인 마켓플레이스이기도 합니다. 플러그인은 MCP 서버를 등록하고, 검사 → 미리보기 → 사용자 승인 → 게시 → 상태 확인 순서와 게시·답글처럼 바로 공개되는 작업마다 매번 확인을 받는 규칙을 담은 `fanout-post` 스킬을 더합니다.
+
+먼저 fanout을 설치해 `fanout` 명령이 PATH에 있게 합니다(Node.js 24 이상, ffmpeg 필요).
+
+```bash
+npm install -g --allow-git=all github:c10dev/fanout
+```
+
+그다음 Claude Code에서:
+
+```
+/plugin marketplace add c10dev/fanout
+/plugin install fanout@fanout
+```
+
+앱 등록과 계정 연결은 게시를 부탁하기 전에 대시보드(`fanout serve`)나 CLI(`fanout setup`, `fanout connect`)로 해 둡니다.
+
+## 직접 등록하기
 
 ```bash
 claude mcp add fanout -- fanout mcp
@@ -14,7 +35,9 @@ claude mcp add fanout -- fanout mcp
 { "fanout": { "command": "fanout", "args": ["mcp"] } }
 ```
 
-결과와 오류 메시지는 한국어로 나갑니다. 영어로 받으려면 `"env": { "FANOUT_LANG": "en" }`을 함께 넣거나 `claude mcp add fanout -e FANOUT_LANG=en -- fanout mcp`로 등록하세요. 제목·설명·댓글처럼 사용자가 쓴 내용은 바꾸지 않습니다.
+결과와 오류 메시지는 영어로 나갑니다(MCP 클라이언트는 대개 영어로 쓰므로, `fanout mcp`만 기본이 영어이고 나머지 CLI는 한국어가 기본입니다). 한국어로 받으려면 `"env": { "FANOUT_LANG": "ko" }`을 함께 넣거나 `claude mcp add fanout -e FANOUT_LANG=ko -- fanout mcp`로 등록하세요. 제목·설명·댓글처럼 사용자가 쓴 내용은 바꾸지 않습니다.
+
+## 도구
 
 | 도구 | 하는 일 |
 |---|---|
@@ -35,6 +58,5 @@ claude mcp add fanout -- fanout mcp
 | `retry_target` | 실패했거나 재연결이 필요한 대상을 다시 시도. "이미 게시됐을 수 있음"으로 멈춘 대상은 사용자가 확인했다는 `confirmedNotPosted: true` 없이는 거부 |
 
 `create_post`는 실제 계정에 게시합니다. 도구 설명과 서버 안내문에 "`preview_post` 결과를 사용자에게 보여주고 승인받은 뒤 호출하라"고 적어 두었고, 읽기 전용 도구에는 `readOnlyHint`를 붙였습니다. 앱 등록과 계정 연결은 MCP로 하지 않고 대시보드나 CLI에서 합니다.
-
 
 썸네일은 JPG·PNG 2MB 이하, 자막은 SRT·VTT 등 5MB 이하 파일만 받습니다(대시보드와 같은 규칙). `preview_post` 결과의 `files`에 함께 올라갈 로컬 파일이 모두 나오므로, 사용자가 확인할 수 있습니다.

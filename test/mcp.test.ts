@@ -118,4 +118,20 @@ describe('MCP server', () => {
     assert.deepEqual(lines.map((l) => l.id).sort(), [1, 2, null].sort());
     assert.equal(lines.find((l) => l.id === null)?.error?.code, -32700);
   });
+
+  it('answers in English unless FANOUT_LANG asks for Korean', async () => {
+    const { FANOUT_LANG: _, ...env } = process.env;
+    const ask = async (lang?: string) => {
+      const home = mkdtempSync(join(tmpdir(), 'fanout-mcp-home-'));
+      const child = spawn(process.execPath, ['src/cli.ts', 'mcp'], { env: { ...env, FANOUT_HOME: home, ...(lang ? { FANOUT_LANG: lang } : {}) }, stdio: ['pipe', 'pipe', 'pipe'] });
+      let out = '';
+      child.stdout.on('data', (d) => (out += d));
+      child.stdin.end('{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_post_status","arguments":{"postId":"nope"}}}\n');
+      await new Promise((r) => child.on('close', r));
+      return (JSON.parse(out) as { result: { content: Array<{ text: string }> } }).result.content[0]!.text;
+    };
+    assert.equal(await ask(), 'No such post: nope');
+    assert.equal(await ask('ko'), '게시물 없음: nope');
+    assert.equal(await ask('en'), 'No such post: nope');
+  });
 });

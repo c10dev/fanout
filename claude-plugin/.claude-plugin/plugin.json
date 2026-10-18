@@ -1,0 +1,10 @@
+{
+  "name": "fanout",
+  "version": "0.1.0",
+  "description": "Post one local video to YouTube, TikTok, Instagram Reels, Facebook Reels, X, Bluesky, Mastodon and PeerTube with your own self-hosted fanout, from Claude Code. Every post is previewed and needs your explicit approval.",
+  "author": { "name": "c10dev", "url": "https://github.com/c10dev" },
+  "homepage": "https://github.com/c10dev/fanout/blob/main/docs/mcp.en.md",
+  "repository": "https://github.com/c10dev/fanout",
+  "license": "Apache-2.0",
+  "keywords": ["video", "uploader", "youtube", "tiktok", "instagram", "reels", "shorts", "cross-posting", "self-hosted", "mcp"]
+}

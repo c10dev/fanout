@@ -295,7 +295,7 @@ export class McpServer {
   async #callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
     if (!TOOLS.some((t) => t.name === name)) throw { code: -32602, message: `Unknown tool: ${name}` };
     try {
-      // Messages are stored and built in Korean; FANOUT_LANG=en turns them into English here.
+      // Messages are stored and built in Korean; FANOUT_LANG=en (the `fanout mcp` default) turns them into English here.
       const data = translateDeep(await this.#run(name, args), currentLang());
       return { content: [{ type: 'text', text: JSON.stringify(data, null, 2) }], structuredContent: data };
     } catch (err) {

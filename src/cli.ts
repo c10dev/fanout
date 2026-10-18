@@ -340,7 +340,7 @@ post 공통 옵션
              --pt-lang ko  --pt-nsfw
 
 데이터 위치: FANOUT_HOME (기본 ~/.fanout). 토큰은 AES-256-GCM으로 암호화해 저장합니다.
-언어: FANOUT_LANG=en 이면 영어로 출력합니다 (기본 한국어).`);
+언어: FANOUT_LANG=en 이면 영어로 출력합니다 (기본 한국어, fanout mcp는 기본 영어이고 FANOUT_LANG=ko 이면 한국어).`);
 
 async function cmdPlatforms(providers: Map<string, Provider>): Promise<void> {
   for (const p of providers.values()) {
@@ -989,6 +989,9 @@ function cmdPrune(ctx: ProviderContext, args: Args): number {
 
 /** MCP server on stdio; it also runs the upload worker, so posts it creates actually go out. */
 async function cmdMcp(providers: Map<string, Provider>): Promise<number> {
+  // Agents are mostly prompted in English, so the MCP server (results and its worker's logs) speaks
+  // English unless FANOUT_LANG asks otherwise; FANOUT_LANG=ko keeps Korean.
+  process.env.FANOUT_LANG ||= 'en';
   const ctx = openContext(undefined, stderrLogger);
   const worker = new Worker({ ctx, providers });
   worker.start();

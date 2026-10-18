@@ -6,7 +6,8 @@
 // read them, so English is produced on the way out instead: translate() recognises a rendered Korean
 // message by matching it against the catalogue's templates and renders the English one with the
 // same values. Strings with no matching template stay as they are, so an untranslated message is
-// simply Korean. The CLI and the MCP server do the same with their output when FANOUT_LANG=en.
+// simply Korean. The CLI and the MCP server do the same with their output when FANOUT_LANG=en
+// (`fanout mcp` sets that when FANOUT_LANG is unset).
 
 import { MESSAGES_EN } from './messages.en.ts';
 
