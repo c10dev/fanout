@@ -511,7 +511,8 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
         const missing = names.filter((n) => !byName.has(n.toLowerCase()));
         if (missing.length) notes.push(msg('X에서 찾지 못해 태그하지 않았습니다: {names}', { names: missing.join(', ') }));
       } catch (err) {
-        if (err instanceof ProviderError && err.kind === 'auth') throw err;
+        // Nothing is posted yet: sign-in trouble or a passing failure waits for the next status check.
+        if (err instanceof ProviderError && (err.kind === 'auth' || err.kind === 'retryable')) throw err;
         notes.push(msg('X 사람 태그를 하지 못했습니다: {err}', { err: (err as Error).message }));
       }
       resume = { ...resume, taggedIds: ids, extraWarnings: [...(resume.extraWarnings ?? []), ...notes] };

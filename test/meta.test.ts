@@ -234,7 +234,7 @@ describe('M6: Facebook cover, Instagram paid partnership', () => {
     let refuse = false;
     const { fetch, calls } = mockFetch([
       ['GET', '/V?', () => json({ status: { video_status: 'ready', processing_phase: { status: 'complete' }, publishing_phase: { status: 'complete', publish_status: 'published' } } })],
-      ['POST', '/V/thumbnails', () => (refuse ? json({ error: { message: '(#100) Invalid parameter', code: 100 } }, 400) : json({ success: true }))],
+      ['POST', '/V/thumbnails', () => ((refuse as unknown) === 'busy' ? json({ error: { message: 'Service temporarily unavailable', code: 2 } }, 503) : refuse ? json({ error: { message: '(#100) Invalid parameter', code: 100 } }, 400) : json({ success: true }))],
     ]);
     const { ctx, store } = makeCtx(fetch);
     store.setApp('meta', { appId: 'a', appSecret: 's' });
@@ -252,6 +252,11 @@ describe('M6: Facebook cover, Instagram paid partnership', () => {
     await poll();
     assert.equal(calls.filter((c) => c.url.includes('/V/thumbnails')).length, 1, 'once');
 
+    refuse = 'busy' as never;
+    const busy = store.createPost(withThumb, [{ platform: 'facebook', account: 'main', options: {} }]).targets[0]!.id;
+    const out1 = await facebook.poll({ ctx, post: withThumb, target: { ...store.getTarget(busy)!, remoteId: 'V' }, account: account('facebook') });
+    assert.equal(out1.warnings, undefined, 'a passing failure is tried again, not warned');
+    assert.equal((store.getTarget(busy)!.resume as { coverSent?: boolean }).coverSent, false);
     refuse = true;
     const again = store.createPost(withThumb, [{ platform: 'facebook', account: 'main', options: {} }]).targets[0]!.id;
     const out = await facebook.poll({ ctx, post: withThumb, target: { ...store.getTarget(again)!, remoteId: 'V' }, account: account('facebook') });
@@ -294,6 +299,8 @@ describe('M6: tags and collaborators', () => {
     const codes = (o: Record<string, unknown>) => facebook.validate(post, { ...target('facebook'), options: o }, fakeMedia()).map((i) => `${i.severity}:${i.code}`);
     assert.ok(codes({ collaborators: ['my-page'] }).includes('error:collaborators'));
     assert.ok(codes({ collaborators: ['1'], draft: true }).includes('warning:collaborators'));
+    const scheduled = facebook.validate({ ...post, scheduledAt: new Date(Date.now() + 86_400_000).toISOString() }, { ...target('facebook'), options: { collaborators: ['1'] } }, fakeMedia());
+    assert.ok(scheduled.some((i) => i.code === 'collaborators' && /예약/.test(i.message)));
   });
 
   it('Instagram tags people on the Reel by username', async () => {

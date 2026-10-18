@@ -125,6 +125,7 @@ export const instagram: Provider = {
     if (tags.length > TAGS_MAX) issues.push({ severity: 'error', code: 'user_tags', message: msg('Instagram 사람 태그는 {max}명까지', { max: TAGS_MAX }) });
     const badTags = tags.filter((u) => !USERNAME.test(u));
     if (badTags.length) issues.push({ severity: 'error', code: 'user_tags', message: msg('Instagram 사용자 이름이 아닙니다: {names}', { names: badTags.join(', ') }) });
+    else if (tags.length) issues.push({ severity: 'warning', code: 'user_tags', message: msg('Instagram은 없는 사용자 이름이 하나라도 있으면 게시 자체를 거절합니다 — 철자를 확인하세요') });
     if (o.paidPartnership) issues.push({ severity: 'warning', code: 'paid_partnership', message: msg('Instagram 유료 파트너십 표시는 릴스에서 되는지 아직 확인 전입니다 — 올린 뒤 앱에서 라벨을 확인하세요') });
     const ratio = media.video.width / media.video.height;
     if (Math.abs(ratio - 9 / 16) > 0.02) {

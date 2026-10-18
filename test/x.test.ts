@@ -382,6 +382,15 @@ describe('x people tags', () => {
     assert.equal(new URL(calls.find((c) => c.url.includes('/2/users/by'))!.url).searchParams.get('usernames'), 'alice,ghost');
     assert.deepEqual(bodies[0]!.media, { media_ids: ['M1'], tagged_user_ids: ['42'] });
     assert.match(out.warnings![0]!, /ghost/);
+    // A passing failure of the lookup waits for the next check instead of dropping the tags.
+    const busy = mockFetch([
+      ['GET', '/2/media/upload?', () => json({ data: { id: 'M1', processing_info: { state: 'succeeded' } } })],
+      ['GET', '/2/users/by?', () => json({ title: 'Too Many Requests' }, 429)],
+    ]);
+    const env = makeCtx(busy.fetch, () => NOW);
+    const t2 = env.store.createPost(post(), [{ platform: 'x', account: 'main', options: { tagUsers: ['alice'] } }]).targets[0]!.id;
+    await assert.rejects(x.poll({ ctx: env.ctx, post: post(), target: { ...env.store.getTarget(t2)!, remoteId: 'M1', resume: { mediaId: 'M1' } }, account }), (e: ProviderError) => e.kind === 'retryable');
+    assert.equal((env.store.getTarget(t2)!.resume as { taggedIds?: string[] } | undefined)?.taggedIds, undefined);
     const codes = x.validate(post(), target({ tagUsers: ['too-long-name-here!'] }), fakeMedia()).map((i) => `${i.severity}:${i.code}`);
     assert.ok(codes.includes('error:tag_users') && codes.includes('warning:tag_users'));
   });

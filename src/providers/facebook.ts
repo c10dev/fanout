@@ -126,6 +126,9 @@ export const facebook: Provider = {
     if (pages.some((p) => !/^\d+$/.test(p))) issues.push({ severity: 'error', code: 'collaborators', message: msg('Facebook 공동 작업자는 페이지 ID(숫자)로 적으세요') });
     if (pages.length > COLLAB_MAX) issues.push({ severity: 'error', code: 'collaborators', message: msg('Facebook 공동 작업자 초대는 페이지마다 하루 {max}건까지입니다', { max: COLLAB_MAX }) });
     if (pages.length && o.draft) issues.push({ severity: 'warning', code: 'collaborators', message: msg('초안에는 공동 작업자를 초대하지 않습니다 — 게시한 뒤 앱에서 초대하세요') });
+    // Meta's docs only describe invitations to a published reel; a natively scheduled one is invited
+    // at upload, weeks before it goes live, which is not confirmed to work.
+    else if (pages.length && post.scheduledAt) issues.push({ severity: 'warning', code: 'collaborators', message: msg('예약한 릴스는 올릴 때 공동 작업자를 초대합니다 (게시 전 초대가 적용되는지 아직 확인 전)') });
     if (o.draft && post.scheduledAt) {
       issues.push({ severity: 'warning', code: 'draft_schedule', message: msg('Facebook 초안은 예약하지 않습니다. 예약 시각은 무시되고 Meta Business Suite에서 직접 게시합니다') });
     } else if (post.scheduledAt) {
@@ -186,7 +189,7 @@ export const facebook: Provider = {
     const o = target.options as FacebookOptions;
     const out = reelOutcome(target.remoteId, s, o.draft === true);
     const warnings: string[] = [];
-    let resume = (target.resume ?? {}) as { coverSent?: boolean; collabSent?: boolean };
+    let resume = (target.resume ?? {}) as { coverSent?: boolean; collabSent?: boolean; collabPages?: string[] };
     const mark = (patch: typeof resume) => {
       resume = { ...resume, ...patch };
       ctx.store.updateTarget(target.id, { resume: { ...target.resume, ...resume } });
@@ -196,18 +199,28 @@ export const facebook: Provider = {
       mark({ coverSent: true });
       const path = post.thumbnailPath;
       await graphUpload(ctx, `/${target.remoteId}/thumbnails`, { field: 'source', path, type: imageMime(path) }, { is_preferred: 'true', access_token: c.pageToken }).catch((err: unknown) => {
-        warnings.push(msg('Facebook 커버 이미지를 바꾸지 못했습니다: {err} — 페이지에서 직접 바꾸세요', { err: (err as Error).message }));
+        // A passing failure: try again at the next status check (setting the cover twice is harmless).
+        if (err instanceof ProviderError && err.kind === 'retryable') mark({ coverSent: false });
+        else warnings.push(msg('Facebook 커버 이미지를 바꾸지 못했습니다: {err} — 페이지에서 직접 바꾸세요', { err: (err as Error).message }));
       });
     }
     // Collaborator invitations once it is live (sent once each; a refusal only warns).
     const pages = collaboratorPages(o);
+    const sentTo = new Set(resume.collabPages ?? []);
     if (pages.length && out.state === 'published' && !resume.collabSent) {
-      mark({ collabSent: true });
-      for (const page of pages) {
+      for (const page of pages.filter((p) => !sentTo.has(p))) {
+        // Each Page is marked before its invitation, so a crash can't send it twice.
+        sentTo.add(page);
+        mark({ collabPages: [...sentTo] });
         await graph(ctx, 'POST', `/${target.remoteId}/collaborators`, { target_id: page, access_token: c.pageToken }).catch((err: unknown) => {
-          warnings.push(msg('Facebook 공동 작업자 {page} 초대 실패: {err}', { page, err: (err as Error).message }));
+          // A passing failure is tried again at the next status check, if there is one.
+          if (err instanceof ProviderError && err.kind === 'retryable') {
+            sentTo.delete(page);
+            mark({ collabPages: [...sentTo] });
+          } else warnings.push(msg('Facebook 공동 작업자 {page} 초대 실패: {err}', { page, err: (err as Error).message }));
         });
       }
+      if (pages.every((p) => sentTo.has(p))) mark({ collabSent: true });
     }
     return warnings.length ? { ...out, warnings: [...(out.warnings ?? []), ...warnings] } : out;
   },
