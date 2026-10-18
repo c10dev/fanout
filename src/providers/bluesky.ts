@@ -288,7 +288,8 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
       ...account,
       credentials: { ...c, pds: pdsFromDidDoc(s.didDoc) ?? c.pds, accessJwt: s.accessJwt, refreshJwt: s.refreshJwt, handle: s.handle ?? c.handle },
     };
-    ctx.store.saveAccount(next);
+    // Only over the same session: the account may have been disconnected or reconnected meanwhile.
+    ctx.store.saveAccountIf(next, (stored) => creds(stored).refreshJwt === c.refreshJwt);
     return next;
   },
 

@@ -57,6 +57,16 @@ describe('posting limits', () => {
     assert.deepEqual((await readLimits(ctx, providerMap(), 'youtube')).map((a) => a.platform), ['youtube']);
   });
 
+  it('a host that never answers is reported after the timeout, not waited on', async () => {
+    const { ctx, store } = makeCtx(((_: unknown, init?: RequestInit) => new Promise((_, reject) => init?.signal?.addEventListener('abort', () => reject(init.signal!.reason)))) as typeof fetch, () => NOW);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    store.saveAccount({ platform: 'instagram', name: 'main', credentials: { pageId: 'PAGE', pageToken: 'PT', igUserId: 'IG' }, profile: {} });
+    store.saveAccount({ platform: 'youtube', name: 'main', credentials: {}, profile: {} });
+    const [ig, yt] = await readLimits(ctx, providerMap(), undefined, 50);
+    assert.ok(ig!.error, 'stuck Instagram reported');
+    assert.equal(yt!.limits[0]!.used, 0, 'YouTube still read');
+  });
+
   it('Bluesky reports what is left today, and nothing left when uploads are refused', async () => {
     const auth = ['GET', 'com.atproto.server.getServiceAuth', () => json({ token: 'svc' })] as const;
     const account = { pds: 'https://pds.example', did: 'did:plc:abc', handle: 'me.bsky.social', accessJwt: jwt(NOW.getTime() + 3600_000), refreshJwt: jwt(NOW.getTime() + 86400_000) };
