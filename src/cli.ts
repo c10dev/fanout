@@ -100,6 +100,12 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         playlistId: str(args, 'yt-playlist'),
         notifySubscribers: args.flags['yt-no-notify'] ? false : undefined,
         defaultLanguage: str(args, 'yt-lang'),
+        audioLanguage: str(args, 'yt-audio-lang'),
+        license: str(args, 'yt-license'),
+        embeddable: bool(args, 'yt-embeddable'),
+        publicStatsViewable: args.flags['yt-hide-stats'] ? false : undefined,
+        paidPromotion: bool(args, 'yt-paid-promo'),
+        localizations: localizationsFile(str(args, 'yt-localizations')),
       });
     case 'tiktok': {
       const privacy = str(args, 'tt-privacy');
@@ -153,6 +159,20 @@ function parseTargets(spec: string, providers: Map<string, Provider>, args: Args
     // Without ":name", use "main" or the platform's only connected account.
     return { platform, account: explicit || defaultAccountName(accounts, platform), options: targetOptions(platform, args) };
   });
+}
+
+/** --yt-localizations file.json: { "en": { "title": "…", "description": "…" }, … } */
+function localizationsFile(path: string | undefined): Record<string, { title: string; description?: string }> | undefined {
+  if (!path) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'));
+  } catch (err) {
+    throw new UsageError(msg('--yt-localizations: JSON을 읽을 수 없습니다 ({err})', { err: (err as Error).message }));
+  }
+  const ok = parsed && typeof parsed === 'object' && !Array.isArray(parsed) && Object.values(parsed).every((v) => v && typeof v === 'object' && typeof (v as { title?: unknown }).title === 'string');
+  if (!ok) throw new UsageError(msg('--yt-localizations 형식: {"en": {"title": "…", "description": "…"}}'));
+  return parsed as Record<string, { title: string; description?: string }>;
 }
 
 function parseCaptions(list: string[] | undefined): CaptionFile[] {
@@ -297,7 +317,9 @@ post 공통 옵션
 
 플랫폼별 옵션
   YouTube    --yt-privacy public|unlisted|private (필수)  --yt-made-for-kids yes|no (필수)
-             --yt-category 22  --yt-playlist ID  --yt-no-notify  --yt-lang ko
+             --yt-category 22  --yt-playlist ID  --yt-no-notify  --yt-lang ko  --yt-audio-lang ko
+             --yt-license creativeCommon  --yt-embeddable no  --yt-hide-stats  --yt-paid-promo yes
+             --yt-localizations titles.json ({"en": {"title": "…", "description": "…"}})
   TikTok     --tt-mode inbox|direct (기본 inbox)
              direct 전용: --tt-privacy public|friends|followers|private (필수)
              --tt-music-consent yes (필수)  --tt-allow-comment/--tt-allow-duet/--tt-allow-stitch yes

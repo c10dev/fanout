@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
-import { CHUNK_SIZE, buildMetadata, nextOffset, pacificDay, youtube } from '../src/providers/youtube.ts';
+import { CHUNK_SIZE, buildMetadata, insertParts, nextOffset, pacificDay, youtube } from '../src/providers/youtube.ts';
 import { fakeMedia, json, makeCtx, mockFetch, tempFile } from './helpers.ts';
 
 const NOW = new Date('2026-10-17T03:00:00Z');
@@ -34,6 +34,38 @@ const account: Account = {
 };
 
 describe('youtube metadata', () => {
+  it('sends language, license, embedding, stats visibility, paid promotion and other-language titles', () => {
+    const opts = {
+      privacy: 'public' as const,
+      madeForKids: false,
+      defaultLanguage: 'ko',
+      audioLanguage: 'ko',
+      license: 'creativeCommon' as const,
+      embeddable: false,
+      publicStatsViewable: false,
+      paidPromotion: true,
+      localizations: { en: { title: 'Ditto lyrics', description: 'English' } },
+    };
+    const m = buildMetadata(post({}), opts) as Record<string, Record<string, unknown>>;
+    assert.equal(m.snippet!.defaultAudioLanguage, 'ko');
+    assert.deepEqual([m.status!.license, m.status!.embeddable, m.status!.publicStatsViewable], ['creativeCommon', false, false]);
+    assert.deepEqual(m.paidProductPlacementDetails, { hasPaidProductPlacement: true });
+    assert.deepEqual(m.localizations, { en: { title: 'Ditto lyrics', description: 'English' } });
+    assert.equal(insertParts(opts), 'snippet,status,paidProductPlacementDetails,localizations');
+    // Defaults stay out of the request entirely.
+    const plain = buildMetadata(post({}), { privacy: 'public', madeForKids: false }) as Record<string, Record<string, unknown>>;
+    assert.deepEqual(Object.keys(plain), ['snippet', 'status']);
+    assert.equal(insertParts({ privacy: 'public', madeForKids: false }), 'snippet,status');
+  });
+
+  it('checks other-language titles need a default language and fit the limits', () => {
+    const codes = (o: Record<string, unknown>) => youtube.validate(post({}), target({ privacy: 'public', madeForKids: false, ...o }), fakeMedia()).map((i) => i.code);
+    assert.ok(codes({ localizations: { en: { title: 'Hi' } } }).includes('localizations'), 'no defaultLanguage');
+    assert.ok(!codes({ defaultLanguage: 'ko', localizations: { en: { title: 'Hi' } } }).includes('localizations'));
+    assert.ok(codes({ defaultLanguage: 'ko', localizations: { en: { title: 'x'.repeat(101) } } }).includes('localizations'));
+    assert.ok(codes({ license: 'cc0' }).includes('license'));
+  });
+
   it('maps the post and discloses synthetic media', () => {
     const m = buildMetadata(post(), { privacy: 'unlisted', madeForKids: false });
     assert.deepEqual(m, {
