@@ -159,7 +159,7 @@ describe('youtube resumable upload', () => {
     store.setApp('youtube', { clientId: 'cid', clientSecret: 'cs' });
     await assert.rejects(
       youtube.publish({ ctx, post: post(), target: target({ privacy: 'public', madeForKids: false }), account, mediaPath: file, media: fakeMedia(), saveResume: () => {} }),
-      (err: ProviderError) => err.kind === 'rejected' && err.code === 'youtube.quota' && err.platformCode === 'quotaExceeded',
+      (err: ProviderError) => err.kind === 'rejected' && err.code === 'youtube.quota' && err.platformCode === 'quotaExceeded' && /T0[78]:05:00\.000Z$/.test(err.retryAt ?? ''),
     );
   });
 

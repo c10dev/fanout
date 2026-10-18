@@ -101,7 +101,9 @@ export function tiktokError(status: number, body: TikTokEnvelope<unknown> | unde
   const code = body?.error?.code ?? `http_${status}`;
   const kind = ERROR_KINDS[code] ?? (status >= 400 ? kindForStatus(status) : 'rejected');
   const hint = ERROR_HINTS[code];
-  return new ProviderError(kind, `tiktok.${code}`, `${body?.error?.message || code}${hint ? ` — ${hint}` : ''}`, code);
+  // The account's daily cap (all apps together): try again in a few hours rather than fail.
+  const retryAt = code === 'spam_risk_too_many_posts' ? new Date(Date.now() + 3 * 3600_000) : undefined;
+  return new ProviderError(kind, `tiktok.${code}`, `${body?.error?.message || code}${hint ? ` — ${hint}` : ''}`, code, { retryAt });
 }
 
 /** Every TikTok response carries `error.code`; "ok" means success even on HTTP 200. */

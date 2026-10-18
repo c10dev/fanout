@@ -158,9 +158,12 @@ async function uploadError(res: Response): Promise<ProviderError> {
     parsed = undefined;
   }
   const { code, message } = describeGoogle(parsed);
-  if (code === 'quotaExceeded' || code === 'uploadLimitExceeded' || code === 'rateLimitExceeded') {
-    return new ProviderError('rejected', 'youtube.quota', msg('YouTube 업로드 한도 초과 ({code}). 태평양 시간 자정에 초기화됩니다.', { code }), code);
+  if (code === 'quotaExceeded' || code === 'uploadLimitExceeded') {
+    // Daily caps reset at midnight Pacific time: try again just after.
+    const retryAt = new Date(nextPacificMidnight(new Date()).getTime() + 5 * 60_000);
+    return new ProviderError('rejected', 'youtube.quota', msg('YouTube 업로드 한도 초과 ({code}). 태평양 시간 자정에 초기화됩니다.', { code }), code, { retryAt });
   }
+  if (code === 'rateLimitExceeded') return new ProviderError('retryable', 'youtube.rate_limit', message ?? code, code);
   return new ProviderError(kindForStatus(res.status), `youtube.http_${res.status}`, message ?? `YouTube HTTP ${res.status}: ${text.slice(0, 300)}`, code);
 }
 
@@ -604,7 +607,9 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
           const day = pacificDay(ctx.now());
           const used = ctx.store.getUsage('youtube', 'project', day);
           if (used >= DAILY_UPLOADS) {
-            throw new ProviderError('rejected', 'youtube.quota', msg('오늘 업로드 {used}/{DAILY_UPLOADS}회를 이미 썼습니다 (로컬 집계)', { used, DAILY_UPLOADS }));
+            throw new ProviderError('rejected', 'youtube.quota', msg('오늘 업로드 {used}/{DAILY_UPLOADS}회를 이미 썼습니다 (로컬 집계)', { used, DAILY_UPLOADS }), undefined, {
+              retryAt: new Date(nextPacificMidnight(ctx.now()).getTime() + 5 * 60_000),
+            });
           }
           sessionUri = await startSession(ctx, account, post, opts, size);
           saveResume({ sessionUri, size });

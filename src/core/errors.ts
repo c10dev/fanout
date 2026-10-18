@@ -18,14 +18,20 @@ export class ProviderError extends Error {
    * still be live and starting over could post twice.
    */
   readonly keepResume: boolean;
+  /**
+   * A limit refused this for now and will take it again at this time (a daily cap's reset): the
+   * runner queues the target for then instead of failing it.
+   */
+  readonly retryAt?: string;
 
-  constructor(kind: ErrorKind, code: string, message: string, platformCode?: string, opts: { keepResume?: boolean } = {}) {
+  constructor(kind: ErrorKind, code: string, message: string, platformCode?: string, opts: { keepResume?: boolean; retryAt?: Date } = {}) {
     super(message);
     this.name = 'ProviderError';
     this.kind = kind;
     this.code = code;
     this.platformCode = platformCode;
     this.keepResume = opts.keepResume ?? false;
+    this.retryAt = opts.retryAt?.toISOString();
   }
 }
 

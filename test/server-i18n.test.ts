@@ -115,6 +115,7 @@ describe('translating messages', () => {
     }
     // Only the last value of these can be misread, and a time or link there never holds this punctuation.
     assert.deepEqual(bad.sort(), [
+      'notBefore = 오류 — 다시 in {platform}: {message} — {notBefore}에 다시 시도합니다',
       'notBefore = 오류 — 다시 in {platform}: {message} — {notBefore}에 재시도',
       'time = 가, 나 in {visibility}, {time}에 게시',
       'url = 끝. 다음 in PeerTube {failure}. {url} 에서 확인하세요',

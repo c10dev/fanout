@@ -85,7 +85,10 @@ export const instagram: Provider = {
 
     const limit = await publishingLimit(ctx, account);
     if (limit && limit.used >= limit.total) {
-      throw new ProviderError('rejected', 'instagram.publishing_limit', msg('Instagram 24시간 게시 한도 {used}/{total}에 도달했습니다', { used: limit.used, total: limit.total }));
+      // A rolling 24-hour window: room comes back as older posts age out, so look again in an hour.
+      throw new ProviderError('rejected', 'instagram.publishing_limit', msg('Instagram 24시간 게시 한도 {used}/{total}에 도달했습니다', { used: limit.used, total: limit.total }), undefined, {
+        retryAt: new Date(ctx.now().getTime() + 3600_000),
+      });
     }
 
     const o = target.options as InstagramOptions;
