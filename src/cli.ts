@@ -1019,8 +1019,11 @@ function cmdPrune(ctx: ProviderContext, args: Args): number {
 
 /** MCP server on stdio; it also runs the upload worker, so posts it creates actually go out. */
 /** --allow a,b or FANOUT_MCP_ROOTS (path-list separated): the folders MCP agents may read from. */
-export function mcpRoots(allow: string | undefined, env = process.env.FANOUT_MCP_ROOTS): string[] | undefined {
+export function mcpRoots(allow: string | true | undefined, env = process.env.FANOUT_MCP_ROOTS): string[] | undefined {
+  // "--allow" with nothing after it (or an empty variable) must not quietly mean "anywhere".
+  if (allow === true) throw new UsageError(msg('--allow에 폴더를 하나 이상 적으세요'));
   const list = (allow !== undefined ? allow.split(',') : (env ?? '').split(delimiter)).map((d) => d.trim()).filter(Boolean);
+  if (allow !== undefined && !list.length) throw new UsageError(msg('--allow에 폴더를 하나 이상 적으세요'));
   if (!list.length) return undefined;
   return list.map((d) => {
     // The shell expands only the first ~ in "a,~/b".
@@ -1034,7 +1037,7 @@ async function cmdMcp(providers: Map<string, Provider>, args: Args): Promise<num
   // Agents are mostly prompted in English, so the MCP server (results and its worker's logs) speaks
   // English unless FANOUT_LANG asks otherwise; FANOUT_LANG=ko keeps Korean.
   process.env.FANOUT_LANG ||= 'en';
-  const roots = mcpRoots(str(args, 'allow'));
+  const roots = mcpRoots(args.flags.allow === true ? true : str(args, 'allow'));
   const ctx = openContext(undefined, stderrLogger);
   if (roots) ctx.log.info(msg('MCP: 이 폴더의 파일만 읽습니다: {roots}', { roots: roots.join(', ') }));
   const worker = new Worker({ ctx, providers });

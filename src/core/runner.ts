@@ -1,8 +1,9 @@
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { ProviderError } from './errors.ts';
 import { sleep } from './http.ts';
 import { isStaleOwner, PROCESS_OWNER } from './lease.ts';
-import { checkMedia, ensureVariant, probe, type MediaInfo } from './media.ts';
+import { checkMedia, ensureVariant, fileHash, probe, type MediaInfo } from './media.ts';
 import type { Provider, ProviderContext, PublishOutcome } from './provider.ts';
 import { withTimeout } from './posting.ts';
 import { isTerminal } from './state.ts';
@@ -110,6 +111,11 @@ async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> 
       return applyOutcome(deps, target, outcome);
     }
 
+    // The video must still be the one the post was made with: one swapped since (a folder others
+    // or an agent can write to) is refused rather than uploaded. The hash is cached per file version.
+    if (post.mediaHash && existsSync(post.mediaPath) && (await fileHash(post.mediaPath)) !== post.mediaHash) {
+      throw new ProviderError('rejected', 'media_changed', msg('영상 파일이 게시물을 만든 뒤 바뀌었습니다. 새 게시물로 다시 올리세요'));
+    }
     const probeFn = deps.probe ?? probe;
     const media = await probeFn(post.mediaPath);
     const spec = provider.specFor?.(post, target) ?? provider.spec;

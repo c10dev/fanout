@@ -13,7 +13,7 @@ import { isShort } from '../providers/youtube.ts';
 import { currentLang, local, msg, translateDeep } from '../core/i18n.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
-import { assetProblem, type AssetKind } from '../core/assets.ts';
+import { assetProblem, importAsset, type AssetKind } from '../core/assets.ts';
 
 // Model Context Protocol over stdio: newline-delimited JSON-RPC 2.0.
 // Spec: https://modelcontextprotocol.io/specification
@@ -343,6 +343,18 @@ export class McpServer {
         await addLiveChecks(this.#deps.ctx, providers, preview, { input, targets, media });
         const blocked = preview.filter((p) => p.errors.length);
         if (blocked.length) throw new ToolError(msg('올릴 수 없는 대상이 있어 게시하지 않았습니다:\n{blocked}', { blocked: blocked.map(describeBlocked).join('\n') }));
+        // Upload later reads fanout's own copies (no symlink, no hard link), so the originals can't be
+        // swapped for something else before the post goes out. The video is checked by its hash.
+        const mediaDir = join(this.#deps.ctx.home, 'media');
+        const copy = (kind: AssetKind, path: string, field: string) => {
+          try {
+            return importAsset(kind, path, mediaDir);
+          } catch (err) {
+            throw new ToolError(`${field}: ${(err as Error).message}`);
+          }
+        };
+        if (input.thumbnailPath) input.thumbnailPath = copy('thumbnail', input.thumbnailPath, 'thumbnailPath');
+        input.captions = input.captions.map((c, i) => ({ ...c, path: copy('caption', c.path, `captions[${i}].path`) }));
         const { post, targets: created } = createScheduledPost(store, providers, input, targets);
         this.#deps.worker?.tick();
         return { postId: post.id, targets: created.map(publicTarget), next: msg('get_post_status 로 진행 상황을 확인하세요') };
@@ -464,15 +476,17 @@ export class McpServer {
   #file(value: unknown, field: string): string {
     if (typeof value !== 'string' || !value.trim()) throw new ToolError(msg('{field}: 파일 경로가 필요합니다', { field }));
     const path = isAbsolute(value) ? value : resolve(value);
-    if (!existsSync(path)) throw new ToolError(msg('{field}: 파일이 없습니다: {path}', { field, path }));
     const roots = this.#deps.roots;
-    // Symlinks resolved first, so a link inside an allowed folder can't point outside it.
     if (roots?.length) {
-      const real = realpathSync(path);
-      if (!roots.some((r) => real === r || real.startsWith(r.endsWith(sep) ? r : r + sep))) {
-        throw new ToolError(msg('{field}: 허용된 폴더 밖의 파일입니다 ({roots})', { field, roots: roots.join(', ') }));
+      // Judged by where the path really points (symlinks, ..), and one answer for "not there" and
+      // "not allowed", so an agent can't probe which files exist elsewhere.
+      const real = existsSync(path) ? realpathSync(path) : undefined;
+      if (!real || !roots.some((r) => real === r || real.startsWith(r.endsWith(sep) ? r : r + sep))) {
+        throw new ToolError(msg('{field}: 허용된 폴더 안에 그 파일이 없습니다 ({roots})', { field, roots: roots.join(', ') }));
       }
+      return real;
     }
+    if (!existsSync(path)) throw new ToolError(msg('{field}: 파일이 없습니다: {path}', { field, path }));
     return path;
   }
 
@@ -498,7 +512,13 @@ export class McpServer {
     return (raw as Array<Record<string, unknown>>).map((t) => {
       const platform = String(t.platform ?? '');
       if (!this.#deps.providers.has(platform)) throw new ToolError(msg('알 수 없는 플랫폼: {platform}', { platform }));
-      const account = typeof t.account === 'string' && t.account ? t.account : defaultAccountName(accounts, platform);
+      let account = typeof t.account === 'string' && t.account ? t.account : undefined;
+      if (!account) {
+        // Several accounts and no "main": ask, rather than pick "main" and fail on it.
+        const names = accounts.filter((a) => a.platform === platform).map((a) => a.name);
+        if (names.length > 1 && !names.includes('main')) throw new ToolError(msg('{platform} 계정이 여러 개입니다 ({names}) — {flag} 로 고르세요', { platform, names: names.join(', '), flag: 'account' }));
+        account = defaultAccountName(accounts, platform);
+      }
       const options = t.options && typeof t.options === 'object' ? (t.options as Record<string, unknown>) : {};
       return { platform, account, options: platform === 'tiktok' && !options.mode ? { mode: 'inbox', ...options } : options };
     });

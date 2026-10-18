@@ -6,7 +6,9 @@ import type { MediaInfo } from '../src/core/media.ts';
 import type { PollOutcome, Provider, PublishOutcome } from '../src/core/provider.ts';
 import { settle, step, type RunnerDeps } from '../src/core/runner.ts';
 import type { PostInput } from '../src/core/types.ts';
-import { fakeMedia, makeCtx } from './helpers.ts';
+import { writeFileSync } from 'node:fs';
+import { fileHash } from '../src/core/media.ts';
+import { fakeMedia, makeCtx, tempFile } from './helpers.ts';
 
 const POST: PostInput = { mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
 
@@ -58,6 +60,19 @@ describe('runner', () => {
     assert.equal(done!.state, 'published');
     assert.equal(done!.remoteUrl, 'https://x/R1');
     assert.deepEqual(store.events(id).map((e) => e.to), ['queued', 'uploading', 'processing', 'published']);
+  });
+
+  it('refuses a video swapped since the post was made, without uploading', async () => {
+    const provider = fakeProvider({});
+    const env = makeCtx();
+    env.store.saveAccount({ platform: 'fake', name: 'main', credentials: {}, profile: {} });
+    const path = tempFile(64);
+    const { targets } = env.store.createPost({ ...POST, mediaPath: path, mediaHash: await fileHash(path) }, [{ platform: 'fake', account: 'main', options: {} }]);
+    writeFileSync(path, 'something else entirely');
+    const deps: RunnerDeps = { ctx: env.ctx, providers: new Map([['fake', provider]]), probe: async () => fakeMedia(), ensureVariant: async (info) => ({ path: info.path, transcoded: false, reasons: [] }) };
+    const t = await step(deps, targets[0]!.id);
+    assert.deepEqual([t.state, t.errorCode], ['failed', 'media_changed']);
+    assert.equal(provider.publishes, 0);
   });
 
   it('fails preflight on non-fixable spec violations without uploading', async () => {
