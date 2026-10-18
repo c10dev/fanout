@@ -204,3 +204,34 @@ describe('tiktok refresh', () => {
     assert.equal((next.credentials as { accessToken: string }).accessToken, 'AT3');
   });
 });
+
+describe('tiktok stats', () => {
+  const t = (remoteId: string) => ({ id: 't', postId: 'p', platform: 'tiktok', account: 'main', options: {}, state: 'published', warnings: [], attempts: 1, updatedAt: '', remoteId }) as Target & { remoteId: string };
+  const withList: Account = { ...account, credentials: { ...account.credentials, scope: 'user.info.basic,video.upload,video.list' } };
+
+  it('reads views, likes, comments and shares of the posted video with video.list', async () => {
+    const { fetch, calls } = mockFetch([
+      ['POST', '/v2/video/query/', () => json({ data: { videos: [{ id: '7300000000000000001', view_count: 1200, like_count: 80, comment_count: 7, share_count: 3 }] }, error: { code: 'ok' } })],
+    ]);
+    const { ctx } = makeCtx(fetch, () => NOW);
+    const stats = await tiktok.stats!({ ctx, account: withList, target: t('7300000000000000001') });
+    assert.deepEqual(stats, { views: 1200, likes: 80, comments: 7, shares: 3 });
+    const url = new URL(calls[0]!.url);
+    assert.equal(url.searchParams.get('fields'), 'id,view_count,like_count,comment_count,share_count');
+    assert.deepEqual(JSON.parse(String(calls[0]!.body)), { filters: { video_ids: ['7300000000000000001'] } });
+  });
+
+  it('explains instead of calling when the scope or a public id is missing', async () => {
+    const { fetch, calls } = mockFetch([]);
+    const { ctx } = makeCtx(fetch, () => NOW);
+    assert.match((await tiktok.stats!({ ctx, account, target: t('7300000000000000001') })).note!, /video\.list/);
+    assert.match((await tiktok.stats!({ ctx, account: withList, target: t('v_pub_file~v2-1.123') })).note!, /공개 게시물 ID/);
+    assert.equal(calls.length, 0);
+  });
+
+  it('notes a video the account does not have', async () => {
+    const { fetch } = mockFetch([['POST', '/v2/video/query/', () => json({ data: { videos: [] }, error: { code: 'ok' } })]]);
+    const { ctx } = makeCtx(fetch, () => NOW);
+    assert.match((await tiktok.stats!({ ctx, account: withList, target: t('7300000000000000002') })).note!, /찾을 수 없습니다/);
+  });
+});

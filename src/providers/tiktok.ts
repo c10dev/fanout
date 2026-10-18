@@ -122,6 +122,11 @@ function creds(account: Account): TikTokCredentials {
   return account.credentials as unknown as TikTokCredentials;
 }
 
+/** TikTok returns the granted scopes comma-separated. */
+function hasScope(account: Account, scope: string): boolean {
+  return (creds(account).scope ?? '').split(/[,\s]+/).includes(scope);
+}
+
 function app(ctx: ProviderContext): TikTokApp {
   const a = ctx.store.getApp<TikTokApp>('tiktok');
   if (!a?.clientKey || !a.clientSecret) {
@@ -338,6 +343,8 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
    (Desktop 플랫폼에서 loopback URI가 거부되면 내가 가진 HTTPS 주소를 등록하고
     redirectUri로 지정하세요. 그 경우 리디렉트된 URL을 터미널에 붙여넣는 방식으로 진행합니다)
 4. Scopes: user.info.basic, video.upload, video.publish
+   (반응 통계를 보려면 Display API를 추가하고 video.list도 — 그때는
+    fanout app set tiktok --scopes user.info.basic,video.upload,video.publish,video.list)
 5. fanout app set tiktok --clientKey <KEY> --clientSecret <SECRET> [--redirectUri <URI>]
 6. fanout connect tiktok --name main
 7. fanout doctor tiktok --live 로 미심사 상태에서 수신함 업로드가 되는지 확인
@@ -550,6 +557,11 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     } catch (err) {
       checks.push({ name: 'creator_info', status: 'warn', detail: msg('조회 실패 (video.publish scope 없음?): {err}', { err: (err as Error).message }) });
     }
+    checks.push(
+      hasScope(acct, 'video.list')
+        ? { name: msg('반응 통계'), status: 'ok', detail: msg('video.list 권한 있음') }
+        : { name: msg('반응 통계'), status: 'info', detail: msg('video.list 권한이 없어 조회·좋아요 통계를 못 가져옵니다 (원하면 앱 scopes에 더하고 다시 연결)') },
+    );
 
     if (!live) {
       checks.push({ name: msg('미심사 앱 수신함 업로드'), status: 'info', detail: msg('확인하려면 --live 로 다시 실행 (테스트 영상을 TikTok 수신함으로 보냅니다)') });
@@ -580,5 +592,21 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
       checks.push({ name: msg('미심사 앱 수신함 업로드'), status: 'fail', detail: `${e.platformCode ?? e.code}: ${e.message}` });
     }
     return checks;
+  },
+
+  // video.list scope (not in the default set: the app has to have it). Only the account's own videos.
+  async stats({ ctx, account, target }) {
+    if (!hasScope(account, 'video.list')) return { note: msg('TikTok 통계는 video.list 권한이 필요합니다 — 앱 scopes에 더하고 다시 연결하세요') };
+    // Without a public post id (SELF_ONLY, or still under review) there is nothing to look up.
+    if (!/^\d+$/.test(target.remoteId)) return { note: msg('공개 게시물 ID가 없어 통계를 가져올 수 없습니다') };
+    const data = await call<{ videos?: Array<{ id?: string; view_count?: number; like_count?: number; comment_count?: number; share_count?: number }> }>(
+      ctx,
+      account,
+      '/video/query/?fields=id,view_count,like_count,comment_count,share_count',
+      { filters: { video_ids: [target.remoteId] } },
+    );
+    const v = data?.videos?.find((x) => String(x.id) === target.remoteId);
+    if (!v) return { note: msg('게시물을 찾을 수 없습니다') };
+    return { views: v.view_count, likes: v.like_count, comments: v.comment_count, shares: v.share_count };
   },
 };
