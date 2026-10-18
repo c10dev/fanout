@@ -547,21 +547,28 @@ export async function hideComment(baseCtx: ProviderContext, providers: Map<strin
   if (!account) throw new Error(msg('연결된 계정이 없습니다: {platform}/{account}', { platform: t.platform, account: t.account }));
   account = await provider.refresh(ctx, account);
   const target = { ...t, remoteId: t.remoteId };
-  const listed = (await provider.comments({ ctx, account, target, limit: REPLY_LOOKBACK })).find((c) => c.id === commentId);
   const ours = hiddenByFanout(t);
-  if (!listed && (hidden || !ours.some((c) => c.id === commentId))) {
-    throw new Error(
-      hidden
-        ? msg('이 게시물의 최근 댓글 중에 그 댓글이 없습니다. 댓글을 다시 불러온 뒤 시도하세요')
-        : msg('fanout이 이 게시물에서 숨긴 댓글만 다시 보이게 할 수 있습니다. 다른 댓글은 플랫폼에서 직접 확인하세요'),
-    );
-  }
-  await provider.hideComment({ ctx, account, target, commentId, hidden });
-  // Remember what fanout hid (a held YouTube comment drops out of the list) so it can be shown again.
+  const remember = (list: Comment[]) => ctx.store.updateTarget(t.id, { resume: { ...ctx.store.getTarget(t.id)!.resume, hiddenComments: list } });
   const rest = ours.filter((c) => c.id !== commentId);
-  const kept = hidden && listed ? [...rest, { id: listed.id, author: listed.author, text: listed.text, at: listed.at, ...(listed.url ? { url: listed.url } : {}) }] : rest;
-  const current = ctx.store.getTarget(t.id)!;
-  ctx.store.updateTarget(t.id, { resume: { ...current.resume, hiddenComments: kept } });
+  // Showing again only undoes fanout's own hides: Meta also lists comments its filters or another
+  // admin hid, and YouTube holds spam, and none of those are for an agent to publish.
+  if (!hidden && rest.length === ours.length) {
+    throw new Error(msg('fanout이 이 게시물에서 숨긴 댓글만 다시 보이게 할 수 있습니다. 다른 댓글은 플랫폼에서 직접 확인하세요'));
+  }
+  const listed = hidden ? (await provider.comments({ ctx, account, target, limit: REPLY_LOOKBACK })).find((c) => c.id === commentId) : undefined;
+  if (hidden && !listed) throw new Error(msg('이 게시물의 최근 댓글 중에 그 댓글이 없습니다. 댓글을 다시 불러온 뒤 시도하세요'));
+  try {
+    await provider.hideComment({ ctx, account, target, commentId, hidden });
+  } catch (err) {
+    // Deleted since (by its author or on the platform): nothing left to show, so stop listing it.
+    if (!hidden && err instanceof ProviderError && err.kind === 'rejected' && /^(commentNotFound|notFound|100)/.test(err.platformCode ?? '')) {
+      remember(rest);
+      throw new Error(msg('그 댓글은 플랫폼에 더 이상 없습니다 (삭제됨). 숨긴 목록에서 뺐습니다'));
+    }
+    throw err;
+  }
+  // Remember what fanout hid (a held YouTube comment drops out of the list) so it can be shown again.
+  remember(hidden && listed ? [...rest, { id: listed.id, author: listed.author, text: listed.text, at: listed.at, ...(listed.url ? { url: listed.url } : {}) }] : rest);
   const vars = { platform: t.platform, account: t.account, commentId };
   ctx.log.info(hidden ? msg('{platform}/{account}: 댓글 {commentId}을(를) 숨겼습니다', vars) : msg('{platform}/{account}: 댓글 {commentId}을(를) 다시 보이게 했습니다', vars));
 }

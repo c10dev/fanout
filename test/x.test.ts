@@ -295,4 +295,35 @@ describe('x alt text and subtitles', () => {
     assert.equal(calls.filter((c) => c.url.endsWith('/2/tweets')).length, 2);
     assert.deepEqual((store.getTarget(id2)!.resume as { extras?: string[] }).extras, [], 'tried again after reconnecting');
   });
+
+  it('retries alt text after a passing failure, but never attaches a subtitle track twice', async () => {
+    let metadata = 503;
+    let attach = 503;
+    let n = 0;
+    const { fetch, calls } = mockFetch([
+      ['GET', '/2/media/upload?', () => json({ data: { id: 'M1', processing_info: { state: 'succeeded' } } })],
+      ['POST', '/2/media/metadata', () => json(metadata === 200 ? { data: {} } : { title: 'Service Unavailable' }, metadata)],
+      ['POST', '/2/media/upload/initialize', () => json({ data: { id: `S${++n}` } })],
+      ['POST', '/append', () => new Response(null, { status: 204 })],
+      ['POST', '/finalize', () => json({ data: {} })],
+      ['POST', '/2/media/subtitles', () => json(attach === 200 ? { data: {} } : { title: 'Service Unavailable' }, attach)],
+      ['POST', '/2/tweets', () => json({ data: { id: 'T1' } }, 201)],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    const p = post({ captions: [{ language: 'en', path: sub('en.srt') }, { language: 'en-US', path: sub('us.srt') }] });
+    assert.ok(x.validate(p, target(), fakeMedia()).some((i) => i.code === 'subtitles' && /언어마다/.test(i.message)));
+    const { targets } = store.createPost(p, [{ platform: 'x', account: 'main', options: { alt: 'cat' } }]);
+    const id = targets[0]!.id;
+    const poll = () => x.poll({ ctx, post: p, target: { ...store.getTarget(id)!, remoteId: 'M1', resume: { mediaId: 'M1', ...store.getTarget(id)!.resume } }, account });
+    // Alt text: a 503 before anything is attached is left for the next status check.
+    await assert.rejects(poll(), (e: ProviderError) => e.kind === 'retryable');
+    assert.deepEqual((store.getTarget(id)!.resume as { extras?: string[] }).extras, []);
+    metadata = 200;
+    // The subtitle attach fails after the point of no return: a warning, not a second try.
+    const out = await poll();
+    assert.equal(out.state, 'published');
+    assert.deepEqual(out.warnings, ['X 자막(en) 실패: X: Service Unavailable']);
+    assert.equal(calls.filter((c) => c.url.endsWith('/2/media/metadata')).length, 2);
+    assert.equal(calls.filter((c) => c.url.endsWith('/2/media/subtitles')).length, 1, 'one EN track, attached once');
+  });
 });

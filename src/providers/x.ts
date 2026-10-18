@@ -182,34 +182,54 @@ async function applyExtras(
   save: (resume: XResume) => void,
 ): Promise<XResume> {
   let resume = start;
-  const attempt = async (key: string, label: string, send: () => Promise<unknown>) => {
+  /**
+   * `send` calls `commit()` just before the request that attaches something for good. Until then a
+   * passing failure is safe to retry later; after it, a failure might have attached anyway, so it
+   * only becomes a warning. A crash in between leaves an "unsure" warning rather than nothing.
+   */
+  const attempt = async (key: string, label: string, send: (commit: () => void) => Promise<unknown>) => {
     if (resume.extras?.includes(key)) return;
-    resume = { ...resume, extras: [...(resume.extras ?? []), key] };
-    save(resume);
+    const unsure = msg('{label}: 보냈는지 확인하지 못했습니다 — 게시물에서 확인하세요', { label });
+    const finish = (extras: string[], warning?: string) => {
+      resume = { ...resume, extras, extraWarnings: [...(resume.extraWarnings ?? []).filter((w) => w !== unsure), ...(warning ? [warning] : [])] };
+      save(resume);
+    };
+    const others = (resume.extras ?? []).filter((k) => k !== key);
+    let committed = false;
+    const commit = () => {
+      committed = true;
+      resume = { ...resume, extras: [...others, key], extraWarnings: [...(resume.extraWarnings ?? []), unsure] };
+      save(resume);
+    };
     try {
-      await send();
+      await send(commit);
+      finish([...others, key]);
     } catch (err) {
-      if (err instanceof ProviderError && err.kind === 'auth') {
-        // Refused before anything was attached: try it again after reconnecting.
-        resume = { ...resume, extras: resume.extras?.filter((k) => k !== key) };
-        save(resume);
+      const kind = err instanceof ProviderError ? err.kind : undefined;
+      // Refused before anything was attached (sign-in), or a passing failure before the point of no
+      // return: leave it to the next status check.
+      if (kind === 'auth' || (kind === 'retryable' && !committed)) {
+        finish(others);
         throw err;
       }
-      resume = { ...resume, extraWarnings: [...(resume.extraWarnings ?? []), msg('{label} 실패: {err}', { label, err: (err as Error).message })] };
-      save(resume);
+      finish([...others, key], msg('{label} 실패: {err}', { label, err: (err as Error).message }));
     }
   };
   const json = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
   if (opts.alt?.trim()) {
     const text = opts.alt.trim();
+    // Setting metadata replaces it, so this one is always safe to send again: no commit.
     await attempt('alt_text', msg('X 대체 텍스트'), () => api(ctx, account, '/2/media/metadata', json({ id: mediaId, metadata: { alt_text: { text } } })));
   }
+  const seen = new Set<string>();
   for (const cap of post.captions) {
     const type = SUBTITLE_TYPES[extname(cap.path).toLowerCase()];
     const language = subtitleLanguage(cap.language);
-    if (!type || !language) continue; // validate() already said why
-    await attempt(`subtitles:${cap.language}`, msg('X 자막({language})', { language: cap.language }), async () => {
+    // validate() already said why: not SRT/VTT, not a two-letter code, or a second track in a language.
+    if (!type || !language || seen.has(language)) continue;
+    seen.add(language);
+    await attempt(`subtitles:${language}`, msg('X 자막({language})', { language: cap.language }), async (commit) => {
       const file = readFileSync(cap.path);
       if (file.length > SEGMENT) throw new Error(msg('자막 파일이 너무 큽니다 ({size} 바이트)', { size: file.length }));
       const init = await api<{ data: { id: string } }>(ctx, account, '/2/media/upload/initialize', json({ media_type: type, total_bytes: file.length, media_category: 'subtitles' }));
@@ -220,6 +240,8 @@ async function applyExtras(
       await api(ctx, account, `/2/media/upload/${subId}/append`, { method: 'POST', body: form });
       await api(ctx, account, `/2/media/upload/${subId}/finalize`, { method: 'POST' });
       const displayName = cap.name ?? new Intl.DisplayNames(['en'], { type: 'language' }).of(language.toLowerCase()) ?? language;
+      // Attaching twice would add a second track.
+      commit();
       await api(ctx, account, '/2/media/subtitles', json({ id: mediaId, media_category: 'TweetVideo', subtitles: { id: subId, language_code: language, display_name: displayName } }));
     });
   }
@@ -352,9 +374,13 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       issues.push({ severity: 'error', code: 'alt_text', message: msg('alt는 {max}자 이하 문자열', { max: ALT_TEXT_MAX }) });
     }
     if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'extras', message: msg('X에는 썸네일을 보내지 않습니다') });
+    const tracks = new Set<string>();
     for (const cap of post.captions) {
+      const code = subtitleLanguage(cap.language);
       if (!SUBTITLE_TYPES[extname(cap.path).toLowerCase()]) issues.push({ severity: 'warning', code: 'subtitles', message: msg('X 자막은 SRT·VTT만 받습니다 — {language} 자막은 빠집니다', { language: cap.language }) });
-      else if (!subtitleLanguage(cap.language)) issues.push({ severity: 'warning', code: 'subtitles', message: msg('X 자막 언어는 두 글자 코드만 됩니다 — {language} 자막은 빠집니다', { language: cap.language }) });
+      else if (!code) issues.push({ severity: 'warning', code: 'subtitles', message: msg('X 자막 언어는 두 글자 코드만 됩니다 — {language} 자막은 빠집니다', { language: cap.language }) });
+      else if (tracks.has(code)) issues.push({ severity: 'warning', code: 'subtitles', message: msg('X는 언어마다 자막 하나만 받습니다 ({code}) — {language} 자막은 빠집니다', { code, language: cap.language }) });
+      else tracks.add(code);
     }
     return issues;
   },
@@ -428,7 +454,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
   async poll({ ctx, post, target, account }): Promise<PollOutcome> {
     let resume = (target.resume ?? {}) as XResume;
     const username = creds(account).username;
-    if (resume.tweetId) return { state: 'published', remoteId: resume.tweetId, remoteUrl: `https://x.com/${username}/status/${resume.tweetId}`, warnings: resume.extraWarnings };
+    if (resume.tweetId) return { state: 'published', remoteId: resume.tweetId, remoteUrl: `https://x.com/${username}/status/${resume.tweetId}`, warnings: resume.extraWarnings?.length ? resume.extraWarnings : undefined };
     const mediaId = resume.mediaId ?? target.remoteId;
 
     const status = await api<{ data: MediaData }>(ctx, account, `/2/media/upload?${new URLSearchParams({ command: 'STATUS', media_id: mediaId })}`);
@@ -456,7 +482,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       throw err;
     });
     ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false, tweetId: tweet.data.id } });
-    return { state: 'published', remoteId: tweet.data.id, remoteUrl: `https://x.com/${username}/status/${tweet.data.id}`, warnings: resume.extraWarnings };
+    return { state: 'published', remoteId: tweet.data.id, remoteUrl: `https://x.com/${username}/status/${tweet.data.id}`, warnings: resume.extraWarnings?.length ? resume.extraWarnings : undefined };
   },
 
   async doctor({ ctx, account }): Promise<DoctorCheck[]> {

@@ -106,6 +106,36 @@ export function tiktokError(status: number, body: TikTokEnvelope<unknown> | unde
   return new ProviderError(kind, `tiktok.${code}`, `${body?.error?.message || code}${hint ? ` — ${hint}` : ''}`, code, { retryAt });
 }
 
+/**
+ * JSON.parse that keeps integers too long for a double as their digits. TikTok sends post ids as
+ * int64 numbers (`publicaly_available_post_id: [7412345678901234567]`); a plain parse rounds them to
+ * a different, wrong id. Text inside strings is left alone.
+ */
+export function parseExactJson(text: string): unknown {
+  const NUMBER = /-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?/y;
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (inString) {
+      out += ch;
+      if (ch === '\\') out += text[++i] ?? '';
+      else if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    if (ch === '-' || (ch >= '0' && ch <= '9')) {
+      NUMBER.lastIndex = i;
+      const m = NUMBER.exec(text)?.[0] ?? ch;
+      out += /^-?\d{16,}$/.test(m) && !Number.isSafeInteger(Number(m)) ? `"${m}"` : m;
+      i += m.length - 1;
+      continue;
+    }
+    out += ch;
+  }
+  return JSON.parse(out);
+}
+
 /** Every TikTok response carries `error.code`; "ok" means success even on HTTP 200. */
 async function call<T>(ctx: ProviderContext, account: Account, path: string, body: unknown): Promise<T> {
   const res = await ctx.fetch(`${API}${path}`, {
@@ -113,7 +143,13 @@ async function call<T>(ctx: ProviderContext, account: Account, path: string, bod
     headers: { authorization: `Bearer ${creds(account).accessToken}`, 'content-type': 'application/json; charset=UTF-8' },
     body: JSON.stringify(body),
   });
-  const parsed = (await jsonOr(res, undefined)) as TikTokEnvelope<T> | undefined;
+  const text = await res.text();
+  let parsed: TikTokEnvelope<T> | undefined;
+  try {
+    parsed = text ? (parseExactJson(text) as TikTokEnvelope<T>) : undefined;
+  } catch {
+    parsed = undefined;
+  }
   if (!res.ok || (parsed?.error?.code && parsed.error.code !== 'ok')) throw tiktokError(res.status, parsed, ctx.now());
   return parsed?.data as T;
 }
