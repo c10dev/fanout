@@ -580,4 +580,7 @@ export const MESSAGES_EN: Record<string, string> = {
   "잘못된 주소 인코딩입니다": "Malformed URL encoding",
   "Bluesky 서버 주소가 올바르지 않습니다: {url}": "The Bluesky server address is invalid: {url}",
   "Bluesky 서버 주소는 https여야 합니다: {url}": "The Bluesky server address must use https: {url}",
+  "{what}: 남은 한도가 없습니다. 지금 올리면 거부될 수 있습니다": "{what}: nothing left. Posting now may be refused",
+  "{what}: 영상({size})이 남은 {remaining}보다 큽니다": "{what}: the video ({size}) is bigger than the {remaining} left",
+  "{what}: 한도가 얼마 남지 않았습니다 ({used}/{total})": "{what}: nearly used up ({used}/{total})",
 };

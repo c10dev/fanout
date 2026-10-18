@@ -1,7 +1,9 @@
 // Posting limits of every connected account in one place (fanout limits, the dashboard, MCP), so a
 // daily cap is seen before an upload runs into it rather than after.
 
+import { msg } from './i18n.ts';
 import { withTimeout } from './posting.ts';
+import { formatBytes } from './prune.ts';
 import type { Limit, Provider, ProviderContext } from './provider.ts';
 
 export interface AccountLimits {
@@ -28,4 +30,43 @@ export async function readLimits(ctx: ProviderContext, providers: Map<string, Pr
     }
   }
   return out;
+}
+
+/**
+ * Warnings for a planned post from its target accounts' limits: nothing left, little left, or a
+ * video bigger than the bytes left. Warnings only, never errors: a 24-hour window may free up by
+ * the scheduled time, and YouTube's number is fanout's own count. A limit that can't be read is
+ * left out, so a preview never fails over it.
+ */
+export async function addLimitWarnings(
+  ctx: ProviderContext,
+  providers: Map<string, Provider>,
+  previews: Array<{ platform: string; account: string; warnings: string[] }>,
+  sizeBytes: number,
+  timeoutMs = 8_000,
+): Promise<void> {
+  const read = new Map<string, Promise<Limit[]>>();
+  for (const p of previews) {
+    const key = `${p.platform}/${p.account}`;
+    const provider = providers.get(p.platform);
+    const account = ctx.store.getAccount(p.platform, p.account);
+    if (!provider?.limits || !account || read.has(key)) continue;
+    read.set(key, provider.limits({ ctx: withTimeout(ctx, timeoutMs), account }).catch(() => []));
+  }
+  for (const p of previews) {
+    const limits = await (read.get(`${p.platform}/${p.account}`) ?? Promise.resolve([]));
+    for (const l of limits) {
+      const warning = limitWarning(l, sizeBytes);
+      if (warning) p.warnings.push(warning);
+    }
+  }
+}
+
+function limitWarning(l: Limit, sizeBytes: number): string | undefined {
+  if (l.unlimited || l.remaining === undefined) return undefined;
+  const n = (v: number) => (l.unit === 'bytes' ? formatBytes(v) : String(v));
+  if (l.remaining === 0) return msg('{what}: 남은 한도가 없습니다. 지금 올리면 거부될 수 있습니다', { what: l.what });
+  if (l.unit === 'bytes' && sizeBytes > l.remaining) return msg('{what}: 영상({size})이 남은 {remaining}보다 큽니다', { what: l.what, size: formatBytes(sizeBytes), remaining: n(l.remaining) });
+  if (l.unit === 'posts' && l.total && l.remaining / l.total < 0.1) return msg('{what}: 한도가 얼마 남지 않았습니다 ({used}/{total})', { what: l.what, used: n(l.used ?? l.total - l.remaining), total: n(l.total) });
+  return undefined;
 }

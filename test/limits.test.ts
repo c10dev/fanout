@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { openContext } from '../src/core/context.ts';
-import { readLimits } from '../src/core/limits.ts';
+import { addLimitWarnings, readLimits } from '../src/core/limits.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { nextPacificMidnight, pacificDay } from '../src/providers/youtube.ts';
 import { json, makeCtx, mockFetch } from './helpers.ts';
@@ -81,6 +81,46 @@ describe('posting limits', () => {
     );
     const refused = await read({ canUpload: false, message: 'daily limit reached' });
     assert.deepEqual(refused.map((l) => [l.remaining, l.note]), [[0, 'daily limit reached'], [0, 'daily limit reached']]);
+  });
+
+  it('previews warn when a limit is used up, nearly used up, or smaller than the video', async () => {
+    const quota = { used: 50 };
+    const { fetch } = mockFetch([
+      ['GET', '/IG/content_publishing_limit', () => json({ data: [{ quota_usage: quota.used, config: { quota_total: 50 } }] })],
+      ['GET', 'com.atproto.server.getServiceAuth', () => json({ token: 'svc' })],
+      ['GET', 'app.bsky.video.getUploadLimits', () => json({ canUpload: true, remainingDailyVideos: 20, remainingDailyBytes: 100e6 })],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    store.saveAccount({ platform: 'instagram', name: 'main', credentials: { pageId: 'PAGE', pageToken: 'PT', igUserId: 'IG' }, profile: {} });
+    store.saveAccount({
+      platform: 'bluesky',
+      name: 'main',
+      credentials: { pds: 'https://pds.example', did: 'did:plc:abc', handle: 'me.bsky.social', accessJwt: jwt(NOW.getTime() + 3600_000), refreshJwt: jwt(NOW.getTime() + 86400_000) },
+      profile: {},
+    });
+    const previews = () => [
+      { platform: 'instagram', account: 'main', warnings: [] as string[] },
+      { platform: 'bluesky', account: 'main', warnings: [] as string[] },
+      { platform: 'mastodon', account: 'main', warnings: [] as string[] },
+    ];
+    const used = previews();
+    await addLimitWarnings(ctx, providerMap(), used, 200e6);
+    assert.deepEqual(used.map((p) => p.warnings), [
+      ['24시간 게시: 남은 한도가 없습니다. 지금 올리면 거부될 수 있습니다'],
+      ['하루 용량: 영상(190.7MB)이 남은 95.4MB보다 큽니다'],
+      [],
+    ]);
+    quota.used = 47;
+    const nearly = previews();
+    await addLimitWarnings(ctx, providerMap(), nearly, 1e6);
+    assert.deepEqual(nearly.map((p) => p.warnings), [['24시간 게시: 한도가 얼마 남지 않았습니다 (47/50)'], [], []]);
+
+    // A limit that can't be read never fails the preview.
+    ctx.fetch = mockFetch([]).fetch;
+    const unread = previews();
+    await addLimitWarnings(ctx, providerMap(), unread, 1e6);
+    assert.deepEqual(unread.map((p) => p.warnings), [[], [], []]);
   });
 
   it('fanout limits prints them in FANOUT_LANG', () => {

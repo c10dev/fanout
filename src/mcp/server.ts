@@ -11,7 +11,7 @@ import type { Worker } from '../core/worker.ts';
 import { defaultAccountName } from '../core/inbox.ts';
 import { isShort } from '../providers/youtube.ts';
 import { currentLang, local, msg, translateDeep } from '../core/i18n.ts';
-import { readLimits } from '../core/limits.ts';
+import { addLimitWarnings, readLimits } from '../core/limits.ts';
 import { ASSET_RULES } from '../core/assets.ts';
 
 // Model Context Protocol over stdio: newline-delimited JSON-RPC 2.0.
@@ -305,8 +305,10 @@ export class McpServer {
       }
       case 'preview_post': {
         const { input, targets, media } = await this.#postArgs(args);
+        const previews = previewPost(store, providers, input, targets, media);
+        await addLimitWarnings(this.#deps.ctx, providers, previews, media.sizeBytes);
         return {
-          targets: previewPost(store, providers, input, targets, media),
+          targets: previews,
           // Shown so the user sees exactly which local files go out with the post.
           files: { video: input.mediaPath, thumbnail: input.thumbnailPath, captions: input.captions.map((c) => ({ language: c.language, path: c.path })) },
         };
@@ -327,7 +329,11 @@ export class McpServer {
         try {
           if (!existsSync(p.mediaPath)) throw new Error(msg('원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요'));
           const media = await this.#probe(p.mediaPath);
-          if (args.dryRun === true) return { postId: p.id, targets: planAddTargets(store, providers, p.id, targets, media).preview };
+          if (args.dryRun === true) {
+            const { preview } = planAddTargets(store, providers, p.id, targets, media);
+            await addLimitWarnings(this.#deps.ctx, providers, preview, media.sizeBytes);
+            return { postId: p.id, targets: preview };
+          }
           const created = addTargets(store, providers, p.id, targets, media);
           this.#deps.worker?.tick();
           return { postId: p.id, targets: created.map(publicTarget), next: msg('get_post_status 로 진행 상황을 확인하세요') };

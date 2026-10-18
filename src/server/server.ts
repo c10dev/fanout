@@ -35,7 +35,7 @@ import type { PostInput, Target, TargetInput, TargetState } from '../core/types.
 import { isShort } from '../providers/youtube.ts';
 import { ACCOUNT_NAME } from '../core/store.ts';
 import { disconnectAccount } from '../core/accounts.ts';
-import { readLimits } from '../core/limits.ts';
+import { addLimitWarnings, readLimits } from '../core/limits.ts';
 import { ASSET_RULES, type AssetKind } from '../core/assets.ts';
 
 export interface DashboardOptions {
@@ -369,7 +369,11 @@ export class Dashboard {
       if (!post) throw new HttpError(404, msg('게시물이 없습니다'));
       try {
         const media = existsSync(post.mediaPath) ? await (this.#opts.probe ?? realProbe)(post.mediaPath) : undefined;
-        if (parts[3] === 'preview') return send(res, 200, { targets: planAddTargets(this.#opts.ctx.store, this.#opts.providers, post.id, targets, media!).preview });
+        if (parts[3] === 'preview') {
+          const { preview } = planAddTargets(this.#opts.ctx.store, this.#opts.providers, post.id, targets, media!);
+          await addLimitWarnings(this.#opts.ctx, this.#opts.providers, preview, media!.sizeBytes);
+          return send(res, 200, { targets: preview });
+        }
         const created = addTargets(this.#opts.ctx.store, this.#opts.providers, post.id, targets, media!);
         this.tick();
         return send(res, 201, { targets: created.map((t) => this.#publicTarget(t)) });
@@ -780,7 +784,9 @@ export class Dashboard {
     const { input, targets } = this.#parsePost(await readJson<CreatePostBody>(req));
     input.mediaHash = await fileHash(input.mediaPath);
     const media = await (this.#opts.probe ?? realProbe)(input.mediaPath);
-    return { targets: previewPost(this.#opts.ctx.store, this.#opts.providers, input, targets, media) };
+    const previews = previewPost(this.#opts.ctx.store, this.#opts.providers, input, targets, media);
+    await addLimitWarnings(this.#opts.ctx, this.#opts.providers, previews, media.sizeBytes);
+    return { targets: previews };
   }
 
   async #createPost(req: IncomingMessage) {
