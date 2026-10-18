@@ -9,7 +9,7 @@ import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
 import { fileHash, probe } from './core/media.ts';
-import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
+import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, changeVisibility, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Limit, Provider, ProviderContext } from './core/provider.ts';
 import { readLimits } from './core/limits.ts';
@@ -291,6 +291,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout edit <postId> [--title T] [--description D | --description-file F] [--tags a,b]
                                          제목·설명·태그 수정 (YouTube·Facebook·Mastodon·PeerTube에 반영)
   fanout cancel <postId> [platform] [--confirmed-not-posted]   아직 안 올라간(대기·예약·실패) 대상 취소
+  fanout visibility <postId> youtube public|unlisted|private [--at 시각]   게시된 영상의 공개 범위 변경 (--at: 그 시각에 공개)
   fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
   fanout comments <postId> [--limit 20]  게시된 대상의 최근 댓글 (YouTube·Facebook·Instagram·Bluesky·Mastodon·PeerTube)
   fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]   댓글에 답글 (comments 의 [id])
@@ -772,6 +773,21 @@ async function cmdReply(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   return 0;
 }
 
+async function cmdVisibility(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const [, id, platform, visibility] = args.positionals;
+  const post = id ? ctx.store.findPost(id) : undefined;
+  if (!post || !platform || !visibility) throw new UsageError(msg('fanout visibility <postId> <platform> public|unlisted|private [--at 시각] [--account main]'));
+  const account = str(args, 'account');
+  const candidates = ctx.store.targetsForPost(post.id).filter((t) => t.platform === platform && (!account || t.account === account));
+  if (candidates.length !== 1) throw new UsageError(candidates.length ? msg('계정이 여러 개입니다. --account 로 고르세요: {candidates}', { candidates: candidates.map((t) => t.account).join(', ') }) : msg('{platform} 대상이 없습니다', { platform }));
+  const at = str(args, 'at');
+  const done = await changeVisibility(ctx, deps.providers, candidates[0]!.id, visibility, at ? new Date(at).toISOString() : undefined).catch((err: Error) => {
+    throw err instanceof ProviderError ? err : new UsageError(err.message);
+  });
+  say(at ? msg('{platform}/{account}: {at}에 공개로 바뀌도록 예약했습니다', { platform: done.platform, account: done.account, at }) : msg('{platform}/{account}: 공개 범위를 {visibility}로 바꿨습니다', { platform: done.platform, account: done.account, visibility }));
+  return 0;
+}
+
 async function cmdRemove(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const [, id, platform] = args.positionals;
   const post = id ? ctx.store.findPost(id) : undefined;
@@ -1060,6 +1076,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdStats(ctx, deps, args);
       case 'limits':
         return await cmdLimits(ctx, deps, args);
+      case 'visibility':
+        return await cmdVisibility(ctx, deps, args);
       case 'remove':
         return await cmdRemove(ctx, deps, args);
       case 'cancel':

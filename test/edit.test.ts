@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { editPost } from '../src/core/posting.ts';
+import { changeVisibility, editPost } from '../src/core/posting.ts';
 import type { PostInput } from '../src/core/types.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { json, makeCtx, mockFetch } from './helpers.ts';
@@ -60,5 +60,46 @@ describe('editing published posts', () => {
     assert.equal(r!.status, 'failed');
     assert.match(r!.detail!, /Validation failed/);
     await assert.rejects(editPost(ctx, providerMap(), post.id, { title: '  ' }), /제목/);
+  });
+});
+
+describe('changing a published video\'s visibility', () => {
+  function setup() {
+    const { fetch, calls } = mockFetch([
+      ['GET', '/youtube/v3/videos?part=status&id=V', () => json({ items: [{ status: { privacyStatus: 'unlisted', embeddable: false, license: 'youtube', publicStatsViewable: true, selfDeclaredMadeForKids: false, uploadStatus: 'processed' } }] })],
+      ['PUT', '/youtube/v3/videos?part=status', () => json({ id: 'V' })],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('youtube', { clientId: 'c', clientSecret: 's' });
+    store.saveAccount({ platform: 'youtube', name: 'main', credentials: { accessToken: 'A', refreshToken: 'R', expiresAt: NOW.getTime() + 3600_000 }, profile: {} });
+    const { targets } = store.createPost(POST, [{ platform: 'youtube', account: 'main', options: { privacy: 'unlisted', madeForKids: false } }]);
+    const id = targets[0]!.id;
+    store.transition(id, 'uploading');
+    store.transition(id, 'published', { remoteId: 'V' });
+    return { ctx, store, calls, id };
+  }
+  const putBody = (calls: Array<{ method: string; url: string; body: unknown }>) => JSON.parse(String(calls.find((c) => c.method === 'PUT')!.body));
+
+  it('makes it public, keeping the other settable status fields', async () => {
+    const { ctx, calls, id } = setup();
+    const t = await changeVisibility(ctx, providerMap(), id, 'public');
+    assert.deepEqual(putBody(calls), { id: 'V', status: { embeddable: false, license: 'youtube', publicStatsViewable: true, selfDeclaredMadeForKids: false, privacyStatus: 'public' } });
+    assert.equal(t.options.privacy, 'public');
+  });
+
+  it('schedules it to go public later (private until then)', async () => {
+    const { ctx, calls, id } = setup();
+    const at = new Date(NOW.getTime() + 86_400_000).toISOString();
+    const t = await changeVisibility(ctx, providerMap(), id, 'public', at);
+    assert.deepEqual([putBody(calls).status.privacyStatus, putBody(calls).status.publishAt], ['private', at]);
+    assert.equal(t.options.publishAt, at);
+  });
+
+  it('refuses what YouTube would not take, before calling it', async () => {
+    const { ctx, calls, id } = setup();
+    await assert.rejects(changeVisibility(ctx, providerMap(), id, 'friends'), /public, unlisted, private/);
+    await assert.rejects(changeVisibility(ctx, providerMap(), id, 'public', '2020-01-01T00:00:00Z'), /앞으로의/);
+    await assert.rejects(changeVisibility(ctx, providerMap(), id, 'unlisted', new Date(NOW.getTime() + 86_400_000).toISOString()), /public/);
+    assert.equal(calls.length, 0);
   });
 });

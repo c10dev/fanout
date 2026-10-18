@@ -195,4 +195,12 @@ export interface Provider {
 
   /** Apply an edited title/description/tags (already saved on `post`) to the published post. */
   update?(args: StatsArgs & { post: Post }): Promise<void>;
+
+  /** Visibility values setVisibility accepts (YouTube: public, unlisted, private). */
+  readonly visibilities?: readonly string[];
+  /**
+   * Change a published post's visibility, optionally to go public at `publishAt` (kept private until
+   * then). Omit when the platform can't.
+   */
+  setVisibility?(args: StatsArgs & { visibility: string; publishAt?: string }): Promise<void>;
 }

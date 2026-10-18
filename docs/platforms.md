@@ -99,6 +99,10 @@ TikTok·Facebook·X·Mastodon은 읽을 수 있는 한도가 API에 없어 표�
 | PeerTube | 제목·설명·태그 | `PUT /api/v1/videos/:id` |
 | X, Bluesky, Instagram, TikTok | | API로 고칠 수 없음 |
 
+## 공개 범위 변경
+
+YouTube에 게시된 영상은 공개·일부 공개·비공개를 바꾸거나, 정한 시각에 공개되도록 예약할 수 있습니다(비공개로 두었다가 그 시각에 YouTube가 공개). `fanout visibility <postId> youtube public [--at 시각]`, 대시보드 게시 현황의 공개 범위 선택, MCP `set_visibility`. 아동용 여부·라이선스 같은 다른 설정은 그대로 유지합니다. 다른 플랫폼은 API로 공개 범위를 바꿀 수 없습니다.
+
 ## 삭제
 
 `fanout remove <postId> <platform>`이나 대시보드의 삭제 버튼으로 게시물을 플랫폼에서 지울 수 있습니다. 대상은 "삭제됨"(`removed`)으로 남고, 같은 영상을 다시 올려도 중복 경고를 하지 않습니다. MCP에는 일부러 넣지 않았습니다.
