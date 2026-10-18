@@ -22,6 +22,16 @@ export interface InstagramOptions {
   trialReel?: 'manual' | 'auto';
   /** The "Paid partnership" label (is_paid_partnership). */
   paidPartnership?: boolean;
+  /** People tagged in the Reel, by username (user_tags; Reels take no x/y). */
+  userTags?: string[];
+}
+
+const TAGS_MAX = 20;
+
+/** Usernames as a list, also when given as "alice, @bob". */
+function usernamesOf(raw: unknown): string[] {
+  const list = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? raw.split(',') : [];
+  return list.map((u) => u.trim().replace(/^@/, '')).filter(Boolean);
 }
 
 const TRIAL = { manual: 'MANUAL', auto: 'SS_PERFORMANCE' } as const;
@@ -111,6 +121,10 @@ export const instagram: Provider = {
       if (o.shareToFeed === true) issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스는 피드 공유(shareToFeed)와 함께 쓰지 못할 수 있습니다') });
     }
     // Documented on the container ("Facebook Login API only", which fanout uses), media type not stated.
+    const tags = usernamesOf(o.userTags);
+    if (tags.length > TAGS_MAX) issues.push({ severity: 'error', code: 'user_tags', message: msg('Instagram 사람 태그는 {max}명까지', { max: TAGS_MAX }) });
+    const badTags = tags.filter((u) => !USERNAME.test(u));
+    if (badTags.length) issues.push({ severity: 'error', code: 'user_tags', message: msg('Instagram 사용자 이름이 아닙니다: {names}', { names: badTags.join(', ') }) });
     if (o.paidPartnership) issues.push({ severity: 'warning', code: 'paid_partnership', message: msg('Instagram 유료 파트너십 표시는 릴스에서 되는지 아직 확인 전입니다 — 올린 뒤 앱에서 라벨을 확인하세요') });
     const ratio = media.video.width / media.video.height;
     if (Math.abs(ratio - 9 / 16) > 0.02) {
@@ -138,6 +152,7 @@ export const instagram: Provider = {
     const container = await graph<{ id: string; uri?: string }>(ctx, 'POST', `/${c.igUserId}/media`, {
       trial_params: o.trialReel && o.trialReel in TRIAL ? JSON.stringify({ graduation_strategy: TRIAL[o.trialReel] }) : undefined,
       is_paid_partnership: o.paidPartnership ? true : undefined,
+      user_tags: usernamesOf(o.userTags).length ? JSON.stringify(usernamesOf(o.userTags).map((username) => ({ username }))) : undefined,
       media_type: 'REELS',
       upload_type: 'resumable',
       caption: metaCaption(post, o.caption),

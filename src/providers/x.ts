@@ -47,6 +47,17 @@ export interface XOptions {
   replySettings?: 'following' | 'mentionedUsers' | 'subscribers' | 'verified';
   /** A description of the video for screen readers (up to 1000 characters). */
   alt?: string;
+  /** People tagged in the video, by username (up to 10; looked up once, a billed read). */
+  tagUsers?: string[];
+}
+
+const TAG_MAX = 10;
+const X_USERNAME = /^[A-Za-z0-9_]{1,15}$/;
+
+function tagNames(o: XOptions): string[] {
+  const raw = o.tagUsers as unknown;
+  const list = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? raw.split(',') : [];
+  return list.map((u) => u.trim().replace(/^@/, '')).filter(Boolean);
 }
 
 /** What poll() keeps between status checks on its way to the post. */
@@ -60,6 +71,8 @@ interface XResume {
   extraWarnings?: string[];
   /** The post's thumbnail, uploaded as an image to be the video's preview. */
   previewMediaId?: string;
+  /** Tagged people's user ids, once looked up. */
+  taggedIds?: string[];
 }
 
 const REPLY_SETTINGS = ['following', 'mentionedUsers', 'subscribers', 'verified'];
@@ -114,10 +127,10 @@ export function weightedLength(text: string): number {
 }
 
 /** The POST /2/tweets body: text, the video, and the disclosures and reply setting asked for. */
-export function xPostBody(post: Post, opts: XOptions, mediaId: string, previewMediaId?: string): Record<string, unknown> {
+export function xPostBody(post: Post, opts: XOptions, mediaId: string, previewMediaId?: string, taggedIds?: string[]): Record<string, unknown> {
   return {
     text: tweetText(post, opts),
-    media: { media_ids: [mediaId], ...(previewMediaId ? { preview_media_id: previewMediaId } : {}) },
+    media: { media_ids: [mediaId], ...(previewMediaId ? { preview_media_id: previewMediaId } : {}), ...(taggedIds?.length ? { tagged_user_ids: taggedIds } : {}) },
     ...(post.containsSyntheticMedia ? { made_with_ai: true } : {}),
     ...(opts.paidPartnership ? { paid_partnership: true } : {}),
     ...(opts.replySettings ? { reply_settings: opts.replySettings } : {}),
@@ -379,6 +392,11 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
         issues.push({ severity: 'warning', code: 'text', message: msg('X 글이 {len}(가중치) / {TEXT_MAX}입니다. Premium이 아니면 거부됩니다 — options.text로 줄이세요', { len, TEXT_MAX }) });
       }
     }
+    const tags = tagNames(target.options as XOptions);
+    if (tags.length > TAG_MAX) issues.push({ severity: 'error', code: 'tag_users', message: msg('X 사람 태그는 {max}명까지', { max: TAG_MAX }) });
+    const badTags = tags.filter((u) => !X_USERNAME.test(u));
+    if (badTags.length) issues.push({ severity: 'error', code: 'tag_users', message: msg('X 사용자 이름이 아닙니다: {names}', { names: badTags.join(', ') }) });
+    if (tags.length) issues.push({ severity: 'warning', code: 'tag_users', message: msg('X 사람 태그는 사용자 조회(요금 발생) 한 번이 더 듭니다') });
     const reply = (target.options as XOptions).replySettings;
     if (reply !== undefined && !REPLY_SETTINGS.includes(reply)) {
       issues.push({ severity: 'error', code: 'reply_settings', message: msg('replySettings는 {values} 중 하나', { values: REPLY_SETTINGS.join(', ') }) });
@@ -481,6 +499,24 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     }
     if (state === 'pending' || state === 'in_progress') return { state: 'processing', remoteId: mediaId };
     if (!resume.posting) resume = await applyExtras(ctx, account, post, target.options as XOptions, mediaId, resume, (next) => ctx.store.updateTarget(target.id, { resume: { ...next } }));
+    // Tagged people: usernames to ids, once (a billed read). Who can't be found is left out and said.
+    const names = tagNames(target.options as XOptions);
+    if (names.length && !resume.posting && resume.taggedIds === undefined) {
+      let ids: string[] = [];
+      const notes: string[] = [];
+      try {
+        const found = await api<{ data?: Array<{ id: string; username: string }> }>(ctx, account, `/2/users/by?${new URLSearchParams({ usernames: names.join(',') })}`);
+        const byName = new Map((found.data ?? []).map((u) => [u.username.toLowerCase(), u.id]));
+        ids = names.map((n) => byName.get(n.toLowerCase())).filter((id): id is string => Boolean(id));
+        const missing = names.filter((n) => !byName.has(n.toLowerCase()));
+        if (missing.length) notes.push(msg('X에서 찾지 못해 태그하지 않았습니다: {names}', { names: missing.join(', ') }));
+      } catch (err) {
+        if (err instanceof ProviderError && err.kind === 'auth') throw err;
+        notes.push(msg('X 사람 태그를 하지 못했습니다: {err}', { err: (err as Error).message }));
+      }
+      resume = { ...resume, taggedIds: ids, extraWarnings: [...(resume.extraWarnings ?? []), ...notes] };
+      ctx.store.updateTarget(target.id, { resume: { ...resume } });
+    }
 
     // X has no idempotency key for posts. If a previous attempt may already have posted, stop
     // and let the user check instead of risking a duplicate.
@@ -492,7 +528,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       api<{ data: { id: string } }>(ctx, account, '/2/tweets', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(xPostBody(post, target.options as XOptions, mediaId, preview)),
+        body: JSON.stringify(xPostBody(post, target.options as XOptions, mediaId, preview, resume.taggedIds)),
       });
     const tweet = await send(resume.previewMediaId)
       .catch(async (err: unknown) => {
