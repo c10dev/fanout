@@ -208,5 +208,5 @@ export interface Provider {
    * Change a published post's visibility, optionally to go public at `publishAt` (kept private until
    * then). Omit when the platform can't.
    */
-  setVisibility?(args: StatsArgs & { visibility: string; publishAt?: string }): Promise<void>;
+  setVisibility?(args: StatsArgs & { visibility: string; publishAt?: string }): Promise<{ visibility: string; publishAt?: string }>;
 }

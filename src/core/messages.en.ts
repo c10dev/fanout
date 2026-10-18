@@ -635,4 +635,6 @@ export const MESSAGES_EN: Record<string, string> = {
   "fanout hide-comment <postId> <platform> <commentId> [--show] [--account main]": "fanout hide-comment <postId> <platform> <commentId> [--show] [--account main]",
   "댓글을 다시 보이게 했습니다: {commentId}": "Comment shown again: {commentId}",
   "댓글을 숨겼습니다: {commentId} (--show 로 되돌림)": "Comment hidden: {commentId} (undo with --show)",
+  "예약 공개는 비공개 영상에만 걸 수 있습니다 (지금: {privacy})": "Going public at a set time works only on a private video (now: {privacy})",
+  "{requested}로 요청했지만 플랫폼이 {actual}로 두었습니다": "Asked for {requested}, but the platform kept it {actual}",
 };

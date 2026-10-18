@@ -6,6 +6,8 @@ import type { Post, Target } from '../src/core/types.ts';
 import { facebook, reelOutcome } from '../src/providers/facebook.ts';
 import { holdUntil } from '../src/core/posting.ts';
 import { instagram } from '../src/providers/instagram.ts';
+import { step } from '../src/core/runner.ts';
+import { providerMap } from '../src/providers/index.ts';
 import { graphError } from '../src/providers/meta.ts';
 import { fakeMedia, json, makeCtx, mockFetch, tempFile } from './helpers.ts';
 
@@ -172,5 +174,29 @@ describe('facebook reels', () => {
   it('rejects schedules outside the 10 min – 29 day window', () => {
     const soon = { ...post, scheduledAt: new Date(Date.now() + 60_000).toISOString() };
     assert.ok(facebook.validate(soon, target('facebook'), fakeMedia()).some((i) => i.code === 'schedule_window'));
+  });
+});
+
+describe('facebook draft through the runner', () => {
+  it('never carries a reel link, from upload to handed_off', async () => {
+    let processed = false;
+    const { fetch } = mockFetch([
+      ['POST', '/PAGE/video_reels', (c) => (new URLSearchParams(String(c.body)).get('upload_phase') === 'start' ? json({ video_id: 'R1', upload_url: 'https://rupload.facebook.com/video-upload/v24.0/R1' }) : json({ success: true }))],
+      ['POST', 'rupload.facebook.com', () => json({ success: true })],
+      ['GET', '/R1?', () => json({ status: { processing_phase: { status: processed ? 'complete' : 'in_progress' } } })],
+    ]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    store.saveAccount(account('facebook'));
+    const { targets } = store.createPost({ mediaPath: tempFile(16), title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false }, [{ platform: 'facebook', account: 'main', options: { draft: true } }]);
+    const deps = { ctx, providers: providerMap(), probe: async () => fakeMedia({ durationSec: 20 }, { width: 1080, height: 1920 }), ensureVariant: async (info: { path: string }) => ({ path: info.path, transcoded: false, reasons: [] }) };
+    const id = targets[0]!.id;
+    let t = await step(deps as never, id);
+    assert.equal(t.state, 'processing');
+    t = await step(deps as never, id);
+    assert.deepEqual([t.state, t.remoteUrl], ['processing', undefined], 'no link while Meta processes it either');
+    processed = true;
+    t = await step(deps as never, id);
+    assert.deepEqual([t.state, t.remoteUrl], ['handed_off', undefined]);
   });
 });

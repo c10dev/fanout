@@ -907,13 +907,23 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const res = await api<{ items?: Array<{ status?: Record<string, unknown> }> }>(ctx, account, `/videos?part=status&id=${target.remoteId}`);
     const current = res.items?.[0]?.status;
     if (!current) throw new ProviderError('rejected', 'youtube.not_found', msg('영상을 찾을 수 없습니다'));
+    // YouTube takes publishAt only on a private video that was never published.
+    if (publishAt && current.privacyStatus !== 'private') {
+      throw new ProviderError('rejected', 'youtube.publish_at', msg('예약 공개는 비공개 영상에만 걸 수 있습니다 (지금: {privacy})', { privacy: String(current.privacyStatus) }));
+    }
     // videos.update replaces the whole status: carry over the settable fields being kept.
     const keep = ['embeddable', 'license', 'publicStatsViewable', 'selfDeclaredMadeForKids', 'containsSyntheticMedia'];
     const status: Record<string, unknown> = Object.fromEntries(keep.filter((k) => current[k] !== undefined).map((k) => [k, current[k]]));
     // A scheduled publish is a private video with publishAt; YouTube makes it public then.
     status.privacyStatus = publishAt ? 'private' : visibility;
     if (publishAt) status.publishAt = new Date(publishAt).toISOString();
-    await api(ctx, account, '/videos?part=status', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id: target.remoteId, status }) });
+    const out = await api<{ status?: { privacyStatus?: string; publishAt?: string } }>(ctx, account, '/videos?part=status', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: target.remoteId, status }),
+    });
+    // What YouTube actually set (an unverified project may keep it private), not what was asked.
+    return { visibility: out.status?.privacyStatus ?? String(status.privacyStatus), publishAt: out.status?.publishAt ?? (status.publishAt as string | undefined) };
   },
 
   async update({ ctx, account, target, post }) {

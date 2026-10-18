@@ -352,10 +352,12 @@ export async function changeVisibility(
   let account = ctx.store.getAccount(t.platform, t.account);
   if (!account) throw new Error(msg('연결된 계정이 없습니다: {platform}/{account}', { platform: t.platform, account: t.account }));
   account = await provider.refresh(ctx, account);
-  await provider.setVisibility({ ctx, account, target: { ...t, remoteId: t.remoteId }, visibility, publishAt });
-  // Recorded on the target, so the board and later edits know what it is now.
+  const now = await provider.setVisibility({ ctx, account, target: { ...t, remoteId: t.remoteId }, visibility, publishAt });
+  // Recorded as the platform reports it, so the board shows the real state; a mismatch is said out loud.
   const { publishAt: _, ...rest } = t.options;
-  return ctx.store.updateTarget(t.id, { options: { ...rest, privacy: visibility, ...(publishAt ? { publishAt } : {}) } });
+  const wanted = publishAt ? 'private' : visibility;
+  const warnings = now.visibility === wanted ? t.warnings : [...t.warnings, msg('{requested}로 요청했지만 플랫폼이 {actual}로 두었습니다', { requested: visibility, actual: now.visibility })];
+  return ctx.store.updateTarget(t.id, { options: { ...rest, privacy: now.visibility, ...(now.publishAt ? { publishAt: now.publishAt } : {}) }, warnings });
 }
 
 export interface EditResult {
