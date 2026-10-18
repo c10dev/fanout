@@ -42,6 +42,8 @@ docker network create "$N" >/dev/null
 docker volume create "$N-system" >/dev/null
 docker run -d --name "$N-pg" --network "$N" -e POSTGRES_USER=mastodon -e POSTGRES_PASSWORD=mastodon -e POSTGRES_DB=mastodon postgres:17-alpine >/dev/null
 docker run -d --name "$N-redis" --network "$N" redis:7-alpine >/dev/null
+# pg_isready already answers during the image's init: wait for the init to finish first.
+until_ok 60 bash -c "docker logs '$N-pg' 2>&1 | grep -q 'PostgreSQL init process complete'"
 until_ok 60 docker exec "$N-pg" pg_isready -U mastodon
 docker run --rm --network "$N" --env-file "$WORK/env" "$IMAGE" bundle exec rails db:setup >"$WORK/db.log" 2>&1 ||
   fail 'rails db:setup failed' "$(tail -40 "$WORK/db.log")"

@@ -21,6 +21,9 @@ step "start PeerTube ($IMAGE)"
 docker network create "$N" >/dev/null
 docker run -d --name "$N-pg" --network "$N" -e POSTGRES_USER=peertube -e POSTGRES_PASSWORD=peertube -e POSTGRES_DB=peertube postgres:17-alpine >/dev/null
 docker run -d --name "$N-redis" --network "$N" redis:7-alpine >/dev/null
+# pg_isready already answers during the image's init, before the database exists and before the
+# server restarts: wait for the init to finish, then for the real server.
+until_ok 60 bash -c "docker logs '$N-pg' 2>&1 | grep -q 'PostgreSQL init process complete'"
 until_ok 60 docker exec "$N-pg" pg_isready -U peertube
 docker exec "$N-pg" psql -U peertube -d peertube -qc 'CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS unaccent;'
 docker run -d --name "$N-app" --network "$N" -p "127.0.0.1:$PORT:9000" \
