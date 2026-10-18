@@ -991,7 +991,7 @@ function cmdPrune(ctx: ProviderContext, args: Args): number {
 async function cmdMcp(providers: Map<string, Provider>): Promise<number> {
   // Agents are mostly prompted in English, so the MCP server (results and its worker's logs) speaks
   // English unless FANOUT_LANG asks otherwise; FANOUT_LANG=ko keeps Korean.
-  process.env.FANOUT_LANG ??= 'en';
+  process.env.FANOUT_LANG ||= 'en';
   const ctx = openContext(undefined, stderrLogger);
   const worker = new Worker({ ctx, providers });
   worker.start();
