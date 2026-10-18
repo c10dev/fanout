@@ -49,6 +49,15 @@ function translateStatic(root = document) {
 // English for every tr() key in app.js and data-i18n key in index.html (test/i18n.test.ts checks).
 const MESSAGES_EN = {
   '남은 한도': 'Remaining limits',
+  '공동 작업자 (선택, 쉼표로 구분, 3명까지)': 'Collaborators (optional, comma-separated, up to 3)',
+  '오디오 이름 (선택)': 'Audio name (optional)',
+  '답글 허용': 'Who can reply',
+  '모두': 'Everyone',
+  '내가 팔로우하는 계정': 'Accounts you follow',
+  '언급한 계정만': 'Only accounts you mention',
+  '인증된 계정': 'Verified accounts',
+  '구독자': 'Subscribers',
+  '유료 파트너십 표시': 'Paid partnership',
   '연결 안 됨 {count}곳': '{count} not connected',
   '연결 안 된 플랫폼 {count}곳': '{count} platforms not connected',
   '연결을 해제했습니다. 토큰을 철회하고 플랫폼에서 받은 반응 통계도 지웠습니다.': 'Disconnected. The token was revoked and the reaction stats read from the platform were deleted.',

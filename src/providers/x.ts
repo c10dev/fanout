@@ -36,7 +36,13 @@ export interface XCredentials {
 
 export interface XOptions {
   text?: string;
+  /** Disclose a paid partnership on the post. */
+  paidPartnership?: boolean;
+  /** Who can reply; everyone when unset. */
+  replySettings?: 'following' | 'mentionedUsers' | 'subscribers' | 'verified';
 }
+
+const REPLY_SETTINGS = ['following', 'mentionedUsers', 'subscribers', 'verified'];
 
 interface MediaData {
   id: string;
@@ -87,6 +93,17 @@ export function weightedLength(text: string): number {
   return n;
 }
 
+/** The POST /2/tweets body: text, the video, and the disclosures and reply setting asked for. */
+export function xPostBody(post: Post, opts: XOptions, mediaId: string): Record<string, unknown> {
+  return {
+    text: tweetText(post, opts),
+    media: { media_ids: [mediaId] },
+    ...(post.containsSyntheticMedia ? { made_with_ai: true } : {}),
+    ...(opts.paidPartnership ? { paid_partnership: true } : {}),
+    ...(opts.replySettings ? { reply_settings: opts.replySettings } : {}),
+  };
+}
+
 export function tweetText(post: Post, opts: XOptions): string {
   if (opts.text !== undefined) return opts.text;
   const tags = post.tags.map((t) => `#${t.replace(/^#/, '').replace(/\s+/g, '')}`).join(' ');
@@ -129,7 +146,7 @@ async function api<T>(ctx: ProviderContext, account: Account, path: string, init
 export const x: Provider = {
   id: 'x',
   displayName: 'X (Twitter)',
-  capabilities: { nativeSchedule: false, thumbnail: false, captions: false, syntheticMediaFlag: false },
+  capabilities: { nativeSchedule: false, thumbnail: false, captions: false, syntheticMediaFlag: true },
   spec: {
     // Default per-user caps; Premium accounts get more (125 min / 16GB) and X re-checks on post.
     maxBytes: 8 * 1024 ** 3,
@@ -241,6 +258,10 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
         issues.push({ severity: 'warning', code: 'text', message: msg('X 글이 {len}(가중치) / {TEXT_MAX}입니다. Premium이 아니면 거부됩니다 — options.text로 줄이세요', { len, TEXT_MAX }) });
       }
     }
+    const reply = (target.options as XOptions).replySettings;
+    if (reply !== undefined && !REPLY_SETTINGS.includes(reply)) {
+      issues.push({ severity: 'error', code: 'reply_settings', message: msg('replySettings는 {values} 중 하나', { values: REPLY_SETTINGS.join(', ') }) });
+    }
     if (hasUrl(text)) issues.push({ severity: 'warning', code: 'url_cost', message: msg('X는 URL이 들어간 게시물 요금이 훨씬 비쌉니다(약 $0.20)') });
     if (post.scheduledAt) issues.push({ severity: 'warning', code: 'schedule', message: msg('X는 API 예약 게시가 없어 fanout이 예약 시각에 올립니다 (fanout worker 필요)') });
     if (post.thumbnailPath || post.captions.length) issues.push({ severity: 'warning', code: 'extras', message: msg('X에는 썸네일·자막을 보내지 않습니다') });
@@ -336,7 +357,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     const tweet = await api<{ data: { id: string } }>(ctx, account, '/2/tweets', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: tweetText(post, target.options as XOptions), media: { media_ids: [mediaId] } }),
+      body: JSON.stringify(xPostBody(post, target.options as XOptions, mediaId)),
     }).catch((err: unknown) => {
       // A clear rejection means nothing was posted, so a later retry is safe.
       if (err instanceof ProviderError && err.kind !== 'retryable') ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false } });

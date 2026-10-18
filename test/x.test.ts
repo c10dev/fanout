@@ -4,7 +4,7 @@ import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
 import { retryTarget, withTimeout } from '../src/core/posting.ts';
-import { SEGMENT, tweetText, weightedLength, x } from '../src/providers/x.ts';
+import { SEGMENT, tweetText, weightedLength, x, xPostBody } from '../src/providers/x.ts';
 import { fakeMedia, json, makeCtx, mockFetch, slowFetch, tempFile } from './helpers.ts';
 
 const NOW = new Date('2026-10-17T03:00:00Z');
@@ -31,6 +31,18 @@ describe('x text', () => {
   it('warns about length and URL pricing', () => {
     const codes = x.validate(post({ description: 'https://x.dev' }), target({ text: '가'.repeat(141) + ' https://x.dev' }), fakeMedia()).map((i) => i.code);
     assert.ok(codes.includes('text') && codes.includes('url_cost'));
+  });
+
+  it('posts with the AI disclosure, paid partnership and reply setting asked for', () => {
+    assert.deepEqual(xPostBody(post(), {}, 'M1'), { text: tweetText(post(), {}), media: { media_ids: ['M1'] } });
+    assert.deepEqual(xPostBody(post({ containsSyntheticMedia: true }), { paidPartnership: true, replySettings: 'following' }, 'M1'), {
+      text: tweetText(post(), {}),
+      media: { media_ids: ['M1'] },
+      made_with_ai: true,
+      paid_partnership: true,
+      reply_settings: 'following',
+    });
+    assert.ok(x.validate(post(), target({ replySettings: 'everyone' as never }), fakeMedia()).some((i) => i.code === 'reply_settings'));
   });
 
   it('stops a long post before the upload when the account is known to have no Premium', () => {

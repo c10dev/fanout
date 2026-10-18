@@ -51,6 +51,30 @@ describe('instagram reels', () => {
     assert.equal(create.get('caption'), '제목\n\n#릴스');
     assert.equal(calls[2]!.headers.authorization, 'OAuth PT');
     assert.equal(calls[2]!.headers.file_size, '4096');
+    assert.equal(create.get('is_ai_generated'), null, 'only when the post is marked AI');
+  });
+
+  it('sends collaborators, the audio name and the AI disclosure, and checks them first', async () => {
+    const { fetch, calls } = mockFetch([
+      ['GET', '/IG/content_publishing_limit', () => json({ data: [{ quota_usage: 0, config: { quota_total: 100 } }] })],
+      ['POST', '/IG/media', () => json({ id: 'CONT1', uri: 'https://rupload.facebook.com/ig-api-upload/v24.0/CONT1' })],
+      ['POST', 'rupload.facebook.com', () => json({ success: true })],
+    ]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const t = { ...target('instagram'), options: { collaborators: ['@friend', 'band.official'], audioName: 'Ditto (cover)' } };
+    await instagram.publish({ ctx, post: { ...post, containsSyntheticMedia: true }, target: t, account: account('instagram'), mediaPath: tempFile(10), media: fakeMedia(), saveResume: () => {} });
+    const create = new URLSearchParams(String(calls[1]!.body));
+    assert.deepEqual(JSON.parse(create.get('collaborators')!), ['friend', 'band.official']);
+    assert.equal(create.get('audio_name'), 'Ditto (cover)');
+    assert.equal(create.get('is_ai_generated'), 'true');
+
+    const codes = (options: Record<string, unknown>, caption = '') =>
+      instagram.validate({ ...post, title: caption || post.title }, { ...target('instagram'), options }, fakeMedia({}, { width: 1080, height: 1920 })).map((i) => i.code);
+    assert.ok(codes({ collaborators: ['a', 'b', 'c', 'd'] }).includes('collaborators'), 'more than 3');
+    assert.ok(codes({ collaborators: ['not a name!'] }).includes('collaborators'));
+    assert.ok(codes({}, Array.from({ length: 21 }, (_, i) => `@u${i}`).join(' ')).includes('mentions'));
+    assert.ok(!codes({}, 'mail me at a@b.co @one').includes('mentions'));
   });
 
   it('refuses when the 24h limit is used up', async () => {
