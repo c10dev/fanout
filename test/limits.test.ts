@@ -181,7 +181,7 @@ describe('posting limits', () => {
     ];
     const input = { mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
     const targets = previews.map((p) => ({ platform: p.platform, account: p.account, options: {} }));
-    await addLiveChecks(ctx, new Map([['strict', strict as never], ['broken', broken as never]]), previews, { input, targets, media: { ...({} as never), sizeBytes: 1 } as never });
+    await addLiveChecks(ctx, new Map([['strict', strict as never], ['broken', broken as never]]), previews, { input, targets, media: { sizeBytes: 1 } as never });
     assert.deepEqual(previews.map((p) => [p.verdict, p.errors, p.warnings]), [['blocked', ['not allowed'], ['heads up']], ['as_is', [], []]]);
   });
 
