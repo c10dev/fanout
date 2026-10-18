@@ -255,4 +255,14 @@ describe('youtube resumable upload', () => {
     const expired = { ...account, credentials: { ...account.credentials, expiresAt: 0 } };
     await assert.rejects(youtube.refresh(ctx, expired), (err: ProviderError) => err.kind === 'auth' && /Testing/.test(err.message));
   });
+
+  it('records the granted scopes on refresh, and asks for Analytics when connecting', async () => {
+    const { fetch } = mockFetch([['POST', 'oauth2.googleapis.com/token', () => json({ access_token: 'N', expires_in: 3600, scope: 'https://www.googleapis.com/auth/youtube.force-ssl' })]]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('youtube', { clientId: 'cid', clientSecret: 'cs' });
+    const next = await youtube.refresh(ctx, { ...account, credentials: { ...account.credentials, expiresAt: 0 } });
+    assert.equal((next.credentials as { scope?: string }).scope, 'https://www.googleapis.com/auth/youtube.force-ssl');
+    const scope = new URL(youtube.oauthBegin!(ctx, 'http://127.0.0.1:1/cb').url).searchParams.get('scope')!;
+    assert.deepEqual(scope.split(' '), ['https://www.googleapis.com/auth/youtube.force-ssl', 'https://www.googleapis.com/auth/yt-analytics.readonly']);
+  });
 });

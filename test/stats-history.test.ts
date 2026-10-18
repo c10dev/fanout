@@ -84,7 +84,7 @@ describe('stats history', () => {
     assert.equal(await worker.statsTick(), 1);
     assert.equal(store.statsHistory(ids[0]!).length, 1);
     assert.equal(await worker.statsTick(), 0, 'not due again until it is six hours old');
-    assert.equal(calls.length, 1);
+    assert.equal(calls.filter((c) => c.url.includes('part=statistics')).length, 1);
   });
 });
 

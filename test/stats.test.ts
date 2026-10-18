@@ -19,9 +19,49 @@ const acct = (platform: string, credentials: Record<string, unknown>): Account =
 describe('provider stats', () => {
   it('YouTube reads statistics', async () => {
     const { fetch, calls } = mockFetch([['GET', '/videos?part=statistics&id=V', () => json({ items: [{ statistics: { viewCount: '1234', likeCount: '56', commentCount: '7' } }] })]]);
-    const s = await youtube.stats!({ ctx: makeCtx(fetch).ctx, account: acct('youtube', { accessToken: 'A' }), target: target('youtube', 'V') });
-    assert.deepEqual(s, { views: 1234, likes: 56, comments: 7 });
+    // A token known to lack the Analytics scope: views/likes/comments only, and no Analytics call.
+    const s = await youtube.stats!({ ctx: makeCtx(fetch).ctx, account: acct('youtube', { accessToken: 'A', scope: 'https://www.googleapis.com/auth/youtube.force-ssl' }), target: target('youtube', 'V') });
+    assert.deepEqual({ ...s, note: undefined }, { views: 1234, likes: 56, comments: 7, note: undefined });
+    assert.match(s.note!, /yt-analytics\.readonly/);
+    assert.equal(calls.length, 1);
     assert.equal(calls[0]!.headers.authorization, 'Bearer A');
+  });
+
+  describe('YouTube Analytics', () => {
+    const SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl https://www.googleapis.com/auth/yt-analytics.readonly';
+    const statistics: Parameters<typeof mockFetch>[0][number] = ['GET', '/videos?part=statistics&id=V', () => json({ items: [{ statistics: { viewCount: '1234' } }] })];
+    const read = async (report: () => Response, prev?: Target['stats']) => {
+      const { fetch, calls } = mockFetch([statistics, ['GET', 'youtubeanalytics.googleapis.com/v2/reports', report]]);
+      const s = await youtube.stats!({ ctx: makeCtx(fetch, () => NOW).ctx, account: acct('youtube', { accessToken: 'A', scope: SCOPE }), target: { ...target('youtube', 'V'), stats: prev } });
+      return { s, calls };
+    };
+
+    it('adds watch time, average view duration and %, and subscribers gained for the video', async () => {
+      const { s, calls } = await read(() =>
+        json({
+          columnHeaders: [{ name: 'estimatedMinutesWatched' }, { name: 'averageViewDuration' }, { name: 'averageViewPercentage' }, { name: 'subscribersGained' }],
+          rows: [[90, 42, 61.27, 3]],
+        }),
+      );
+      assert.deepEqual(s, { views: 1234, watchTimeSec: 5400, avgWatchSec: 42, avgViewPct: 61.3, subscribersGained: 3 });
+      const q = new URL(calls[1]!.url).searchParams;
+      assert.deepEqual([q.get('ids'), q.get('filters'), q.get('endDate')], ['channel==MINE', 'video==V', '2026-10-16']);
+      assert.equal(q.get('metrics'), 'estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained');
+    });
+
+    it('says when there is nothing yet, or the API is not enabled', async () => {
+      assert.match((await read(() => json({ columnHeaders: [] }))).s.note!, /하루 이틀/);
+      const off = await read(() => json({ error: { code: 403, message: 'not enabled', errors: [{ reason: 'accessNotConfigured' }] } }, 403));
+      assert.match(off.s.note!, /YouTube Analytics API를 사용 설정/);
+      assert.equal(off.s.views, 1234, 'the basic numbers are still there');
+    });
+
+    it('keeps the last analytics on a passing failure', async () => {
+      const prev = { fetchedAt: '', watchTimeSec: 600, avgWatchSec: 30, avgViewPct: 50, subscribersGained: 1 };
+      const { s } = await read(() => json({ error: { code: 500, message: 'backend' } }, 500), prev);
+      assert.deepEqual([s.watchTimeSec, s.avgWatchSec, s.avgViewPct, s.subscribersGained, s.views], [600, 30, 50, 1, 1234]);
+      assert.match(s.note!, /지난 값/);
+    });
   });
 
   it('Instagram and Facebook read likes and comments with the page token', async () => {

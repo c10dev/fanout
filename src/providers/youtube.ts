@@ -6,7 +6,7 @@ import { imageMime, jsonOr, jsonOrThrow, openBrowser, pkcePair, readChunk, sleep
 import { makeTestClip, probe, type MediaInfo, type MediaSpec } from '../core/media.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
-import type { Issue, Post, Target } from '../core/types.ts';
+import type { Issue, Post, PostStats, Target } from '../core/types.ts';
 import { msg } from '../core/i18n.ts';
 
 // Docs: https://developers.google.com/youtube/v3/docs/videos/insert
@@ -18,7 +18,9 @@ const AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 /** Covers upload, read, captions, playlists and delete (used by `doctor --live` cleanup). */
-const SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
+const ANALYTICS_SCOPE = 'https://www.googleapis.com/auth/yt-analytics.readonly';
+const SCOPE = `https://www.googleapis.com/auth/youtube.force-ssl ${ANALYTICS_SCOPE}`;
+const ANALYTICS_API = 'https://youtubeanalytics.googleapis.com/v2';
 /** Multiple of 256 KiB, as the resumable protocol requires for non-final chunks. */
 export const CHUNK_SIZE = 32 * 256 * 1024;
 /** Default per-project allowance in the Video Uploads quota bucket (since 2026-06-01). */
@@ -36,6 +38,8 @@ export interface YouTubeCredentials {
   expiresAt: number;
   /** Present when Google issued a time-limited refresh token (e.g. consent screen still in "Testing"). */
   refreshTokenExpiresAt?: number;
+  /** Granted scopes, space-separated, as the token response says (unknown on older tokens). */
+  scope?: string;
 }
 
 export interface YouTubeOptions {
@@ -141,7 +145,65 @@ function credsFromToken(tok: Record<string, unknown>, now: number, previous?: Yo
     refreshToken: (tok.refresh_token as string | undefined) ?? previous?.refreshToken ?? '',
     expiresAt: now + ((tok.expires_in as number) ?? 3600) * 1000,
     refreshTokenExpiresAt: rtExpires ? now + rtExpires * 1000 : previous?.refreshTokenExpiresAt,
+    scope: (tok.scope as string | undefined) ?? previous?.scope,
   };
+}
+
+/** false only when the token is known to lack the Analytics scope (connected before fanout asked for it). */
+function mayReadAnalytics(account: Account): boolean {
+  const scope = creds(account).scope;
+  return scope === undefined || scope.split(' ').includes(ANALYTICS_SCOPE);
+}
+
+/** Drop undefined fields, so a merge never overwrites a value with "unknown". */
+function definedOnly<T extends object>(o: T): T {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+}
+
+type AnalyticsValues = Pick<PostStats, 'watchTimeSec' | 'avgWatchSec' | 'avgViewPct' | 'subscribersGained'>;
+
+/**
+ * Watch time, average view duration and % viewed, and subscribers gained on the video's page, from
+ * the YouTube Analytics API (its own quota, not the Data API's units). Never fails the stats call:
+ * what can't be read becomes a note, and a passing failure keeps the last numbers.
+ */
+async function analytics(ctx: ProviderContext, account: Account, target: Target & { remoteId: string }): Promise<{ values: AnalyticsValues; note?: string }> {
+  const reconnect = msg('시청 시간 같은 분석 통계는 yt-analytics.readonly 권한이 필요합니다 — fanout connect youtube로 다시 연결하세요');
+  if (!mayReadAnalytics(account)) return { values: {}, note: reconnect };
+  const query = new URLSearchParams({
+    ids: 'channel==MINE',
+    startDate: '2005-02-14',
+    endDate: pacificDay(ctx.now()),
+    metrics: 'estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained',
+    filters: `video==${target.remoteId}`,
+  });
+  try {
+    const res = await api<{ columnHeaders?: Array<{ name: string }>; rows?: number[][] }>(ctx, account, `${ANALYTICS_API}/reports?${query}`);
+    const row = res.rows?.[0];
+    if (!row) return { values: {}, note: msg('아직 분석 통계가 없습니다 (보통 하루 이틀 늦게 나옵니다)') };
+    const at = (name: string) => {
+      const i = (res.columnHeaders ?? []).findIndex((h) => h.name === name);
+      return i < 0 || typeof row[i] !== 'number' ? undefined : row[i];
+    };
+    const minutes = at('estimatedMinutesWatched');
+    const pct = at('averageViewPercentage');
+    return {
+      values: definedOnly({
+        watchTimeSec: minutes === undefined ? undefined : minutes * 60,
+        avgWatchSec: at('averageViewDuration'),
+        avgViewPct: pct === undefined ? undefined : Math.round(pct * 10) / 10,
+        subscribersGained: at('subscribersGained'),
+      }),
+    };
+  } catch (err) {
+    const code = err instanceof ProviderError ? err.platformCode : undefined;
+    if (code === 'insufficientPermissions' || code === 'forbidden' || (err instanceof ProviderError && err.kind === 'auth')) return { values: {}, note: reconnect };
+    if (code === 'accessNotConfigured' || code === 'SERVICE_DISABLED') {
+      return { values: {}, note: msg('Google Cloud 프로젝트에서 YouTube Analytics API를 사용 설정하세요 (API 및 서비스 → 라이브러리)') };
+    }
+    const s = target.stats;
+    return { values: definedOnly({ watchTimeSec: s?.watchTimeSec, avgWatchSec: s?.avgWatchSec, avgViewPct: s?.avgViewPct, subscribersGained: s?.subscribersGained }), note: msg('분석 통계를 읽지 못해 지난 값을 둡니다: {err}', { err: (err as Error).message }) };
+  }
 }
 
 function creds(account: Account): YouTubeCredentials {
@@ -456,9 +518,9 @@ export const youtube: Provider = {
 YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사용자마다 자기 프로젝트를 만듭니다.
 
 1. https://console.cloud.google.com/ 에서 새 프로젝트 생성
-2. "API 및 서비스 → 라이브러리"에서 YouTube Data API v3 사용 설정
+2. "API 및 서비스 → 라이브러리"에서 YouTube Data API v3와 YouTube Analytics API 사용 설정
 3. "OAuth 동의 화면": User type External, 앱 이름·이메일 입력,
-   범위에 .../auth/youtube.force-ssl 추가, 테스트 사용자에 본인 Google 계정 추가
+   범위에 .../auth/youtube.force-ssl, .../auth/yt-analytics.readonly 추가, 테스트 사용자에 본인 Google 계정 추가
 4. ⚠ 게시 상태를 "In production"으로 바꾸세요. "Testing"이면 refresh token이 7일 만에 만료되어
    매주 다시 연결해야 합니다. (본인만 쓰는 앱은 미검증 경고 화면이 떠도 "계속"으로 진행 가능)
 5. "사용자 인증 정보 → OAuth 클라이언트 ID": 애플리케이션 유형 "데스크톱 앱"
@@ -792,6 +854,12 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
         : { name: msg('refresh token 수명'), status: 'ok', detail: msg('만료 기한 없음 (In production으로 보임)') },
     );
 
+    checks.push(
+      mayReadAnalytics(acct)
+        ? { name: msg('분석 통계'), status: 'ok', detail: msg('yt-analytics.readonly 권한 있음 (시청 시간·평균 시청·구독 증가)') }
+        : { name: msg('분석 통계'), status: 'info', detail: msg('yt-analytics.readonly 권한이 없습니다 — 시청 시간 통계를 보려면 fanout connect youtube로 다시 연결하세요') },
+    );
+
     const ch = await api<{ items?: Array<{ id: string; snippet: { title: string }; status?: { longUploadsStatus?: string } }> }>(
       ctx,
       acct,
@@ -884,7 +952,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const st = res.items?.[0]?.statistics;
     if (!st) return { note: msg('영상을 찾을 수 없습니다 (삭제됐거나 비공개)') };
     const n = (v?: string) => (v === undefined ? undefined : Number(v));
-    return { views: n(st.viewCount), likes: n(st.likeCount), comments: n(st.commentCount) };
+    const deeper = await analytics(ctx, account, target);
+    return definedOnly({ views: n(st.viewCount), likes: n(st.likeCount), comments: n(st.commentCount), ...deeper.values, ...(deeper.note ? { note: deeper.note } : {}) });
   },
 
   async remove({ ctx, account, target }) {

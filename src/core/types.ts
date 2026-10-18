@@ -80,10 +80,14 @@ export interface PostStats {
   reach?: number;
   /** Times it was saved (Instagram). */
   saves?: number;
-  /** Average watch time per view, in seconds (Instagram, Facebook). */
+  /** Average watch time per view, in seconds (Instagram, Facebook, YouTube). */
   avgWatchSec?: number;
-  /** Total time watched, in seconds (Instagram, Facebook). */
+  /** Total time watched, in seconds (Instagram, Facebook, YouTube). */
   watchTimeSec?: number;
+  /** Average share of the video watched per view, in percent (YouTube). */
+  avgViewPct?: number;
+  /** Subscriptions from the video's own page (YouTube). */
+  subscribersGained?: number;
   fetchedAt: string;
   /** What couldn't be read, or why. */
   note?: string;
