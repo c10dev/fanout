@@ -2,7 +2,7 @@ import { readFileSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { imageMime, jsonOr, jsonOrThrow, openBrowser, pkcePair, readChunk, sleep, startLoopback } from '../core/http.ts';
+import { imageMime, jsonOr, jsonOrThrow, openBrowser, pkcePair, readChunk, sleep, startLoopback, waitForRedirect } from '../core/http.ts';
 import { makeTestClip, probe, type MediaInfo, type MediaSpec } from '../core/media.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
@@ -481,7 +481,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     openBrowser(start.url);
     let params: URLSearchParams;
     try {
-      params = await loop.waitForCallback;
+      params = await waitForRedirect(loop.waitForCallback, (line) => ctx.log.info(line));
     } finally {
       loop.close();
     }

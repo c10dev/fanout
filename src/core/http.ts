@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { createInterface } from 'node:readline';
 import { extname } from 'node:path';
 import { ProviderError, kindForStatus } from './errors.ts';
 import { msg } from './i18n.ts';
@@ -75,6 +76,42 @@ export async function startLoopback(port = 0, path = '/callback', host = '127.0.
     waitForCallback,
     close: () => server.close(),
   };
+}
+
+/** The query of a pasted OAuth redirect (it carries `code` or `error`), or undefined for anything else. */
+export function redirectParams(text: string): URLSearchParams | undefined {
+  try {
+    const params = new URL(text.trim()).searchParams;
+    return params.has('code') || params.has('error') ? params : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The OAuth redirect, from whichever comes first: the browser reaching the loopback listener, or the
+ * redirected address pasted into the terminal. The paste is for a browser on another machine, where
+ * 127.0.0.1 is that machine and the redirect ends on an error page. Callers still check `state`.
+ */
+export async function waitForRedirect(
+  waitForCallback: Promise<URLSearchParams>,
+  log: (line: string) => void,
+  input: NodeJS.ReadableStream = process.stdin,
+): Promise<URLSearchParams> {
+  log(msg('브라우저가 다른 기기에 있으면, 승인한 뒤 주소창의 전체 URL(…/callback?code=…)을 여기에 붙여넣으세요'));
+  const rl = createInterface({ input, terminal: false });
+  const pasted = new Promise<URLSearchParams>((resolve) => {
+    rl.on('line', (line) => {
+      const params = redirectParams(line);
+      if (params) resolve(params);
+      else if (line.trim()) log(msg('code가 있는 리디렉트 URL이 아닙니다. 주소창의 전체 URL을 붙여넣으세요'));
+    });
+  });
+  try {
+    return await Promise.race([waitForCallback, pasted]);
+  } finally {
+    rl.close();
+  }
 }
 
 /** Best effort; the URL is always printed too, so a missing opener is fine. */
