@@ -74,6 +74,14 @@ export interface PostStats {
   likes?: number;
   comments?: number;
   shares?: number;
+  /** Accounts that saw it at least once (Instagram, Facebook). */
+  reach?: number;
+  /** Times it was saved (Instagram). */
+  saves?: number;
+  /** Average watch time per view, in seconds (Instagram, Facebook). */
+  avgWatchSec?: number;
+  /** Total time watched, in seconds (Instagram, Facebook). */
+  watchTimeSec?: number;
   fetchedAt: string;
   /** What couldn't be read, or why. */
   note?: string;

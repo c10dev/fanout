@@ -804,13 +804,17 @@ function statsLine(st, trend) {
     [tr('좋아요'), st.likes, trend?.likes],
     [tr('댓글'), st.comments, trend?.comments],
     [tr('공유'), st.shares, trend?.shares],
+    [tr('도달'), st.reach],
+    [tr('저장'), st.saves],
   ].filter(([, v]) => v !== undefined && v !== null);
+  const watch = st.avgWatchSec !== undefined && st.avgWatchSec !== null ? tr('평균 시청 {s}초', { s: fmtNum(st.avgWatchSec) }) : null;
   // Growth since the reading a day ago (the worker records one every few hours).
   const delta = (d) => (d === undefined || d === null || d === 0 ? null : h('span', { class: d > 0 ? 'up' : 'down' }, ` ${d > 0 ? '+' : ''}${fmtNum(d)}`));
   return h(
     'div',
     { class: 'stats', title: [trend ? tr('+/- 숫자: {time} 이후 변화', { time: fmtTime(trend.since) }) : '', st.note ?? ''].filter(Boolean).join('\n') },
     parts.map(([k, v, d]) => h('span', {}, `${k} `, h('strong', {}, fmtNum(v)), delta(d))),
+    watch ? h('span', { title: st.watchTimeSec ? tr('총 시청 {h}시간', { h: fmtNum(Math.round(st.watchTimeSec / 360) / 10) }) : '' }, watch) : null,
     h('span', { class: 'muted' }, ` · ${tr('{time} 기준', { time: fmtTime(st.fetchedAt) })}`),
     st.note && !parts.length ? h('span', { class: 'muted' }, ` · ${st.note}`) : null,
   );

@@ -16,7 +16,7 @@ import { readLimits } from './core/limits.ts';
 import { addLiveChecks } from './core/livepreview.ts';
 import { settle, type RunnerDeps } from './core/runner.ts';
 import { isTerminal } from './core/state.ts';
-import type { CaptionFile, Post, PostInput, Target, TargetInput, TargetState } from './core/types.ts';
+import type { CaptionFile, Post, PostInput, PostStats, Target, TargetInput, TargetState } from './core/types.ts';
 import { BUILTIN_PROVIDERS, providerMap } from './providers/index.ts';
 import { Dashboard } from './server/server.ts';
 import { McpServer, serveStdio } from './mcp/server.ts';
@@ -215,6 +215,17 @@ function sayErr(text: string): void {
 }
 
 const LOCALE = () => (currentLang() === 'en' ? 'en-US' : 'ko-KR');
+
+/** Reach, saves and average watch time where the platform reports them (Instagram, Facebook). */
+function deeper(stats: PostStats | undefined, fmt: (n?: number) => string): string {
+  if (!stats) return '';
+  const parts = [
+    stats.reach !== undefined ? local(msg('도달 {n}', { n: fmt(stats.reach) })) : '',
+    stats.saves !== undefined ? local(msg('저장 {n}', { n: fmt(stats.saves) })) : '',
+    stats.avgWatchSec !== undefined ? local(msg('평균 시청 {s}초', { s: stats.avgWatchSec })) : '',
+  ].filter(Boolean);
+  return parts.length ? ` · ${parts.join(' · ')}` : '';
+}
 
 /** "조회 1 · 좋아요 2 · 댓글 3 · 공유 4" in FANOUT_LANG. */
 function counts(views: string, likes: string, comments: string, shares: string): string {
@@ -892,7 +903,7 @@ async function cmdStats(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
       }
       const t = r.trend;
       console.log(
-        `  ${name} ${counts(fmt(r.stats?.views) + delta(t?.views), fmt(r.stats?.likes) + delta(t?.likes), fmt(r.stats?.comments) + delta(t?.comments), fmt(r.stats?.shares) + delta(t?.shares))}${r.stats?.note ? `  (${local(r.stats.note)})` : ''}`,
+        `  ${name} ${counts(fmt(r.stats?.views) + delta(t?.views), fmt(r.stats?.likes) + delta(t?.likes), fmt(r.stats?.comments) + delta(t?.comments), fmt(r.stats?.shares) + delta(t?.shares))}${deeper(r.stats, fmt)}${r.stats?.note ? `  (${local(r.stats.note)})` : ''}`,
       );
       if (t) console.log(''.padEnd(21) + local(msg('괄호는 {since} 이후 변화', { since: t.since.slice(0, 16).replace('T', ' ') })));
       history();

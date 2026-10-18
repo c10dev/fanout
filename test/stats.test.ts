@@ -57,6 +57,42 @@ describe('provider stats', () => {
     assert.deepEqual(await facebook.stats!({ ctx: env2.ctx, account: acct('facebook', { pageToken: 'PT' }), target: target('facebook', 'R') }), { views: 900, likes: 4, comments: 1 });
   });
 
+  it('adds reach, saves and watch time from a second insights call, and survives it failing', async () => {
+    const row = (name: string, value: number) => ({ name, period: 'lifetime', values: [{ value }] });
+    const ig = mockFetch([
+      [
+        'GET',
+        '/M/insights',
+        (c) =>
+          new URL(c.url).searchParams.get('metric') === 'views,shares'
+            ? json({ data: [row('views', 321), row('shares', 5)] })
+            : json({ data: [row('reach', 250), row('saved', 12), row('ig_reels_avg_watch_time', 4321), row('ig_reels_video_view_total_time', 1_387_000)] }),
+      ],
+      ['GET', '/M?', () => json({ like_count: 10, comments_count: 2 })],
+    ]);
+    const env = makeCtx(ig.fetch);
+    env.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    assert.deepEqual(await instagram.stats!({ ctx: env.ctx, account: acct('instagram', { pageToken: 'PT' }), target: target('instagram', 'M') }), {
+      views: 321, likes: 10, comments: 2, shares: 5, reach: 250, saves: 12, avgWatchSec: 4.3, watchTimeSec: 1387,
+    });
+
+    // A metric this reel doesn't have fails only the deeper call: plays, likes and comments stay.
+    const fb = mockFetch([
+      [
+        'GET',
+        '/R/video_insights',
+        (c) =>
+          new URL(c.url).searchParams.get('metric') === 'fb_reels_total_plays'
+            ? json({ data: [row('fb_reels_total_plays', 900)] })
+            : json({ error: { code: 100, message: '(#100) The value must be a valid insights metric' } }, 400),
+      ],
+      ['GET', '/R?', () => json({ likes: { summary: { total_count: 4 } }, comments: { summary: { total_count: 1 } } })],
+    ]);
+    const env2 = makeCtx(fb.fetch);
+    env2.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    assert.deepEqual(await facebook.stats!({ ctx: env2.ctx, account: acct('facebook', { pageToken: 'PT' }), target: target('facebook', 'R') }), { views: 900, likes: 4, comments: 1 });
+  });
+
   it('without the insights permission, likes and comments still come back with a note', async () => {
     const ig = mockFetch([
       ['GET', '/M/insights', () => json({ error: { code: 10, message: '(#10) Application does not have permission for this action' } }, 403)],

@@ -238,6 +238,11 @@ export async function readInsights(
   }
 }
 
+/** Stats without the fields nothing was read for, so they stay absent rather than `undefined`. */
+export function definedOnly<T extends object>(o: T): T {
+  return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as T;
+}
+
 export function pageCreds(account: Account): MetaPageCredentials {
   return account.credentials as unknown as MetaPageCredentials;
 }
