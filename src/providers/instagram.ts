@@ -224,6 +224,11 @@ export const instagram: Provider = {
     });
   },
 
+  // instagram_manage_comments; reversible with hide=false.
+  async hideComment({ ctx, account, commentId, hidden }) {
+    await graph(ctx, 'POST', `/${commentId}`, { hide: hidden, access_token: pageCreds(account).pageToken });
+  },
+
   // Needs the instagram_manage_comments permission on the token (see the Meta setup guide).
   async comments({ ctx, account, target, limit }) {
     const c = pageCreds(account);

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { fetchComments, withTimeout } from '../src/core/posting.ts';
+import { fetchComments, hideComment, withTimeout } from '../src/core/posting.ts';
 import type { Account } from '../src/core/store.ts';
 import type { PostInput, Target } from '../src/core/types.ts';
 import { bluesky } from '../src/providers/bluesky.ts';
@@ -98,5 +98,49 @@ describe('withTimeout', () => {
     const t0 = Date.now();
     await assert.rejects(withTimeout(ctx, 50).fetch('https://never.example/'), (e: Error) => e.name === 'TimeoutError');
     assert.ok(Date.now() - t0 < 2000);
+  });
+});
+
+describe('hiding comments', () => {
+  const NOW = new Date('2026-10-17T03:00:00Z');
+  function setup(platform: 'youtube' | 'instagram' | 'facebook', routes: Parameters<typeof mockFetch>[0]) {
+    const { fetch, calls } = mockFetch(routes);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('youtube', { clientId: 'c', clientSecret: 's' });
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const credentials = platform === 'youtube' ? { accessToken: 'A', refreshToken: 'R', expiresAt: NOW.getTime() + 3600_000 } : { pageId: 'PAGE', pageToken: 'PT', igUserId: 'IG' };
+    store.saveAccount({ platform, name: 'main', credentials, profile: {} });
+    const input: PostInput = { mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
+    const { targets } = store.createPost(input, [{ platform, account: 'main', options: {} }]);
+    const id = targets[0]!.id;
+    store.transition(id, 'uploading');
+    store.transition(id, 'published', { remoteId: 'V' });
+    return { ctx, calls, id };
+  }
+
+  it('YouTube holds a listed comment for review, and publishes it again', async () => {
+    const { ctx, calls, id } = setup('youtube', [
+      ['GET', '/commentThreads', () => json({ items: [{ id: 'C1', snippet: { topLevelComment: { id: 'C1', snippet: { authorDisplayName: 'x', textDisplay: 'spam', publishedAt: '2026-10-17T00:00:00Z' } } } }] })],
+      ['POST', '/comments/setModerationStatus', () => new Response(null, { status: 204 })],
+    ]);
+    await hideComment(ctx, providerMap(), id, 'C1');
+    const hide = new URL(calls.find((c) => c.url.includes('setModerationStatus'))!.url);
+    assert.deepEqual([hide.searchParams.get('id'), hide.searchParams.get('moderationStatus')], ['C1', 'heldForReview']);
+    await hideComment(ctx, providerMap(), id, 'C1', false);
+    assert.equal(new URL(calls.filter((c) => c.url.includes('setModerationStatus'))[1]!.url).searchParams.get('moderationStatus'), 'published');
+    // An id that isn't among the post's comments (e.g. from a prompt-injected agent) is refused.
+    await assert.rejects(hideComment(ctx, providerMap(), id, 'ELSEWHERE'), /최근 댓글 중에/);
+  });
+
+  it('Instagram and Facebook hide with their own flags', async () => {
+    for (const [platform, flag] of [['instagram', 'hide'], ['facebook', 'is_hidden']] as const) {
+      const { ctx, calls, id } = setup(platform, [
+        ['GET', '/V/comments', () => json({ data: [{ id: 'C1', text: 'spam', message: 'spam', username: 'u', from: { name: 'u' }, timestamp: '2026-10-17T00:00:00+0000', created_time: '2026-10-17T00:00:00+0000' }] })],
+        ['POST', '/C1', () => json({ success: true })],
+      ]);
+      await hideComment(ctx, providerMap(), id, 'C1');
+      const body = new URLSearchParams(String(calls.find((c) => c.method === 'POST')!.body));
+      assert.equal(body.get(flag), 'true', platform);
+    }
   });
 });

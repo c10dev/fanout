@@ -49,6 +49,9 @@ function translateStatic(root = document) {
 // English for every tr() key in app.js and data-i18n key in index.html (test/i18n.test.ts checks).
 const MESSAGES_EN = {
   '남은 한도': 'Remaining limits',
+  '이 댓글을 숨길까요? 나중에 다시 보이게 할 수 있습니다.': 'Hide this comment? You can show it again later.',
+  '다시 보이기': 'Show again',
+  '숨기기': 'Hide',
   '합계': 'Total',
   '플랫폼 {n}곳 합계 (조회수를 공개하지 않는 플랫폼은 빠짐)': 'Sum of {n} platforms (platforms that hide views are left out)',
   '{time}에 다시 확인': 'checking again at {time}',

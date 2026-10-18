@@ -215,6 +215,11 @@ export const facebook: Provider = {
     });
   },
 
+  // pages_manage_engagement on the Page token; reversible with is_hidden=false.
+  async hideComment({ ctx, account, commentId, hidden }) {
+    await graph(ctx, 'POST', `/${commentId}`, { is_hidden: hidden, access_token: pageCreds(account).pageToken });
+  },
+
   async remove({ ctx, account, target }) {
     const c = pageCreds(account);
     // Graph's "does not exist" (100/33) also covers "this token can't see it" (e.g. the account was

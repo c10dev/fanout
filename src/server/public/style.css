@@ -273,3 +273,4 @@ details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1;
 .loc-row { display: grid; grid-template-columns: 6em 1fr 1.4fr; gap: 6px; margin: 4px 0; }
 [data-localizations] > button { justify-self: start; width: auto; }
 .stats.totals { margin: 2px 0 6px; padding: 4px 0; border-bottom: 1px dashed var(--line, #e3e7ed); }
+.comment.hidden-comment .comment-text { opacity: 0.45; text-decoration: line-through; }

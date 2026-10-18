@@ -9,7 +9,7 @@ import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
 import { fileHash, probe } from './core/media.ts';
-import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, changeVisibility, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
+import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, changeVisibility, hideComment, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Limit, Provider, ProviderContext } from './core/provider.ts';
 import { readLimits } from './core/limits.ts';
@@ -298,6 +298,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
   fanout comments <postId> [--limit 20]  게시된 대상의 최근 댓글 (YouTube·Facebook·Instagram·Bluesky·Mastodon·PeerTube)
   fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]   댓글에 답글 (comments 의 [id])
+  fanout hide-comment <postId> <platform> <commentId> [--show]   댓글 숨기기 (YouTube·Instagram·Facebook, --show로 되돌림)
   fanout stats [postId] [--include-paid] [--history]  게시된 영상의 조회·좋아요·댓글과 24시간 변화 (X는 --include-paid일 때만)
   fanout limits [platform]               계정별 남은 게시 한도 (YouTube 하루 업로드, Instagram 24시간 게시, Bluesky·PeerTube 용량)
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off] [--format slack|discord|json]
@@ -776,6 +777,21 @@ async function cmdReply(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   return 0;
 }
 
+async function cmdHideComment(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const [, id, platform, commentId] = args.positionals;
+  const post = id ? ctx.store.findPost(id) : undefined;
+  if (!post || !platform || !commentId) throw new UsageError(msg('fanout hide-comment <postId> <platform> <commentId> [--show] [--account main]'));
+  const account = str(args, 'account');
+  const candidates = ctx.store.targetsForPost(post.id).filter((t) => t.platform === platform && (!account || t.account === account));
+  if (candidates.length !== 1) throw new UsageError(candidates.length ? msg('계정이 여러 개입니다. --account 로 고르세요: {candidates}', { candidates: candidates.map((t) => t.account).join(', ') }) : msg('{platform} 대상이 없습니다', { platform }));
+  const show = Boolean(args.flags.show);
+  await hideComment(ctx, deps.providers, candidates[0]!.id, commentId, !show).catch((err: Error) => {
+    throw err instanceof ProviderError ? err : new UsageError(err.message);
+  });
+  say(show ? msg('댓글을 다시 보이게 했습니다: {commentId}', { commentId }) : msg('댓글을 숨겼습니다: {commentId} (--show 로 되돌림)', { commentId }));
+  return 0;
+}
+
 async function cmdVisibility(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const [, id, platform, visibility] = args.positionals;
   const post = id ? ctx.store.findPost(id) : undefined;
@@ -1079,6 +1095,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdStats(ctx, deps, args);
       case 'limits':
         return await cmdLimits(ctx, deps, args);
+      case 'hide-comment':
+        return await cmdHideComment(ctx, deps, args);
       case 'visibility':
         return await cmdVisibility(ctx, deps, args);
       case 'remove':

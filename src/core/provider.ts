@@ -196,6 +196,12 @@ export interface Provider {
   /** Apply an edited title/description/tags (already saved on `post`) to the published post. */
   update?(args: StatsArgs & { post: Post }): Promise<void>;
 
+  /**
+   * Hide (or show again) a comment on the account's own post: reversible on every platform that has
+   * it (YouTube holds it for review, Instagram and Facebook hide it). Omit when the API can't.
+   */
+  hideComment?(args: StatsArgs & { commentId: string; hidden: boolean }): Promise<void>;
+
   /** Visibility values setVisibility accepts (YouTube: public, unlisted, private). */
   readonly visibilities?: readonly string[];
   /**
