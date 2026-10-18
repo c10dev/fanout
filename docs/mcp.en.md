@@ -37,6 +37,16 @@ When running from source, register `-- node /absolute/path/fanout/src/cli.ts mcp
 
 Results and error messages are in English. For Korean, add `"env": { "FANOUT_LANG": "ko" }` or register with `claude mcp add fanout -e FANOUT_LANG=ko -- fanout mcp`. Content the user wrote, such as titles, descriptions and comments, is never changed. (The rest of the CLI stays Korean by default; `FANOUT_LANG=en` switches it to English.)
 
+## Limiting the folders agents can read
+
+By default the video, thumbnail and caption paths an agent passes can be anywhere the user can read. To narrow that (against prompt injection, say), name the folders:
+
+```bash
+claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
+```
+
+or `"env": { "FANOUT_MCP_ROOTS": "/home/me/videos:/home/me/fanout-inbox" }` (path separator `:` on macOS and Linux, `;` on Windows). Symlinks are judged by where they really point, so a link inside an allowed folder that points outside is refused.
+
 ## Tools
 
 | Tool | What it does |

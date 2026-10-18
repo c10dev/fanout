@@ -1,14 +1,15 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
+import { mcpRoots } from '../src/cli.ts';
 import { McpServer } from '../src/mcp/server.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { fakeMedia, makeCtx } from './helpers.ts';
 
-function server() {
+function server(roots?: string[]) {
   const env = makeCtx();
   env.store.saveAccount({ platform: 'youtube', name: 'main', credentials: { secret: 'NOPE' }, profile: { channelTitle: 'C10' } });
   env.store.saveAccount({ platform: 'tiktok', name: 'mainmain', credentials: {}, profile: { displayName: 'c10e2' } });
@@ -20,6 +21,7 @@ function server() {
     providers: providerMap(),
     probe: async (path) => ({ ...fakeMedia({ durationSec: 20 }), path }),
     worker: { tick: () => ticks++ } as never,
+    roots,
   });
   let id = 0;
   const call = async (name: string, args: Record<string, unknown> = {}) => {
@@ -133,5 +135,36 @@ describe('MCP server', () => {
     assert.equal(await ask(), 'No such post: nope');
     assert.equal(await ask('ko'), '게시물 없음: nope');
     assert.equal(await ask('en'), 'No such post: nope');
+  });
+});
+
+describe('MCP file access limited to chosen folders', () => {
+  it('reads inside the allowed folders only, symlinks resolved first', async () => {
+    const base = realpathSync(mkdtempSync(join(tmpdir(), 'fanout-mcp-roots-')));
+    const allowed = join(base, 'videos');
+    mkdirSync(allowed);
+    const inside = join(allowed, 'clip.mp4');
+    const outside = join(base, 'secret.mp4');
+    const sneaky = join(allowed, 'link.mp4');
+    writeFileSync(inside, 'x');
+    writeFileSync(outside, 'x');
+    symlinkSync(outside, sneaky);
+    const { call } = server([allowed]);
+    assert.ok(!(await call('check_video', { path: inside })).isError);
+    for (const path of [outside, sneaky, join(allowed, '..', 'secret.mp4')]) {
+      const r = await call('check_video', { path });
+      assert.ok(r.isError, path);
+      assert.match(r.content[0]!.text, /outside the allowed folders|허용된 폴더 밖/);
+    }
+  });
+
+  it('takes the folders from --allow or FANOUT_MCP_ROOTS, and refuses a missing one', () => {
+    const a = realpathSync(mkdtempSync(join(tmpdir(), 'fanout-mcp-a-')));
+    const b = realpathSync(mkdtempSync(join(tmpdir(), 'fanout-mcp-b-')));
+    assert.deepEqual(mcpRoots(`${a},${b}`), [a, b]);
+    assert.deepEqual(mcpRoots(undefined, `${a}:${b}`), [a, b]);
+    assert.equal(mcpRoots(undefined, ''), undefined, 'unset: anywhere, as before');
+    assert.throws(() => mcpRoots(join(a, 'nope')), /nope/);
+    assert.deepEqual(mcpRoots('~'), [realpathSync(homedir())], 'a ~ the shell left alone');
   });
 });

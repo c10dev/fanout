@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { basename, join, resolve } from 'node:path';
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { basename, delimiter, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 import { fanoutHome, openContext, stderrLogger } from './core/context.ts';
 import { restoreBackup, RestoreError } from './core/restore.ts';
 import { DEFAULT_EVENTS, detectFormat, flushNotifications, notifyConfig, send, validWebhookUrl, type NotifyConfig } from './core/notify.ts';
 import { ProviderError } from './core/errors.ts';
-import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, WatchConfigError, type WatchConfig } from './core/inbox.ts';
+import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, watchAccount, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
 import { fileHash, probe } from './core/media.ts';
 import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, changeVisibility, hideComment, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
@@ -314,6 +315,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout export [--format csv|json] [--out 파일]   게시 기록 내보내기 (게시물 × 플랫폼, 상태, 링크, 통계)
   fanout prune [--days 7] [--dry-run]    다 올린 원본·오래된 변환 파일 정리 (~/.fanout 안만)
   fanout mcp                             MCP 서버 (stdio) — AI 에이전트용 도구, 업로드 처리 포함
+                                         --allow 폴더1,폴더2 (또는 FANOUT_MCP_ROOTS): 에이전트가 읽을 수 있는 폴더 제한
   fanout watch <폴더> --init             감시 폴더와 예시 설정(fanout.watch.json) 만들기
   fanout watch <폴더> [--yes] [--once] [--interval 15] [--settle 10]
                                          폴더에 넣은 영상을 설정대로 자동으로 올림
@@ -617,17 +619,26 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
 
   // YouTube policy: show the destination accounts and visibility before anything is uploaded.
   say(msg('\n감시 폴더: {dir}', { dir }));
+  const connected = ctx.store.listAccounts();
+  const accountOf = (platform: string, explicit?: string) => {
+    try {
+      return explicit || watchAccount(connected, platform);
+    } catch (err) {
+      throw new UsageError((err as Error).message);
+    }
+  };
   for (const spec of config.to ?? []) {
-    const [platform = '', account = 'main'] = spec.split(':');
+    const [platform = '', explicit] = spec.split(':');
     if (!deps.providers.has(platform)) throw new UsageError(msg('{file}: 알 수 없는 플랫폼 {platform}', { file: CONFIG_FILE, platform }));
+    const account = accountOf(platform, explicit);
     const t: TargetInput = { platform, account, options: config.options?.[platform] ?? {} };
     const when = config.at ?? (config.slots?.length ? msg('다음 빈 슬롯({slots})', { slots: config.slots.join(', ') }) : undefined);
     console.log(`  ${accountLine(ctx, t).padEnd(40)} ${local(visibilityLabel(t, when))}`);
   }
   say(msg('  (영상별 <이름>.json 이 있으면 그 값이 우선합니다)'));
-  const missing = (config.to ?? []).map((s) => s.split(':')).filter(([p = '', a = 'main']) => !ctx.store.getAccount(p, a));
+  const missing = (config.to ?? []).map((s) => s.split(':')).map(([p = '', a]) => [p, accountOf(p, a)] as const).filter(([p, a]) => !ctx.store.getAccount(p, a));
   if (missing.length) {
-    throw new UsageError(msg('연결되지 않은 계정이 있어 시작하지 않습니다: {accounts}\n먼저 fanout connect 또는 대시보드 설정 탭에서 연결하세요.', { accounts: missing.map(([p, a = 'main']) => `${p}/${a}`).join(', ') }));
+    throw new UsageError(msg('연결되지 않은 계정이 있어 시작하지 않습니다: {accounts}\n먼저 fanout connect 또는 대시보드 설정 탭에서 연결하세요.', { accounts: missing.map(([p, a]) => `${p}/${a}`).join(', ') }));
   }
   if (!args.flags.yes && !(await confirm(msg('이 폴더에 들어오는 영상을 위 설정대로 올릴까요?')))) return 1;
 
@@ -1007,15 +1018,29 @@ function cmdPrune(ctx: ProviderContext, args: Args): number {
 }
 
 /** MCP server on stdio; it also runs the upload worker, so posts it creates actually go out. */
-async function cmdMcp(providers: Map<string, Provider>): Promise<number> {
+/** --allow a,b or FANOUT_MCP_ROOTS (path-list separated): the folders MCP agents may read from. */
+export function mcpRoots(allow: string | undefined, env = process.env.FANOUT_MCP_ROOTS): string[] | undefined {
+  const list = (allow !== undefined ? allow.split(',') : (env ?? '').split(delimiter)).map((d) => d.trim()).filter(Boolean);
+  if (!list.length) return undefined;
+  return list.map((d) => {
+    // The shell expands only the first ~ in "a,~/b".
+    const path = resolve(d.startsWith('~/') || d === '~' ? join(homedir(), d.slice(1)) : d);
+    if (!existsSync(path) || !statSync(path).isDirectory()) throw new UsageError(msg('허용할 폴더가 없습니다: {path}', { path }));
+    return realpathSync(path);
+  });
+}
+
+async function cmdMcp(providers: Map<string, Provider>, args: Args): Promise<number> {
   // Agents are mostly prompted in English, so the MCP server (results and its worker's logs) speaks
   // English unless FANOUT_LANG asks otherwise; FANOUT_LANG=ko keeps Korean.
   process.env.FANOUT_LANG ||= 'en';
+  const roots = mcpRoots(str(args, 'allow'));
   const ctx = openContext(undefined, stderrLogger);
+  if (roots) ctx.log.info(msg('MCP: 이 폴더의 파일만 읽습니다: {roots}', { roots: roots.join(', ') }));
   const worker = new Worker({ ctx, providers });
   worker.start();
   try {
-    await serveStdio(new McpServer({ ctx, providers, worker }));
+    await serveStdio(new McpServer({ ctx, providers, worker, roots }));
   } finally {
     // Unfinished uploads resume in the next fanout process (its lease takeover sees this pid is gone).
     worker.stop();
@@ -1066,7 +1091,7 @@ export async function main(argv: string[]): Promise<number> {
   }
   if (cmd === 'check') return cmdCheck(providers, args).then(() => 0);
 
-  if (cmd === 'mcp') return cmdMcp(providers);
+  if (cmd === 'mcp') return cmdMcp(providers, args);
   // Before anything opens the database (or creates a key) in the data folder.
   if (cmd === 'restore') return cmdRestore(args);
 

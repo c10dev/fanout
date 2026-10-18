@@ -205,8 +205,10 @@ export function planPost(args: {
   media: MediaInfo;
   providers: Map<string, Provider>;
   now: Date;
+  /** Connected accounts, for "platform" without ":name" (main, or the only one). */
+  accounts?: ReadonlyArray<{ platform: string; name: string }>;
 }): Plan {
-  const { videoPath, dir, config, sidecar, media, providers, now } = args;
+  const { videoPath, dir, config, sidecar, media, providers, now, accounts = [] } = args;
   const name = basename(videoPath, extname(videoPath));
   const vars: Record<string, string> = { name, date: localDate(now), ...config.vars, ...sidecar.vars };
 
@@ -251,9 +253,9 @@ export function planPost(args: {
   };
 
   const wanted = (sidecar.to ?? config.to ?? []).map((spec) => {
-    const [platform = '', account = 'main'] = spec.trim().split(':');
+    const [platform = '', explicit] = spec.trim().split(':');
     if (!providers.has(platform)) throw new WatchConfigError(msg('알 수 없는 플랫폼: {platform} (가능: {providers})', { platform, providers: [...providers.keys()].join(', ') }));
-    return { platform, account };
+    return { platform, account: explicit || watchAccount(accounts, platform) };
   });
   if (!wanted.length) throw new WatchConfigError(msg('올릴 곳(to)이 없습니다'));
 
@@ -380,7 +382,7 @@ export async function ingest(args: {
   let media: MediaInfo;
   try {
     media = await args.probe(videoPath);
-    plan = planPost({ videoPath, dir, config, sidecar: loadSidecar(videoPath), media, providers, now });
+    plan = planPost({ videoPath, dir, config, sidecar: loadSidecar(videoPath), media, providers, now, accounts: store.listAccounts() });
   } catch (err) {
     // ffprobe failures are long; its last line ("…: Invalid data found when processing input") says enough.
     const detail = (err as Error).message.trim().split('\n').pop()?.replace(/^.*?:\s(?=[^:]+$)/, '') ?? '';
@@ -495,6 +497,15 @@ export function exampleConfig(accounts: ReadonlyArray<{ platform: string; name: 
     onBlocked: 'skip',
     options: Object.fromEntries(chosen.map((p) => [p, EXAMPLE_OPTIONS[p]!])),
   };
+}
+
+/** The account a watch-folder "platform" (no ":name") means; with several and no "main", it must be named. */
+export function watchAccount(accounts: ReadonlyArray<{ platform: string; name: string }>, platform: string): string {
+  const names = accounts.filter((a) => a.platform === platform).map((a) => a.name);
+  if (names.length > 1 && !names.includes('main')) {
+    throw new WatchConfigError(msg('{platform} 계정이 여러 개입니다 ({names}) — to에 "{platform}:이름"으로 적으세요', { platform, names: names.join(', ') }));
+  }
+  return defaultAccountName(accounts, platform);
 }
 
 /** "main" if connected, else the only connected account, else "main". */
