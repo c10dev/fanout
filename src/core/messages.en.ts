@@ -589,4 +589,5 @@ export const MESSAGES_EN: Record<string, string> = {
   "응답이 너무 큽니다 ({max}MB 넘음)": "The response is too large (over {max}MB)",
   "{seconds}초 안에 답이 없습니다": "No answer within {seconds} s",
   "{what}: 남은 한도가 없습니다 ({note}). 지금 올리면 거부될 수 있습니다": "{what}: nothing left ({note}). Posting now may be refused",
+  "영상 파일이 없습니다: {path}": "The video file is missing: {path}",
 };
