@@ -176,6 +176,12 @@ export interface Provider {
 
   /** Views/likes/comments of a published post. Omit when the API (or granted scopes) can't read them. */
   stats?(args: StatsArgs): Promise<Omit<PostStats, 'fetchedAt'>>;
+  /**
+   * For a target handed off to the platform app (TikTok inbox): posts on the account that could be
+   * the one the creator finished there since `since`. The core links one only when exactly one fits
+   * and no other target already has it.
+   */
+  findHandedOff?(args: { ctx: ProviderContext; account: Account; target: Target; since: Date }): Promise<{ matches: Array<{ remoteId: string; remoteUrl?: string }>; note?: string }>;
   /** Set when reading stats is billed (X); stats are then fetched only on explicit request. */
   readonly statsCost?: string;
 

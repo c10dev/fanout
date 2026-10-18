@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { refreshStats } from '../src/core/posting.ts';
+import { refreshDueStats } from '../src/core/stats.ts';
 import type { Account } from '../src/core/store.ts';
 import type { PostInput, Target } from '../src/core/types.ts';
 import { providerMap } from '../src/providers/index.ts';
@@ -248,7 +249,7 @@ describe('refreshStats', () => {
     const by = Object.fromEntries(results.map((r) => [r.platform, r]));
     assert.equal(by.mastodon!.stats!.likes, 5);
     assert.match(by.x!.skipped!, /요금/);
-    assert.match(by.tiktok!.skipped!, /앱에서 마무리/);
+    assert.match(by.tiktok!.skipped!, /연결된 계정이 없습니다/, 'a hand-off is looked for, but needs the account');
     assert.equal(store.getTarget(md)!.stats!.likes, 5);
     assert.equal(store.events(md).length, eventsBefore);
 
@@ -256,5 +257,60 @@ describe('refreshStats', () => {
     const again = await refreshStats(ctx, providerMap(), post.id, { platform: 'mastodon' });
     assert.equal(again[0]!.stats!.likes, 5, 'keeps the last good numbers');
     assert.match(again[0]!.stats!.note!, /가져오지 못함/);
+  });
+});
+
+describe('finding a TikTok post finished in the app', () => {
+  const POST: PostInput = { mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
+  const T0 = Date.parse('2026-10-17T03:00:00Z');
+  const video = (id: string, at: number, duration = 30) => ({ id, create_time: Math.floor(at / 1000), duration, share_url: `https://www.tiktok.com/@c10e2/video/${id}?is_from_webapp=1` });
+  function setup(videos: () => unknown[], now = T0 + 3600_000) {
+    let clock = T0;
+    const { fetch, calls } = mockFetch([
+      ['POST', '/v2/video/list/', () => json({ data: { videos: videos(), has_more: false }, error: { code: 'ok' } })],
+      ['POST', '/v2/video/query/', () => json({ data: { videos: [{ id: '7400000000000000002', view_count: 10, like_count: 2, comment_count: 1, share_count: 0 }] }, error: { code: 'ok' } })],
+    ]);
+    const env = makeCtx(fetch, () => new Date(clock));
+    env.store.saveAccount({ platform: 'tiktok', name: 'main', credentials: { accessToken: 'A', refreshToken: 'R', expiresAt: T0 + 1e10, refreshExpiresAt: T0 + 1e11, openId: 'o', scope: 'user.info.basic,video.upload,video.list' }, profile: {} });
+    const { post, targets } = env.store.createPost(POST, [{ platform: 'tiktok', account: 'main', options: {} }]);
+    const id = targets[0]!.id;
+    env.store.transition(id, 'uploading', { resume: { publishId: 'v_inbox_file~1', durationSec: 30.4 } });
+    env.store.transition(id, 'handed_off', { remoteId: 'v_inbox_file~1' });
+    clock = now;
+    return { ...env, calls, post, id };
+  }
+
+  it('links the one video posted after the hand-off with the same length, then reads its stats', async () => {
+    const { ctx, store, post, id } = setup(() => [video('7400000000000000001', T0 - 86_400_000), video('7400000000000000002', T0 + 1800_000), video('7400000000000000003', T0 + 1900_000, 12)]);
+    const [r] = await refreshStats(ctx, providerMap(), post.id);
+    const t = store.getTarget(id)!;
+    assert.deepEqual([t.state, t.remoteId, t.remoteUrl], ['published', '7400000000000000002', 'https://www.tiktok.com/@c10e2/video/7400000000000000002?is_from_webapp=1']);
+    assert.deepEqual([r!.stats!.views, r!.stats!.likes], [10, 2]);
+  });
+
+  it('picks nothing when two could be it, or when the only one is already linked elsewhere', async () => {
+    const two = setup(() => [video('7400000000000000002', T0 + 60_000), video('7400000000000000004', T0 + 120_000)]);
+    const [r] = await refreshStats(two.ctx, providerMap(), two.post.id);
+    assert.match(r!.skipped!, /2개/);
+    assert.equal(two.store.getTarget(two.id)!.state, 'handed_off');
+
+    const taken = setup(() => [video('7400000000000000002', T0 + 60_000)]);
+    const { targets } = taken.store.createPost(POST, [{ platform: 'tiktok', account: 'main', options: {} }]);
+    taken.store.transition(targets[0]!.id, 'uploading');
+    taken.store.transition(targets[0]!.id, 'published', { remoteId: '7400000000000000002' });
+    const [r2] = await refreshStats(taken.ctx, providerMap(), taken.post.id);
+    assert.match(r2!.skipped!, /찾지 못했습니다/);
+  });
+
+  it('stops looking after two weeks, and the background refresh includes hand-offs', async () => {
+    const old = setup(() => [video('7400000000000000002', T0 + 60_000)], T0 + 15 * 86_400_000);
+    const [r] = await refreshStats(old.ctx, providerMap(), old.post.id);
+    assert.match(r!.skipped!, /14일/);
+    assert.equal(old.calls.length, 0);
+
+    const fresh = setup(() => [video('7400000000000000002', T0 + 60_000)]);
+    const seen: string[] = [];
+    await refreshDueStats(fresh.ctx, providerMap(), async (p, platform) => void seen.push(`${p}/${platform}`), { everyMs: 6 * 3600_000 });
+    assert.deepEqual(seen, [`${fresh.post.id}/tiktok`]);
   });
 });
