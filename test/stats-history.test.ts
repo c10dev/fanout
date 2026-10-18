@@ -101,7 +101,10 @@ describe('stats history, seventh review fixes', () => {
     env.store.transition(targets[0]!.id, 'uploading');
     env.store.transition(targets[0]!.id, 'published', { remoteId: 'Y' });
     const seen: string[] = [];
-    assert.equal(await refreshDueStats(env.ctx, providerMap(), async (p, platform) => void seen.push(`${p}/${platform}`), { everyMs: 6 * 3600_000 }), 1);
+    // X charges for reads; a platform without stats (TikTok stands in) is never read either.
+    const providers = providerMap();
+    providers.set('tiktok', { ...providers.get('tiktok')!, stats: undefined });
+    assert.equal(await refreshDueStats(env.ctx, providers, async (p, platform) => void seen.push(`${p}/${platform}`), { everyMs: 6 * 3600_000 }), 1);
     assert.deepEqual(seen, [`${post.id}/youtube`]);
   });
 

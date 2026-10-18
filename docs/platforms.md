@@ -30,7 +30,7 @@
 | Bluesky | | ✓ | ✓ | ✓ | 공개 AppView, 조회수는 공개하지 않음 |
 | Mastodon | | ✓ | ✓ | ✓ | |
 | PeerTube | ✓ | ✓ | ✓ | | 댓글 수는 7.2 이상 |
-| TikTok | | | | | `video.list` 권한이 필요해 아직 지원하지 않음. 수신함으로 넘긴 게시물은 id도 모름 |
+| TikTok | ✓ | ✓ | ✓ | ✓ | `POST /v2/video/query/`. 앱에 Display API를 추가하고 scopes에 `video.list`를 더해 다시 연결해야 함(없으면 이유만 표시, `fanout doctor tiktok`이 알려 줌). direct 게시물 중 공개 게시물 ID가 있는 것만. 수신함으로 넘긴 게시물은 id를 몰라 읽지 못함 |
 
 ## 남은 한도
 
