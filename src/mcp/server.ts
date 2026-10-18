@@ -137,7 +137,7 @@ const TOOLS = [
     name: 'get_post_stats',
     title: 'Get post reactions',
     description:
-      'Fetch views/likes/comments/shares of a post\'s published targets from each platform (as far as the API and granted scopes allow). ' +
+      'Fetch views/likes/comments/shares of a post\'s published targets from each platform (as far as the API and granted scopes allow), plus deeper numbers where a platform has them: reach, saves, avgWatchSec, watchTimeSec, avgViewPct, subscribersGained. ' +
       'Platforms that bill for reads (X) are skipped unless includePaid is true — ask the user before setting it.',
     inputSchema: { type: 'object', required: ['postId'], properties: { postId: { type: 'string' }, includePaid: { type: 'boolean' } } },
     annotations: { readOnlyHint: true, openWorldHint: true },

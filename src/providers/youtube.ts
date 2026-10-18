@@ -19,7 +19,9 @@ const TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const REVOKE_URL = 'https://oauth2.googleapis.com/revoke';
 /** Covers upload, read, captions, playlists and delete (used by `doctor --live` cleanup). */
 const ANALYTICS_SCOPE = 'https://www.googleapis.com/auth/yt-analytics.readonly';
-const SCOPE = `https://www.googleapis.com/auth/youtube.force-ssl ${ANALYTICS_SCOPE}`;
+const MANAGE_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
+// reports.query also asks for youtube.readonly (Analytics API revision history, 2018-06-18).
+const SCOPE = `${MANAGE_SCOPE} https://www.googleapis.com/auth/youtube.readonly ${ANALYTICS_SCOPE}`;
 const ANALYTICS_API = 'https://youtubeanalytics.googleapis.com/v2';
 /** Multiple of 256 KiB, as the resumable protocol requires for non-final chunks. */
 export const CHUNK_SIZE = 32 * 256 * 1024;
@@ -162,14 +164,33 @@ function definedOnly<T extends object>(o: T): T {
 
 type AnalyticsValues = Pick<PostStats, 'watchTimeSec' | 'avgWatchSec' | 'avgViewPct' | 'subscribersGained'>;
 
+/** Why an Analytics call failed, in words the user can act on; undefined for a passing failure. */
+function analyticsProblem(err: unknown, account: Account): string | undefined {
+  if (!(err instanceof ProviderError)) return undefined;
+  const code = err.platformCode;
+  // Google answers a disabled API with a 403 whose reason or text says so.
+  if (code === 'accessNotConfigured' || code === 'SERVICE_DISABLED' || /has not been used|is disabled/i.test(err.message)) {
+    return msg('Google Cloud 프로젝트에서 YouTube Analytics API를 사용 설정하세요 (API 및 서비스 → 라이브러리)');
+  }
+  if (code === 'insufficientPermissions') {
+    // Reconnecting only helps when the token really lacks the scope.
+    return creds(account).scope?.split(' ').includes(ANALYTICS_SCOPE)
+      ? msg('권한이 있는데도 YouTube Analytics가 거부했습니다: {err}', { err: err.message })
+      : msg('시청 시간 같은 분석 통계는 yt-analytics.readonly 권한이 필요합니다 — fanout connect youtube로 다시 연결하세요');
+  }
+  if (code === 'forbidden') return msg('이 채널의 분석 데이터를 읽을 수 없습니다: {err}', { err: err.message });
+  return undefined;
+}
+
 /**
  * Watch time, average view duration and % viewed, and subscribers gained on the video's page, from
  * the YouTube Analytics API (its own quota, not the Data API's units). Never fails the stats call:
- * what can't be read becomes a note, and a passing failure keeps the last numbers.
+ * what can't be read becomes a note, and the last numbers stay.
  */
 async function analytics(ctx: ProviderContext, account: Account, target: Target & { remoteId: string }): Promise<{ values: AnalyticsValues; note?: string }> {
-  const reconnect = msg('시청 시간 같은 분석 통계는 yt-analytics.readonly 권한이 필요합니다 — fanout connect youtube로 다시 연결하세요');
-  if (!mayReadAnalytics(account)) return { values: {}, note: reconnect };
+  const s = target.stats;
+  const last = definedOnly({ watchTimeSec: s?.watchTimeSec, avgWatchSec: s?.avgWatchSec, avgViewPct: s?.avgViewPct, subscribersGained: s?.subscribersGained });
+  if (!mayReadAnalytics(account)) return { values: last, note: msg('시청 시간 같은 분석 통계는 yt-analytics.readonly 권한이 필요합니다 — fanout connect youtube로 다시 연결하세요') };
   const query = new URLSearchParams({
     ids: 'channel==MINE',
     startDate: '2005-02-14',
@@ -180,7 +201,7 @@ async function analytics(ctx: ProviderContext, account: Account, target: Target 
   try {
     const res = await api<{ columnHeaders?: Array<{ name: string }>; rows?: number[][] }>(ctx, account, `${ANALYTICS_API}/reports?${query}`);
     const row = res.rows?.[0];
-    if (!row) return { values: {}, note: msg('아직 분석 통계가 없습니다 (보통 하루 이틀 늦게 나옵니다)') };
+    if (!row) return { values: last, note: msg('아직 분석 통계가 없습니다 (보통 하루 이틀 늦게 나옵니다)') };
     const at = (name: string) => {
       const i = (res.columnHeaders ?? []).findIndex((h) => h.name === name);
       return i < 0 || typeof row[i] !== 'number' ? undefined : row[i];
@@ -196,13 +217,7 @@ async function analytics(ctx: ProviderContext, account: Account, target: Target 
       }),
     };
   } catch (err) {
-    const code = err instanceof ProviderError ? err.platformCode : undefined;
-    if (code === 'insufficientPermissions' || code === 'forbidden' || (err instanceof ProviderError && err.kind === 'auth')) return { values: {}, note: reconnect };
-    if (code === 'accessNotConfigured' || code === 'SERVICE_DISABLED') {
-      return { values: {}, note: msg('Google Cloud 프로젝트에서 YouTube Analytics API를 사용 설정하세요 (API 및 서비스 → 라이브러리)') };
-    }
-    const s = target.stats;
-    return { values: definedOnly({ watchTimeSec: s?.watchTimeSec, avgWatchSec: s?.avgWatchSec, avgViewPct: s?.avgViewPct, subscribersGained: s?.subscribersGained }), note: msg('분석 통계를 읽지 못해 지난 값을 둡니다: {err}', { err: (err as Error).message }) };
+    return { values: last, note: analyticsProblem(err, account) ?? msg('분석 통계를 읽지 못해 지난 값을 둡니다: {err}', { err: (err as Error).message }) };
   }
 }
 
@@ -520,7 +535,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
 1. https://console.cloud.google.com/ 에서 새 프로젝트 생성
 2. "API 및 서비스 → 라이브러리"에서 YouTube Data API v3와 YouTube Analytics API 사용 설정
 3. "OAuth 동의 화면": User type External, 앱 이름·이메일 입력,
-   범위에 .../auth/youtube.force-ssl, .../auth/yt-analytics.readonly 추가, 테스트 사용자에 본인 Google 계정 추가
+   범위에 .../auth/youtube.force-ssl, .../auth/youtube.readonly, .../auth/yt-analytics.readonly 추가, 테스트 사용자에 본인 Google 계정 추가
 4. ⚠ 게시 상태를 "In production"으로 바꾸세요. "Testing"이면 refresh token이 7일 만에 만료되어
    매주 다시 연결해야 합니다. (본인만 쓰는 앱은 미검증 경고 화면이 떠도 "계속"으로 진행 가능)
 5. "사용자 인증 정보 → OAuth 클라이언트 ID": 애플리케이션 유형 "데스크톱 앱"
@@ -584,6 +599,10 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       code_verifier: verifier,
     });
     const credentials = credsFromToken(tok, ctx.now().getTime());
+    // Google lets the user untick scopes; without the manage scope nothing can be uploaded.
+    if (credentials.scope && !credentials.scope.split(' ').includes(MANAGE_SCOPE)) {
+      throw new ProviderError('auth', 'youtube.partial_grant', msg('YouTube 관리 권한(youtube.force-ssl)을 승인하지 않았습니다 — 다시 연결하면서 모든 항목을 체크하세요'));
+    }
     const account: Account = { platform: 'youtube', name, credentials: { ...credentials }, profile: {} };
     const ch = await api<{ items?: Array<{ id: string; snippet: { title: string } }> }>(ctx, account, '/channels?part=snippet&mine=true');
     const channel = ch.items?.[0];
@@ -854,11 +873,18 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
         : { name: msg('refresh token 수명'), status: 'ok', detail: msg('만료 기한 없음 (In production으로 보임)') },
     );
 
-    checks.push(
-      mayReadAnalytics(acct)
-        ? { name: msg('분석 통계'), status: 'ok', detail: msg('yt-analytics.readonly 권한 있음 (시청 시간·평균 시청·구독 증가)') }
-        : { name: msg('분석 통계'), status: 'info', detail: msg('yt-analytics.readonly 권한이 없습니다 — 시청 시간 통계를 보려면 fanout connect youtube로 다시 연결하세요') },
-    );
+    if (!mayReadAnalytics(acct)) {
+      checks.push({ name: msg('분석 통계'), status: 'info', detail: msg('yt-analytics.readonly 권한이 없습니다 — 시청 시간 통계를 보려면 fanout connect youtube로 다시 연결하세요') });
+    } else {
+      // One cheap report (today, channel views) shows whether the API is on and the grant works.
+      const day = pacificDay(ctx.now());
+      try {
+        await api(ctx, acct, `${ANALYTICS_API}/reports?${new URLSearchParams({ ids: 'channel==MINE', startDate: day, endDate: day, metrics: 'views' })}`);
+        checks.push({ name: msg('분석 통계'), status: 'ok', detail: msg('yt-analytics.readonly 권한 있음 (시청 시간·평균 시청·구독 증가)') });
+      } catch (err) {
+        checks.push({ name: msg('분석 통계'), status: 'warn', detail: analyticsProblem(err, acct) ?? (err as Error).message });
+      }
+    }
 
     const ch = await api<{ items?: Array<{ id: string; snippet: { title: string }; status?: { longUploadsStatus?: string } }> }>(
       ctx,

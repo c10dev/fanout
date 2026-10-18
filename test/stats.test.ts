@@ -57,6 +57,17 @@ describe('provider stats', () => {
       assert.equal(off.s.views, 1234, 'the basic numbers are still there');
     });
 
+    it('names the real problem, and keeps the last numbers whatever it is', async () => {
+      const prev = { fetchedAt: '', watchTimeSec: 600, avgWatchSec: 30 };
+      const err = (reason: string, message = 'denied') => () => json({ error: { code: 403, message, errors: [{ reason }] } }, 403);
+      const granted = await read(err('insufficientPermissions'), prev);
+      assert.match(granted.s.note!, /권한이 있는데도/, 'reconnecting would not help: the scope is there');
+      assert.equal(granted.s.watchTimeSec, 600);
+      assert.match((await read(err('forbidden'))).s.note!, /이 채널의 분석 데이터/);
+      assert.match((await read(err('PERMISSION_DENIED', 'YouTube Analytics API has not been used in project 1 before or it is disabled'))).s.note!, /사용 설정/);
+      assert.equal((await read(() => json({ columnHeaders: [] }), prev)).s.avgWatchSec, 30, 'no rows yet: keep');
+    });
+
     it('keeps the last analytics on a passing failure', async () => {
       const prev = { fetchedAt: '', watchTimeSec: 600, avgWatchSec: 30, avgViewPct: 50, subscribersGained: 1 };
       const { s } = await read(() => json({ error: { code: 500, message: 'backend' } }, 500), prev);
