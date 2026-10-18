@@ -82,10 +82,10 @@ describe('instagram reels', () => {
   });
 
   it('trial reels: graduation strategy sent, unknown values refused, and a refusal says what to drop', async () => {
-    let refuse = false;
+    let refuse: string | false = false;
     const { fetch, calls } = mockFetch([
       ['GET', '/IG/content_publishing_limit', () => json({ data: [{ quota_usage: 0, config: { quota_total: 100 } }] })],
-      ['POST', '/IG/media', () => (refuse ? json({ error: { message: '(#100) Invalid parameter', type: 'OAuthException', code: 100 } }, 400) : json({ id: 'CONT1', uri: 'https://rupload.facebook.com/ig-api-upload/v24.0/CONT1' }))],
+      ['POST', '/IG/media', () => (refuse ? json({ error: { message: refuse, type: 'OAuthException', code: 100 } }, 400) : json({ id: 'CONT1', uri: 'https://rupload.facebook.com/ig-api-upload/v24.0/CONT1' }))],
       ['POST', 'rupload.facebook.com', () => json({ success: true })],
     ]);
     const { ctx, store } = makeCtx(fetch);
@@ -96,11 +96,15 @@ describe('instagram reels', () => {
     assert.deepEqual(JSON.parse(new URLSearchParams(String(calls[1]!.body)).get('trial_params')!), { graduation_strategy: 'SS_PERFORMANCE' });
     await publish();
     assert.equal(new URLSearchParams(String(calls.filter((c) => c.url.endsWith('/IG/media')).at(-1)!.body)).get('trial_params'), null);
-    refuse = true;
+    refuse = '(#100) Param trial_params is not supported for this upload';
     await assert.rejects(publish('manual'), /trialReel/);
+    // Any other refusal (a bad collaborator, say) keeps its own message.
+    refuse = '(#100) Invalid collaborator';
+    await assert.rejects(publish('manual'), (e: Error) => !/trialReel/.test(e.message));
     const codes = (o: Record<string, unknown>) => instagram.validate(post, { ...target('instagram'), options: o }, fakeMedia({}, { width: 1080, height: 1920 })).map((i) => `${i.severity}:${i.code}`);
     assert.ok(codes({ trialReel: 'manual' }).includes('warning:trial'), 'experimental: said up front');
     assert.ok(codes({ trialReel: 'sometimes' }).includes('error:trial'));
+    assert.equal(codes({ trialReel: 'auto', collaborators: ['a'], shareToFeed: true }).filter((c) => c === 'warning:trial').length, 3, 'unconfirmed + two combinations');
   });
 
   it('refuses when the 24h limit is used up', async () => {

@@ -1137,7 +1137,7 @@ function commentsPanel(postId) {
                       tr('답글'),
                     )
                   : null,
-                r.canHide && c.hideable !== false ? hideButton(r.targetId, c) : null,
+                r.canHide && (c.hidden || c.hideable !== false) ? hideButton(r.targetId, c) : null,
               ),
             ),
           ),

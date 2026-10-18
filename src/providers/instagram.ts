@@ -103,7 +103,10 @@ export const instagram: Provider = {
     if (o.trialReel !== undefined) {
       if (!(o.trialReel in TRIAL)) issues.push({ severity: 'error', code: 'trial', message: msg('trialReel은 manual 또는 auto') });
       // Meta documents trial_params for URL uploads; fanout uploads the file itself (resumable).
-      else issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스는 팔로워가 아닌 사람에게 먼저 보입니다. fanout의 파일 업로드 방식에서 Meta가 받아 주는지는 아직 확인되지 않았습니다') });
+      else issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스는 팔로워가 아닌 사람에게 먼저 보입니다. fanout의 파일 업로드 방식에서 Meta가 받아 주는지는 아직 확인되지 않았습니다 — 조용히 무시되면 팔로워에게도 보이는 일반 릴스로 올라가고 되돌릴 수 없습니다') });
+      // Not documented either way by Meta; reported not to combine.
+      if (collaboratorsOf(o).length) issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스와 공동 작업자는 함께 쓰지 못할 수 있습니다') });
+      if (o.shareToFeed === true) issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스는 피드 공유(shareToFeed)와 함께 쓰지 못할 수 있습니다') });
     }
     const ratio = media.video.width / media.video.height;
     if (Math.abs(ratio - 9 / 16) > 0.02) {
@@ -141,7 +144,7 @@ export const instagram: Provider = {
       is_ai_generated: post.containsSyntheticMedia ? true : undefined,
       access_token: c.pageToken,
     }).catch((err: unknown) => {
-      if (!o.trialReel || !(err instanceof ProviderError) || err.kind !== 'rejected') throw err;
+      if (!o.trialReel || !(err instanceof ProviderError) || err.kind !== 'rejected' || !/trial/i.test(err.message)) throw err;
       throw new ProviderError('rejected', err.code, msg('{err} — 시험 릴스(trialReel)를 빼고 다시 시도해 보세요', { err: err.message }), err.platformCode);
     });
     saveResume({ containerId: container.id, uploaded: false });
@@ -250,13 +253,17 @@ export const instagram: Provider = {
   // Needs the instagram_manage_comments permission on the token (see the Meta setup guide).
   async comments({ ctx, account, target, limit }) {
     const c = pageCreds(account);
-    const res = await graph<{ data?: Array<{ id: string; text?: string; username?: string; timestamp: string; like_count?: number; hidden?: boolean; from?: { id?: string } }> }>(
+    const res = await graph<{ data?: Array<{ id: string; text?: string; username?: string; timestamp: string; like_count?: number; hidden?: boolean; user?: { id?: string } }> }>(
       ctx,
       'GET',
       `/${target.remoteId}/comments`,
-      { fields: 'id,text,username,timestamp,like_count,hidden,from', limit: Math.min(limit, 50), access_token: c.pageToken },
+      { fields: 'id,text,username,timestamp,like_count,hidden,user', limit: Math.min(limit, 50), access_token: c.pageToken },
     );
-    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '', text: m.text ?? '', at: m.timestamp, likes: m.like_count, hidden: m.hidden === true, hideable: !(m.from?.id && m.from.id === c.igUserId) }));
+    // The account's own comments: `user` comes back only for those (an IG user id, unlike `from`,
+    // which is app-scoped), and the username is the fallback.
+    const me = String(account.profile.username ?? '').toLowerCase();
+    const own = (m: { username?: string; user?: { id?: string } }) => (m.user?.id !== undefined && m.user.id === c.igUserId) || (me !== '' && m.username?.toLowerCase() === me);
+    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '', text: m.text ?? '', at: m.timestamp, likes: m.like_count, hidden: m.hidden === true, hideable: !own(m) }));
   },
 
   async reply({ ctx, account, comment, text, sending }) {

@@ -109,7 +109,7 @@ describe('hiding comments', () => {
     store.setApp('youtube', { clientId: 'c', clientSecret: 's' });
     store.setApp('meta', { appId: 'a', appSecret: 's' });
     const credentials = platform === 'youtube' ? { accessToken: 'A', refreshToken: 'R', expiresAt: NOW.getTime() + 3600_000 } : { pageId: 'PAGE', pageToken: 'PT', igUserId: 'IG' };
-    store.saveAccount({ platform, name: 'main', credentials, profile: {} });
+    store.saveAccount({ platform, name: 'main', credentials, profile: platform === 'instagram' ? { username: 'vocado.lyrics' } : {} });
     const input: PostInput = { mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
     const { targets } = store.createPost(input, [{ platform, account: 'main', options: {} }]);
     const id = targets[0]!.id;
@@ -186,11 +186,17 @@ describe('hiding comments', () => {
 
   it('Instagram: refuses to "hide" the account\'s own comment, which would stay visible', async () => {
     const { ctx, calls, id } = setup('instagram', [
-      ['GET', '/V/comments', () => json({ data: [{ id: 'MINE', text: 'thanks!', username: 'vocado', timestamp: '2026-10-17T00:00:00+0000', from: { id: 'IG' } }, { id: 'C2', text: 'spam', username: 'u', timestamp: '2026-10-17T00:00:00+0000', from: { id: '999' } }] })],
+      // `from.id` is app-scoped (never the IG user id); `user` comes back only on the account's own comments.
+      ['GET', '/V/comments', () => json({ data: [
+        { id: 'MINE', text: 'thanks!', username: 'vocado', timestamp: '2026-10-17T00:00:00+0000', from: { id: '178414' }, user: { id: 'IG' } },
+        { id: 'MINE2', text: 'pinned', username: 'Vocado.Lyrics', timestamp: '2026-10-17T00:00:00+0000', from: { id: '178415' } },
+        { id: 'C2', text: 'spam', username: 'u', timestamp: '2026-10-17T00:00:00+0000', from: { id: '999' } },
+        { id: 'C3', text: 'no from', timestamp: '2026-10-17T00:00:00+0000' },
+      ] })],
       ['POST', '/C2', () => json({ success: true })],
     ]);
     const [r] = await fetchComments(ctx, providerMap(), ctx.store.getTarget(id)!.postId);
-    assert.deepEqual(r!.comments!.map((c) => [c.id, c.hideable]), [['MINE', false], ['C2', true]]);
+    assert.deepEqual(r!.comments!.map((c) => [c.id, c.hideable]), [['MINE', false], ['MINE2', false], ['C2', true], ['C3', true]]);
     await assert.rejects(hideComment(ctx, providerMap(), id, 'MINE'), /숨겨지지 않습니다/);
     assert.ok(!calls.some((c) => c.method === 'POST'));
     await hideComment(ctx, providerMap(), id, 'C2');
