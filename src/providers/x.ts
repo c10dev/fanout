@@ -1,4 +1,5 @@
-import { statSync } from 'node:fs';
+import { readFileSync, statSync } from 'node:fs';
+import { extname } from 'node:path';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
 import { jsonOr, openBrowser, pkcePair, readChunk, rotationContext, startLoopback } from '../core/http.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
@@ -8,6 +9,8 @@ import { msg } from '../core/i18n.ts';
 
 // Docs: https://docs.x.com/x-api/media/quickstart/media-upload-chunked (initialize → append →
 //       finalize → STATUS → POST /2/tweets), https://docs.x.com/fundamentals/authentication/oauth-2-0/authorization-code
+//       Alt text: POST /2/media/metadata. Subtitles: an SRT/VTT uploaded as media_category
+//       'subtitles', then POST /2/media/subtitles (https://docs.x.com/x-api/media/create-media-subtitles).
 
 const API = 'https://api.x.com';
 const AUTH_URL = 'https://x.com/i/oauth2/authorize';
@@ -16,6 +19,8 @@ const DEFAULT_REDIRECT = 'http://127.0.0.1:8724/callback';
 /** The guide recommends ≤5MB segments (server max 8MB). */
 export const SEGMENT = 4 * 1024 * 1024;
 const TEXT_MAX = 280;
+const ALT_TEXT_MAX = 1000;
+const SUBTITLE_TYPES: Record<string, string> = { '.srt': 'text/srt', '.vtt': 'text/vtt' };
 
 export interface XApp {
   clientId: string;
@@ -40,6 +45,19 @@ export interface XOptions {
   paidPartnership?: boolean;
   /** Who can reply; everyone when unset. */
   replySettings?: 'following' | 'mentionedUsers' | 'subscribers' | 'verified';
+  /** A description of the video for screen readers (up to 1000 characters). */
+  alt?: string;
+}
+
+/** What poll() keeps between status checks on its way to the post. */
+interface XResume {
+  mediaId?: string;
+  tweetId?: string;
+  posting?: boolean;
+  /** Alt text and subtitle tracks already attempted (each is sent at most once). */
+  extras?: string[];
+  /** Their failures, shown once the post is up. */
+  extraWarnings?: string[];
 }
 
 const REPLY_SETTINGS = ['following', 'mentionedUsers', 'subscribers', 'verified'];
@@ -111,6 +129,12 @@ export function tweetText(post: Post, opts: XOptions): string {
   return weightedLength(full) <= TEXT_MAX ? full : [post.title, tags].filter((s) => s.trim()).join('\n\n');
 }
 
+/** X takes a two-letter upper-case code (pattern ^[A-Z]{2}$): ko → KO, en-US → EN. */
+export function subtitleLanguage(language: string): string | undefined {
+  const code = language.split(/[-_]/)[0]!.toUpperCase();
+  return /^[A-Z]{2}$/.test(code) ? code : undefined;
+}
+
 async function tokenRequest(ctx: ProviderContext, params: Record<string, string>, previous?: XCredentials): Promise<Omit<XCredentials, 'userId' | 'username'>> {
   const a = app(ctx);
   const headers: Record<string, string> = { 'content-type': 'application/x-www-form-urlencoded' };
@@ -143,10 +167,69 @@ async function api<T>(ctx: ProviderContext, account: Account, path: string, init
   return body;
 }
 
+/**
+ * Alt text and subtitle tracks, once the video has processed and before the post goes out. Each is
+ * tried at most once (a retry would duplicate a track), and a failure only becomes a warning: the
+ * post still goes out without it. Signing-in trouble stops here like anywhere else.
+ */
+async function applyExtras(
+  ctx: ProviderContext,
+  account: Account,
+  post: Post,
+  opts: XOptions,
+  mediaId: string,
+  start: XResume,
+  save: (resume: XResume) => void,
+): Promise<XResume> {
+  let resume = start;
+  const attempt = async (key: string, label: string, send: () => Promise<unknown>) => {
+    if (resume.extras?.includes(key)) return;
+    resume = { ...resume, extras: [...(resume.extras ?? []), key] };
+    save(resume);
+    try {
+      await send();
+    } catch (err) {
+      if (err instanceof ProviderError && err.kind === 'auth') {
+        // Refused before anything was attached: try it again after reconnecting.
+        resume = { ...resume, extras: resume.extras?.filter((k) => k !== key) };
+        save(resume);
+        throw err;
+      }
+      resume = { ...resume, extraWarnings: [...(resume.extraWarnings ?? []), msg('{label} 실패: {err}', { label, err: (err as Error).message })] };
+      save(resume);
+    }
+  };
+  const json = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+
+  if (opts.alt?.trim()) {
+    const text = opts.alt.trim();
+    await attempt('alt_text', msg('X 대체 텍스트'), () => api(ctx, account, '/2/media/metadata', json({ id: mediaId, metadata: { alt_text: { text } } })));
+  }
+  for (const cap of post.captions) {
+    const type = SUBTITLE_TYPES[extname(cap.path).toLowerCase()];
+    const language = subtitleLanguage(cap.language);
+    if (!type || !language) continue; // validate() already said why
+    await attempt(`subtitles:${cap.language}`, msg('X 자막({language})', { language: cap.language }), async () => {
+      const file = readFileSync(cap.path);
+      if (file.length > SEGMENT) throw new Error(msg('자막 파일이 너무 큽니다 ({size} 바이트)', { size: file.length }));
+      const init = await api<{ data: { id: string } }>(ctx, account, '/2/media/upload/initialize', json({ media_type: type, total_bytes: file.length, media_category: 'subtitles' }));
+      const subId = init.data.id;
+      const form = new FormData();
+      form.set('segment_index', '0');
+      form.set('media', new Blob([new Uint8Array(file)]), 'subtitles');
+      await api(ctx, account, `/2/media/upload/${subId}/append`, { method: 'POST', body: form });
+      await api(ctx, account, `/2/media/upload/${subId}/finalize`, { method: 'POST' });
+      const displayName = cap.name ?? new Intl.DisplayNames(['en'], { type: 'language' }).of(language.toLowerCase()) ?? language;
+      await api(ctx, account, '/2/media/subtitles', json({ id: mediaId, media_category: 'TweetVideo', subtitles: { id: subId, language_code: language, display_name: displayName } }));
+    });
+  }
+  return resume;
+}
+
 export const x: Provider = {
   id: 'x',
   displayName: 'X (Twitter)',
-  capabilities: { nativeSchedule: false, thumbnail: false, captions: false, syntheticMediaFlag: true },
+  capabilities: { nativeSchedule: false, thumbnail: false, captions: true, syntheticMediaFlag: true },
   spec: {
     // Default per-user caps; Premium accounts get more (125 min / 16GB) and X re-checks on post.
     maxBytes: 8 * 1024 ** 3,
@@ -264,7 +347,15 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     }
     if (hasUrl(text)) issues.push({ severity: 'warning', code: 'url_cost', message: msg('X는 URL이 들어간 게시물 요금이 훨씬 비쌉니다(약 $0.20)') });
     if (post.scheduledAt) issues.push({ severity: 'warning', code: 'schedule', message: msg('X는 API 예약 게시가 없어 fanout이 예약 시각에 올립니다 (fanout worker 필요)') });
-    if (post.thumbnailPath || post.captions.length) issues.push({ severity: 'warning', code: 'extras', message: msg('X에는 썸네일·자막을 보내지 않습니다') });
+    const alt = (target.options as XOptions).alt;
+    if (alt !== undefined && (typeof alt !== 'string' || [...alt].length > ALT_TEXT_MAX)) {
+      issues.push({ severity: 'error', code: 'alt_text', message: msg('alt는 {max}자 이하 문자열', { max: ALT_TEXT_MAX }) });
+    }
+    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'extras', message: msg('X에는 썸네일을 보내지 않습니다') });
+    for (const cap of post.captions) {
+      if (!SUBTITLE_TYPES[extname(cap.path).toLowerCase()]) issues.push({ severity: 'warning', code: 'subtitles', message: msg('X 자막은 SRT·VTT만 받습니다 — {language} 자막은 빠집니다', { language: cap.language }) });
+      else if (!subtitleLanguage(cap.language)) issues.push({ severity: 'warning', code: 'subtitles', message: msg('X 자막 언어는 두 글자 코드만 됩니다 — {language} 자막은 빠집니다', { language: cap.language }) });
+    }
     return issues;
   },
 
@@ -335,9 +426,9 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
   },
 
   async poll({ ctx, post, target, account }): Promise<PollOutcome> {
-    const resume = (target.resume ?? {}) as { mediaId?: string; tweetId?: string; posting?: boolean };
+    let resume = (target.resume ?? {}) as XResume;
     const username = creds(account).username;
-    if (resume.tweetId) return { state: 'published', remoteId: resume.tweetId, remoteUrl: `https://x.com/${username}/status/${resume.tweetId}` };
+    if (resume.tweetId) return { state: 'published', remoteId: resume.tweetId, remoteUrl: `https://x.com/${username}/status/${resume.tweetId}`, warnings: resume.extraWarnings };
     const mediaId = resume.mediaId ?? target.remoteId;
 
     const status = await api<{ data: MediaData }>(ctx, account, `/2/media/upload?${new URLSearchParams({ command: 'STATUS', media_id: mediaId })}`);
@@ -347,6 +438,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       throw new ProviderError('rejected', 'x.processing_failed', msg('X 영상 처리 실패: {reason}', { reason: e?.message ?? e?.name ?? 'unknown' }), e?.name);
     }
     if (state === 'pending' || state === 'in_progress') return { state: 'processing', remoteId: mediaId };
+    if (!resume.posting) resume = await applyExtras(ctx, account, post, target.options as XOptions, mediaId, resume, (next) => ctx.store.updateTarget(target.id, { resume: { ...next } }));
 
     // X has no idempotency key for posts. If a previous attempt may already have posted, stop
     // and let the user check instead of risking a duplicate.
@@ -364,7 +456,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       throw err;
     });
     ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false, tweetId: tweet.data.id } });
-    return { state: 'published', remoteId: tweet.data.id, remoteUrl: `https://x.com/${username}/status/${tweet.data.id}` };
+    return { state: 'published', remoteId: tweet.data.id, remoteUrl: `https://x.com/${username}/status/${tweet.data.id}`, warnings: resume.extraWarnings };
   },
 
   async doctor({ ctx, account }): Promise<DoctorCheck[]> {

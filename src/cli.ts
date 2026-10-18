@@ -135,7 +135,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
     case 'facebook':
       return drop({ caption: str(args, 'fb-caption'), title: str(args, 'fb-title'), draft: args.flags['fb-draft'] ? true : undefined });
     case 'x':
-      return drop({ text: str(args, 'x-text'), paidPartnership: bool(args, 'x-paid-partnership'), replySettings: str(args, 'x-reply') });
+      return drop({ text: str(args, 'x-text'), paidPartnership: bool(args, 'x-paid-partnership'), replySettings: str(args, 'x-reply'), alt: str(args, 'x-alt') });
     case 'mastodon':
       return drop({ visibility: str(args, 'md-visibility'), text: str(args, 'md-text'), alt: str(args, 'md-alt'), language: str(args, 'md-lang'), spoilerText: str(args, 'md-cw') });
     case 'peertube':
@@ -332,6 +332,7 @@ post 공통 옵션
   Instagram  --ig-caption 텍스트  --ig-no-feed  --ig-thumb-ms 1000  --ig-collab 사용자1,사용자2 (공동 작업자, 3명까지)  --ig-audio 오디오이름
   Facebook   --fb-caption 텍스트  --fb-title 제목  --fb-draft (게시하지 않고 초안으로)
   X          --x-text 텍스트 (가중치 280 이하, 한글은 2로 셈)  --x-paid-partnership yes  --x-reply following|mentionedUsers|subscribers|verified
+             --x-alt 대체텍스트 (1000자 이하)
   Bluesky    --bsky-text 텍스트(300자 이하)  --bsky-alt 대체텍스트  --bsky-lang ko,en
   Mastodon   --md-visibility public|unlisted|private (필수)  --md-text 텍스트  --md-alt 대체텍스트
              --md-lang ko  --md-cw 내용경고

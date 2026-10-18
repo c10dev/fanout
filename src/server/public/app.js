@@ -143,6 +143,7 @@ const OPTION_FORMS = {
       select('replySettings', [['', tr('모두')], ['following', tr('내가 팔로우하는 계정')], ['mentionedUsers', tr('언급한 계정만')], ['verified', tr('인증된 계정')], ['subscribers', tr('구독자')]]),
     ),
     checkbox('paidPartnership', tr('유료 파트너십 표시')),
+    opt(tr('영상 대체 텍스트 (선택)'), h('input', { type: 'text', name: 'alt', autocomplete: 'off', maxlength: 1000 })),
     h('p', { class: 'note' }, tr('X API는 종량제입니다. URL이 들어간 게시물은 요금이 훨씬 비쌉니다.')),
   ],
   mastodon: () => [
@@ -219,7 +220,7 @@ function readOptions(platform, body) {
     case 'facebook':
       return { caption: text('caption'), title: text('title'), draft: on('draft') || undefined };
     case 'x':
-      return { text: text('text'), replySettings: val('replySettings').value || undefined, paidPartnership: on('paidPartnership') || undefined };
+      return { text: text('text'), replySettings: val('replySettings').value || undefined, paidPartnership: on('paidPartnership') || undefined, alt: text('alt') };
     case 'mastodon':
       return { visibility: val('visibility').value || undefined, text: text('text'), alt: text('alt'), language: text('language'), spoilerText: text('spoilerText') };
     case 'peertube':
