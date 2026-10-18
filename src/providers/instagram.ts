@@ -86,6 +86,9 @@ export const instagram: Provider = {
     if (hashtags > HASHTAG_MAX) issues.push({ severity: 'error', code: 'hashtags', message: msg('Instagram 해시태그는 {HASHTAG_MAX}개 이하 (현재 {hashtags})', { HASHTAG_MAX, hashtags }) });
     const mentions = caption.match(/(^|[^\w@])@[A-Za-z0-9._]+/g)?.length ?? 0;
     if (mentions > MENTIONS_MAX) issues.push({ severity: 'error', code: 'mentions', message: msg('Instagram 캡션의 @멘션은 {MENTIONS_MAX}개 이하 (현재 {mentions})', { MENTIONS_MAX, mentions }) });
+    if (o.thumbOffsetMs !== undefined && (!(o.thumbOffsetMs >= 0) || o.thumbOffsetMs > media.durationSec * 1000)) {
+      issues.push({ severity: 'error', code: 'cover', message: msg('커버 장면은 0초~영상 길이({length}초) 사이여야 합니다', { length: media.durationSec.toFixed(1) }) });
+    }
     const collaborators = collaboratorsOf(o);
     if (collaborators.length > COLLABORATORS_MAX) issues.push({ severity: 'error', code: 'collaborators', message: msg('Instagram 공동 작업자는 {COLLABORATORS_MAX}명까지', { COLLABORATORS_MAX }) });
     const bad = collaborators.filter((u) => !USERNAME.test(u));

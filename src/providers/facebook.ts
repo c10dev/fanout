@@ -137,13 +137,13 @@ export const facebook: Provider = {
       const published = phases?.publishing_phase?.status && phases.publishing_phase.status !== 'not_started';
       if (published || (phases?.processing_phase?.status && phases.processing_phase.status !== 'not_started')) {
         saveResume({ videoId: resume.videoId, finished: true, pageId: c.pageId });
-        return { state: 'processing', remoteId: resume.videoId, remoteUrl: `https://www.facebook.com/reel/${resume.videoId}` };
+        return { state: 'processing', remoteId: resume.videoId, remoteUrl: o.draft ? undefined : `https://www.facebook.com/reel/${resume.videoId}` };
       }
       if (phases?.uploading_phase?.status === 'complete') {
         // Bytes arrived but finish never registered: finish the same video instead of re-uploading.
         await finishReel(ctx, c.pageId, c.pageToken, resume.videoId, post, o);
         saveResume({ videoId: resume.videoId, finished: true, pageId: c.pageId });
-        return { state: 'processing', remoteId: resume.videoId, remoteUrl: `https://www.facebook.com/reel/${resume.videoId}` };
+        return { state: 'processing', remoteId: resume.videoId, remoteUrl: o.draft ? undefined : `https://www.facebook.com/reel/${resume.videoId}` };
       }
       // Otherwise the old video never got its bytes and can't publish; start a fresh one.
     }
@@ -157,7 +157,8 @@ export const facebook: Provider = {
 
     await finishReel(ctx, c.pageId, c.pageToken, start.video_id, post, o);
     saveResume({ videoId: start.video_id, finished: true, pageId: c.pageId });
-    return { state: 'processing', remoteId: start.video_id, remoteUrl: `https://www.facebook.com/reel/${start.video_id}` };
+    // A draft has no public page yet: no link until someone posts it.
+    return { state: 'processing', remoteId: start.video_id, remoteUrl: o.draft ? undefined : `https://www.facebook.com/reel/${start.video_id}` };
   },
 
   async poll({ ctx, target, account }) {

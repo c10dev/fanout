@@ -4,6 +4,7 @@ import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
 import { facebook, reelOutcome } from '../src/providers/facebook.ts';
+import { holdUntil } from '../src/core/posting.ts';
 import { instagram } from '../src/providers/instagram.ts';
 import { graphError } from '../src/providers/meta.ts';
 import { fakeMedia, json, makeCtx, mockFetch, tempFile } from './helpers.ts';
@@ -147,10 +148,19 @@ describe('facebook reels', () => {
     await facebook.publish({ ctx, post: { ...post, scheduledAt: '2026-10-20T00:00:00.000Z' }, target: draft, account: account('facebook'), mediaPath: tempFile(16), media: fakeMedia(), saveResume: () => {} });
     const finish = new URLSearchParams(String(calls[2]!.body));
     assert.deepEqual([finish.get('title'), finish.get('video_state'), finish.get('scheduled_publish_time')], ['가사 영상', 'DRAFT', null]);
+    const out = await facebook.publish({ ctx, post, target: { ...draft, resume: { videoId: 'R1', finished: true } }, account: account('facebook'), mediaPath: tempFile(16), media: fakeMedia(), saveResume: () => {} });
+    assert.equal(out.remoteUrl, undefined, 'a draft has no public page to link to');
     // Done once processed: it waits in the Page's drafts.
     assert.equal(reelOutcome('R1', { status: { processing_phase: { status: 'complete' } } }, true).state, 'handed_off');
     assert.equal(reelOutcome('R1', { status: { processing_phase: { status: 'complete' } } }).state, 'processing');
     assert.ok(facebook.validate({ ...post, scheduledAt: '2026-10-20T00:00:00.000Z' }, draft, fakeMedia()).some((i) => i.code === 'draft_schedule'));
+  });
+
+  it('a draft is not held back for a far schedule, and checks the cover frame range elsewhere', () => {
+    assert.equal(holdUntil(facebook, new Date(Date.now() + 60 * 86_400_000).toISOString(), Date.now(), { draft: true }), undefined);
+    assert.ok(holdUntil(facebook, new Date(Date.now() + 60 * 86_400_000).toISOString(), Date.now(), {}));
+    const cover = (thumbOffsetMs: number) => instagram.validate(post, { ...target('instagram'), options: { thumbOffsetMs } }, fakeMedia({ durationSec: 15 }, { width: 1080, height: 1920 })).some((i) => i.code === 'cover');
+    assert.deepEqual([cover(-1), cover(1500), cover(60_000)], [true, false, true]);
   });
 
   it('maps reel status phases', () => {

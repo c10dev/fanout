@@ -623,4 +623,8 @@ export const MESSAGES_EN: Record<string, string> = {
   "fanout visibility <postId> <platform> public|unlisted|private [--at 시각] [--account main]": "fanout visibility <postId> <platform> public|unlisted|private [--at time] [--account main]",
   "{platform}/{account}: {at}에 공개로 바뀌도록 예약했습니다": "{platform}/{account}: scheduled to go public at {at}",
   "{platform}/{account}: 공개 범위를 {visibility}로 바꿨습니다": "{platform}/{account}: visibility changed to {visibility}",
+  "YouTube API로 설정할 수 없어 적용되지 않습니다: {keys}. YouTube Studio에서 직접 설정하세요": "YouTube's API can't set these, so they aren't applied: {keys}. Set them in YouTube Studio",
+  "커버 장면은 0초~영상 길이({length}초) 사이여야 합니다": "The cover frame must be between 0 s and the video's length ({length} s)",
+  "--{flag}는 YouTube API로 설정할 수 없어 무시합니다. YouTube Studio에서 직접 설정하세요": "--{flag} can't be set through YouTube's API and is ignored. Set it in YouTube Studio",
+  "{at}에 다시 확인": "checking again at {at}",
 };

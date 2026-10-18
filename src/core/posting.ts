@@ -41,7 +41,7 @@ export function createScheduledPost(
     const { post, targets: created } = store.createPost(input, targets);
     if (!input.scheduledAt) return { post, targets: created };
     const updated = created.map((t) => {
-      const hold = holdUntil(providers.get(t.platform), input.scheduledAt, Date.now());
+      const hold = holdUntil(providers.get(t.platform), input.scheduledAt, Date.now(), t.options);
       return hold ? store.updateTarget(t.id, { notBefore: hold }) : t;
     });
     return { post, targets: updated };
@@ -55,8 +55,9 @@ const DAY_MS = 86_400_000;
  * itself; native ones upload now, unless the time is beyond what the platform accepts, in which
  * case they wait until it is a day inside that limit. Undefined: start now.
  */
-export function holdUntil(provider: Provider | undefined, scheduledAt: string | undefined, now: number): string | undefined {
-  if (!scheduledAt) return undefined;
+export function holdUntil(provider: Provider | undefined, scheduledAt: string | undefined, now: number, options?: Record<string, unknown>): string | undefined {
+  // A draft (Facebook) isn't scheduled at all: it goes to the drafts now and the user posts it.
+  if (!scheduledAt || options?.draft === true) return undefined;
   const at = Date.parse(scheduledAt);
   if (!(at > now)) return undefined;
   if (!provider?.capabilities.nativeSchedule) return scheduledAt;
@@ -195,7 +196,7 @@ export function addTargets(store: Store, providers: Map<string, Provider>, postI
   if (blocked.length) throw new Error(blocked.map((p) => `${p.platform}/${p.account}: ${p.errors.join(' / ')}`).join('\n'));
   if (plan.dropped.length) store.updatePost(postId, { thumbnailPath: plan.post.thumbnailPath, captions: plan.post.captions });
   // Like a new post: wait for the time where the platform can't hold the schedule itself.
-  return store.addTargets(postId, targets, (t) => holdUntil(providers.get(t.platform), plan.post.scheduledAt, Date.now()));
+  return store.addTargets(postId, targets, (t) => holdUntil(providers.get(t.platform), plan.post.scheduledAt, Date.now(), t.options));
 }
 
 /**

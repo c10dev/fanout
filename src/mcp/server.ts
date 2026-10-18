@@ -516,6 +516,7 @@ function publicTarget(t: Target) {
     error: t.errorCode ? `${t.errorCode}: ${t.errorMessage ?? ''}` : undefined,
     warnings: t.warnings,
     scheduledFor: t.state === 'queued' ? t.notBefore : undefined,
+    checkAgainAt: t.state === 'processing' ? t.notBefore : undefined,
     stats: t.stats,
   };
 }

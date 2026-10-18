@@ -636,6 +636,12 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
   validate(post, target, media) {
     const issues: Issue[] = [];
     const o = target.options as Partial<YouTubeOptions>;
+    // Options fanout once accepted but YouTube's API can't set: say so instead of dropping them quietly
+    // (a paid-promotion disclosure has legal weight).
+    const unsettable = ['paidPromotion', 'audioLanguage'].filter((k) => k in (target.options ?? {}));
+    if (unsettable.length) {
+      issues.push({ severity: 'warning', code: 'unsettable', message: msg('YouTube API로 설정할 수 없어 적용되지 않습니다: {keys}. YouTube Studio에서 직접 설정하세요', { keys: unsettable.join(', ') }) });
+    }
     if (!o.privacy || !['public', 'unlisted', 'private'].includes(o.privacy)) {
       issues.push({ severity: 'error', code: 'privacy', message: msg('YouTube 공개 범위(public/unlisted/private)를 직접 지정해야 합니다') });
     }

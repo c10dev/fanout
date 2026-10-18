@@ -426,9 +426,12 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     }
   },
 
-  validate(post, target) {
+  validate(post, target, media) {
     const issues: Issue[] = [];
     const o = target.options as Partial<TikTokOptions>;
+    if (o.coverTimestampMs !== undefined && (!(o.coverTimestampMs >= 0) || o.coverTimestampMs > media.durationSec * 1000)) {
+      issues.push({ severity: 'error', code: 'cover', message: msg('커버 장면은 0초~영상 길이({length}초) 사이여야 합니다', { length: media.durationSec.toFixed(1) }) });
+    }
     if (o.mode !== 'inbox' && o.mode !== 'direct') {
       issues.push({ severity: 'error', code: 'mode', message: msg('TikTok mode는 inbox 또는 direct') });
       return issues;
