@@ -132,6 +132,43 @@ describe('hiding comments', () => {
     await assert.rejects(hideComment(ctx, providerMap(), id, 'ELSEWHERE'), /최근 댓글 중에/);
   });
 
+  it('remembers what it hid on YouTube (held comments drop out of the list) and shows only those again', async () => {
+    let held = false;
+    const { ctx, calls, id } = setup('youtube', [
+      ['GET', '/commentThreads', () => json({ items: held ? [] : [{ id: 'C1', snippet: { topLevelComment: { id: 'C1', snippet: { authorDisplayName: 'x', textDisplay: 'spam', publishedAt: '2026-10-17T00:00:00Z' } } } }] })],
+      ['POST', '/comments/setModerationStatus', (c) => {
+        held = new URL(c.url).searchParams.get('moderationStatus') === 'heldForReview';
+        return new Response(null, { status: 204 });
+      }],
+    ]);
+    const providers = providerMap();
+    const postId = ctx.store.getTarget(id)!.postId;
+    await hideComment(ctx, providers, id, 'C1');
+    // Gone from YouTube's list, but still on the board, marked hidden, so it can be shown again.
+    const [r] = await fetchComments(ctx, providers, postId);
+    assert.deepEqual(r!.comments!.map((c) => [c.id, c.text, c.hidden]), [['C1', 'spam', true]]);
+    // A comment YouTube itself held (spam filter) was never hidden by fanout: an agent can't publish it.
+    await assert.rejects(hideComment(ctx, providers, id, 'SPAM', false), /fanout이 이 게시물에서 숨긴 댓글만/);
+    assert.equal(calls.filter((c) => c.url.includes('setModerationStatus')).length, 1);
+    await hideComment(ctx, providers, id, 'C1', false);
+    const [again] = await fetchComments(ctx, providers, postId);
+    assert.deepEqual(again!.comments!.map((c) => [c.id, c.hidden]), [['C1', false]]);
+    assert.deepEqual((ctx.store.getTarget(id)!.resume as { hiddenComments: unknown[] }).hiddenComments, []);
+  });
+
+  it('reads Meta\'s own hidden flag, and a missing permission names it', async () => {
+    for (const [platform, field, scope] of [['instagram', 'hidden', 'instagram_manage_comments'], ['facebook', 'is_hidden', 'pages_manage_engagement']] as const) {
+      const { ctx, id } = setup(platform, [
+        ['GET', '/V/comments', () => json({ data: [{ id: 'C1', text: 'a', message: 'a', timestamp: '2026-10-17T00:00:00+0000', created_time: '2026-10-17T00:00:00+0000', [field]: true }] })],
+        ['POST', '/C1', () => json({ error: { message: '(#200) Requires permission', type: 'OAuthException', code: 200 } }, 403)],
+      ]);
+      const [r] = await fetchComments(ctx, providerMap(), ctx.store.getTarget(id)!.postId);
+      assert.equal(r!.comments![0]!.hidden, true, platform);
+      // Listed on the post, so showing it again is allowed; the platform's refusal says what's missing.
+      await assert.rejects(hideComment(ctx, providerMap(), id, 'C1', false), (e: Error) => e.message.includes(scope));
+    }
+  });
+
   it('Instagram and Facebook hide with their own flags', async () => {
     for (const [platform, flag] of [['instagram', 'hide'], ['facebook', 'is_hidden']] as const) {
       const { ctx, calls, id } = setup(platform, [

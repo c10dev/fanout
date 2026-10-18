@@ -218,7 +218,9 @@ export const facebook: Provider = {
 
   // pages_manage_engagement on the Page token; reversible with is_hidden=false.
   async hideComment({ ctx, account, commentId, hidden }) {
-    await graph(ctx, 'POST', `/${commentId}`, { is_hidden: hidden, access_token: pageCreds(account).pageToken });
+    await graph(ctx, 'POST', `/${commentId}`, { is_hidden: hidden, access_token: pageCreds(account).pageToken }).catch((err: unknown) => {
+      throw missingScope(err, 'pages_manage_engagement');
+    });
   },
 
   async remove({ ctx, account, target }) {
@@ -246,13 +248,13 @@ export const facebook: Provider = {
 
   async comments({ ctx, account, target, limit }) {
     const c = pageCreds(account);
-    const res = await graph<{ data?: Array<{ id: string; message?: string; created_time: string; like_count?: number; comment_count?: number; from?: { name?: string } }> }>(
+    const res = await graph<{ data?: Array<{ id: string; message?: string; created_time: string; like_count?: number; comment_count?: number; is_hidden?: boolean; from?: { name?: string } }> }>(
       ctx,
       'GET',
       `/${target.remoteId}/comments`,
-      { fields: 'from{name},message,created_time,like_count,comment_count', order: 'reverse_chronological', limit: Math.min(limit, 100), access_token: c.pageToken },
+      { fields: 'from{name},message,created_time,like_count,comment_count,is_hidden', order: 'reverse_chronological', limit: Math.min(limit, 100), access_token: c.pageToken },
     );
-    return (res.data ?? []).map((m) => ({ id: m.id, author: m.from?.name ?? '', text: m.message ?? '', at: m.created_time, likes: m.like_count, replies: m.comment_count }));
+    return (res.data ?? []).map((m) => ({ id: m.id, author: m.from?.name ?? '', text: m.message ?? '', at: m.created_time, likes: m.like_count, replies: m.comment_count, hidden: m.is_hidden === true }));
   },
 
   // Replying as the Page needs pages_manage_engagement, which posting alone doesn't.

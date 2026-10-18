@@ -226,19 +226,21 @@ export const instagram: Provider = {
 
   // instagram_manage_comments; reversible with hide=false.
   async hideComment({ ctx, account, commentId, hidden }) {
-    await graph(ctx, 'POST', `/${commentId}`, { hide: hidden, access_token: pageCreds(account).pageToken });
+    await graph(ctx, 'POST', `/${commentId}`, { hide: hidden, access_token: pageCreds(account).pageToken }).catch((err: unknown) => {
+      throw missingScope(err, 'instagram_manage_comments');
+    });
   },
 
   // Needs the instagram_manage_comments permission on the token (see the Meta setup guide).
   async comments({ ctx, account, target, limit }) {
     const c = pageCreds(account);
-    const res = await graph<{ data?: Array<{ id: string; text?: string; username?: string; timestamp: string; like_count?: number }> }>(
+    const res = await graph<{ data?: Array<{ id: string; text?: string; username?: string; timestamp: string; like_count?: number; hidden?: boolean }> }>(
       ctx,
       'GET',
       `/${target.remoteId}/comments`,
-      { fields: 'id,text,username,timestamp,like_count', limit: Math.min(limit, 50), access_token: c.pageToken },
+      { fields: 'id,text,username,timestamp,like_count,hidden', limit: Math.min(limit, 50), access_token: c.pageToken },
     );
-    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '', text: m.text ?? '', at: m.timestamp, likes: m.like_count }));
+    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '', text: m.text ?? '', at: m.timestamp, likes: m.like_count, hidden: m.hidden === true }));
   },
 
   async reply({ ctx, account, comment, text, sending }) {

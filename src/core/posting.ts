@@ -357,7 +357,8 @@ export async function changeVisibility(
   const { publishAt: _, ...rest } = t.options;
   const wanted = publishAt ? 'private' : visibility;
   const warnings = now.visibility === wanted ? t.warnings : [...t.warnings, msg('{requested}로 요청했지만 플랫폼이 {actual}로 두었습니다', { requested: visibility, actual: now.visibility })];
-  return ctx.store.updateTarget(t.id, { options: { ...rest, privacy: now.visibility, ...(now.publishAt ? { publishAt: now.publishAt } : {}) }, warnings });
+  // null, not absent: the upload's own schedule no longer applies once the visibility was changed.
+  return ctx.store.updateTarget(t.id, { options: { ...rest, privacy: now.visibility, publishAt: now.publishAt ?? null }, warnings });
 }
 
 export interface EditResult {
@@ -462,12 +463,29 @@ export async function fetchComments(baseCtx: ProviderContext, providers: Map<str
       let account = ctx.store.getAccount(t.platform, t.account);
       if (!account) throw new Error(msg('연결된 계정이 없습니다'));
       account = await provider.refresh(ctx, account);
-      out.push({ ...base, comments: await provider.comments({ ctx, account, target: { ...t, remoteId: t.remoteId }, limit }), canReply: Boolean(provider.reply), canHide: Boolean(provider.hideComment) });
+      const comments = withHidden(await provider.comments({ ctx, account, target: { ...t, remoteId: t.remoteId }, limit }), t);
+      out.push({ ...base, comments, canReply: Boolean(provider.reply), canHide: Boolean(provider.hideComment) });
     } catch (err) {
       out.push({ ...base, error: err instanceof Error ? err.message : String(err) });
     }
   }
   return out;
+}
+
+/** Comments fanout hid on this target, kept so they can be shown again once the platform stops listing them. */
+function hiddenByFanout(t: Target): Comment[] {
+  return ((t.resume as { hiddenComments?: Comment[] } | undefined)?.hiddenComments ?? []).filter((c) => typeof c?.id === 'string');
+}
+
+/**
+ * A listed comment is hidden only if the platform says so (YouTube doesn't list held comments at
+ * all); the ones fanout hid that are no longer listed are added back, marked hidden, so they can
+ * be shown again.
+ */
+function withHidden(listed: Comment[], t: Target): Comment[] {
+  const ids = new Set(listed.map((c) => c.id));
+  const gone = hiddenByFanout(t).filter((c) => !ids.has(c.id));
+  return [...listed.map((c) => ({ ...c, hidden: c.hidden === true })), ...gone.map((c) => ({ ...c, hidden: true }))];
 }
 
 export const REPLY_MAX_CHARS = 5000;
@@ -514,8 +532,9 @@ export async function replyToComment(
 }
 
 /**
- * Hide (or show again) one of a published post's comments, after checking it is among the post's
- * recent comments: an id from anywhere else (a prompt-injected agent) is refused.
+ * Hide (or show again) one of a published post's comments. The id must be among the post's recent
+ * comments, or (to show again) one fanout hid on this post itself: an id from anywhere else (a
+ * prompt-injected agent asking to publish a comment the platform held as spam) is refused.
  */
 export async function hideComment(baseCtx: ProviderContext, providers: Map<string, Provider>, targetId: string, commentId: string, hidden = true): Promise<void> {
   const ctx = withTimeout(baseCtx);
@@ -528,11 +547,21 @@ export async function hideComment(baseCtx: ProviderContext, providers: Map<strin
   if (!account) throw new Error(msg('연결된 계정이 없습니다: {platform}/{account}', { platform: t.platform, account: t.account }));
   account = await provider.refresh(ctx, account);
   const target = { ...t, remoteId: t.remoteId };
-  // Showing again needs no lookup: a hidden comment may not be listed any more.
-  if (hidden && !(await provider.comments({ ctx, account, target, limit: REPLY_LOOKBACK })).some((c) => c.id === commentId)) {
-    throw new Error(msg('이 게시물의 최근 댓글 중에 그 댓글이 없습니다. 댓글을 다시 불러온 뒤 시도하세요'));
+  const listed = (await provider.comments({ ctx, account, target, limit: REPLY_LOOKBACK })).find((c) => c.id === commentId);
+  const ours = hiddenByFanout(t);
+  if (!listed && (hidden || !ours.some((c) => c.id === commentId))) {
+    throw new Error(
+      hidden
+        ? msg('이 게시물의 최근 댓글 중에 그 댓글이 없습니다. 댓글을 다시 불러온 뒤 시도하세요')
+        : msg('fanout이 이 게시물에서 숨긴 댓글만 다시 보이게 할 수 있습니다. 다른 댓글은 플랫폼에서 직접 확인하세요'),
+    );
   }
   await provider.hideComment({ ctx, account, target, commentId, hidden });
+  // Remember what fanout hid (a held YouTube comment drops out of the list) so it can be shown again.
+  const rest = ours.filter((c) => c.id !== commentId);
+  const kept = hidden && listed ? [...rest, { id: listed.id, author: listed.author, text: listed.text, at: listed.at, ...(listed.url ? { url: listed.url } : {}) }] : rest;
+  const current = ctx.store.getTarget(t.id)!;
+  ctx.store.updateTarget(t.id, { resume: { ...current.resume, hiddenComments: kept } });
   const vars = { platform: t.platform, account: t.account, commentId };
   ctx.log.info(hidden ? msg('{platform}/{account}: 댓글 {commentId}을(를) 숨겼습니다', vars) : msg('{platform}/{account}: 댓글 {commentId}을(를) 다시 보이게 했습니다', vars));
 }

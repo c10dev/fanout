@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { changeVisibility, editPost } from '../src/core/posting.ts';
 import type { PostInput } from '../src/core/types.ts';
 import { providerMap } from '../src/providers/index.ts';
+import { Dashboard } from '../src/server/server.ts';
 import { json, makeCtx, mockFetch } from './helpers.ts';
 
 const NOW = new Date('2026-10-17T03:00:00Z');
@@ -93,6 +94,34 @@ describe('changing a published video\'s visibility', () => {
     const t = await changeVisibility(ctx, providerMap(), id, 'public', at);
     assert.deepEqual([putBody(calls).status.privacyStatus, putBody(calls).status.publishAt], ['private', at]);
     assert.deepEqual([t.options.privacy, t.options.publishAt], ['private', at], 'recorded as it really is until then');
+  });
+
+  it('the board shows a pending public time only while one applies', async () => {
+    const { ctx, store } = setup('private');
+    // Uploaded with a native schedule: private until the post's time, with nothing recorded on the target.
+    const later = new Date(NOW.getTime() + 86_400_000).toISOString();
+    const { targets } = store.createPost({ ...POST, scheduledAt: later }, [{ platform: 'youtube', account: 'main', options: { privacy: 'public', madeForKids: false } }]);
+    const id = targets[0]!.id;
+    store.transition(id, 'uploading');
+    store.transition(id, 'published', { remoteId: 'V' });
+    const dashboard = new Dashboard({ ctx, providers: providerMap(), port: 0, workerIntervalMs: 3_600_000 });
+    const base = (await dashboard.start()).replace(/\/$/, '');
+    try {
+      const shown = async () => {
+        const res = await fetch(`${base}/api/posts/${store.getTarget(id)!.postId}`, { headers: { 'x-fanout-token': dashboard.token } });
+        const detail = (await res.json()) as { targets: Array<{ id: string; goesPublicAt?: string }> };
+        assert.equal(res.status, 200, JSON.stringify(detail));
+        return detail.targets.find((t) => t.id === id)!.goesPublicAt;
+      };
+      assert.equal(await shown(), later, 'native schedule');
+      await changeVisibility(ctx, providerMap(), id, 'public');
+      assert.equal(store.getTarget(id)!.options.publishAt, null);
+      assert.equal(await shown(), undefined, 'made public now: nothing pending any more');
+      await changeVisibility(ctx, providerMap(), id, 'public', later);
+      assert.equal(await shown(), later, 'scheduled again by hand');
+    } finally {
+      await dashboard.stop();
+    }
   });
 
   it('refuses to schedule a video that is not private, and records what YouTube really set', async () => {
