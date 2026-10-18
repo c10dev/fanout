@@ -129,6 +129,12 @@ export const instagram: Provider = {
     return { state: 'published', remoteId: published.id, remoteUrl: media.permalink };
   },
 
+  async limits({ ctx, account }) {
+    const limit = await publishingLimit(ctx, account);
+    if (!limit) return [{ what: msg('24시간 게시'), unit: 'posts', note: msg('응답에 quota 값이 없습니다') }];
+    return [{ what: msg('24시간 게시'), unit: 'posts', used: limit.used, total: limit.total, remaining: Math.max(0, limit.total - limit.used) }];
+  },
+
   async doctor({ ctx, account }): Promise<DoctorCheck[]> {
     const checks: DoctorCheck[] = [];
     try {

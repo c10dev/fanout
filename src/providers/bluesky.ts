@@ -378,6 +378,16 @@ fanout은 앱 비밀번호를 저장하지 않습니다. 로그인해서 받은 
     return { state: 'published', remoteId: uri, remoteUrl: postUrl(c.handle, uri), warnings };
   },
 
+  async limits({ ctx, account }) {
+    const acct = await bluesky.refresh(ctx, account);
+    const l = await uploadLimits(ctx, creds(acct));
+    const note = l.canUpload ? undefined : (l.message ?? l.error ?? msg('업로드 불가'));
+    return [
+      { what: msg('하루 영상'), unit: 'posts', remaining: l.canUpload ? l.remainingDailyVideos : 0, note },
+      { what: msg('하루 용량'), unit: 'bytes', remaining: l.canUpload ? l.remainingDailyBytes : 0, note },
+    ];
+  },
+
   async doctor({ ctx, account }): Promise<DoctorCheck[]> {
     const checks: DoctorCheck[] = [];
     let acct = account;

@@ -563,6 +563,18 @@ export const peertube: Provider = {
     return { state: 'published', remoteId: String(id), remoteUrl: url, warnings };
   },
 
+  async limits({ ctx, account }) {
+    const c = creds(await peertube.refresh(ctx, account));
+    const { body: me } = await api<Me>(ctx, c, '/api/v1/users/me');
+    const { body: used } = await api<{ videoQuotaUsed?: number; videoQuotaUsedDaily?: number }>(ctx, c, '/api/v1/users/me/video-quota-used');
+    // -1 means no quota. Daily quotas count from midnight on the instance's clock, which we don't know.
+    const quota = (what: string, total: number | undefined, spent: number | undefined) =>
+      total === undefined || total < 0
+        ? { what, unit: 'bytes' as const, used: spent, unlimited: total !== undefined }
+        : { what, unit: 'bytes' as const, used: spent, total, remaining: Math.max(0, total - (spent ?? 0)) };
+    return [quota(msg('하루 용량'), me.videoQuotaDaily, used.videoQuotaUsedDaily), quota(msg('전체 저장 용량'), me.videoQuota, used.videoQuotaUsed)];
+  },
+
   async doctor({ ctx, account, live }): Promise<DoctorCheck[]> {
     const checks: DoctorCheck[] = [];
     let c = creds(account);

@@ -77,6 +77,17 @@ export function pacificDay(now: Date): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(now);
 }
 
+/** The next midnight in Pacific time (07:00 or 08:00 UTC, depending on daylight saving). */
+export function nextPacificMidnight(now: Date): Date {
+  const [y, m, d] = pacificDay(now).split('-').map(Number) as [number, number, number];
+  const hour = (t: Date) => Number(new Intl.DateTimeFormat('en-US', { timeZone: 'America/Los_Angeles', hour: '2-digit', hourCycle: 'h23' }).format(t));
+  for (const utcHour of [7, 8]) {
+    const t = new Date(Date.UTC(y, m - 1, d + 1, utcHour));
+    if (hour(t) === 0) return t;
+  }
+  return new Date(Date.UTC(y, m - 1, d + 1, 8));
+}
+
 export function isShort(media: Pick<MediaInfo, 'durationSec' | 'video'>): boolean {
   return media.durationSec <= 180 && media.video.height >= media.video.width;
 }
@@ -492,6 +503,22 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     // Already expired or revoked: nothing left to revoke.
     if (res.status === 400 && body.error === 'invalid_token') return;
     throw new ProviderError(kindForStatus(res.status), 'youtube.revoke', describeGoogle(body).message ?? `HTTP ${res.status}`, describeGoogle(body).code);
+  },
+
+  async limits({ ctx }) {
+    const now = ctx.now();
+    const used = ctx.store.getUsage('youtube', 'project', pacificDay(now));
+    return [
+      {
+        what: msg('하루 업로드 (프로젝트 전체)'),
+        unit: 'posts',
+        used,
+        total: DAILY_UPLOADS,
+        remaining: Math.max(0, DAILY_UPLOADS - used),
+        resetsAt: nextPacificMidnight(now).toISOString(),
+        note: msg('fanout이 올린 것만 센 로컬 집계'),
+      },
+    ];
   },
 
   // III.E.4.b–c: statistics may be kept while authorization is re-checked every 30 days, and the

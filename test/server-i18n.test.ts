@@ -29,6 +29,7 @@ const CONVERTED = [
   'src/core/inbox.ts',
   'src/core/restore.ts',
   'src/core/accounts.ts',
+  'src/core/limits.ts',
 ];
 const LITERAL = /'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
 
