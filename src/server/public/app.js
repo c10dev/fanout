@@ -539,22 +539,27 @@ function exitAddMode() {
   renderTargets();
 }
 
-/** Hide a comment (reversible: YouTube holds it for review, Meta hides it), with an undo right there. */
+/**
+ * Hide a comment (reversible: YouTube holds it for review, Meta hides it), or show it again. The state
+ * lives on the cached comment, so it survives the board redrawing.
+ */
 function hideButton(targetId, c) {
-  const set = async (button, hidden) => {
+  const onclick = async (e) => {
+    const button = e.target;
+    const hidden = !c.hidden;
     if (hidden && !confirm(tr('이 댓글을 숨길까요? 나중에 다시 보이게 할 수 있습니다.'))) return;
     button.disabled = true;
     try {
       await api(`/targets/${targetId}/hide-comment`, { method: 'POST', body: JSON.stringify({ commentId: c.id, hidden }) });
-      const comment = button.closest('.comment');
-      comment.classList.toggle('hidden-comment', hidden);
-      button.replaceWith(hidden ? h('button', { class: 'small link', type: 'button', onclick: (e) => set(e.target, false) }, tr('다시 보이기')) : hideButton(targetId, c));
+      c.hidden = hidden;
+      button.closest('.comment').classList.toggle('hidden-comment', hidden);
+      button.replaceWith(hideButton(targetId, c));
     } catch (err) {
       alert(err.message);
       button.disabled = false;
     }
   };
-  return h('button', { class: 'small link', type: 'button', onclick: (e) => set(e.target, true) }, tr('숨기기'));
+  return h('button', { class: 'small link', type: 'button', onclick }, c.hidden ? tr('다시 보이기') : tr('숨기기'));
 }
 
 /** The playlist id field, with the account's playlists offered once it gets focus. */
@@ -1096,7 +1101,7 @@ function commentsPanel(postId) {
             (r.comments ?? []).map((c) =>
               h(
                 'div',
-                { class: 'comment' },
+                { class: c.hidden ? 'comment hidden-comment' : 'comment' },
                 h(
                   'div',
                   { class: 'comment-meta' },
@@ -1272,7 +1277,9 @@ function editForm(post, card) {
  * overall, with the change over the last day where every platform's trend is known.
  */
 function postTotals(targets) {
-  const counted = targets.filter((t) => t.stats);
+  const KEYS = ['views', 'likes', 'comments', 'shares'];
+  // Live posts with at least one number: a deleted one's last stats, or a note alone, don't count.
+  const counted = targets.filter((t) => t.state === 'published' && t.stats && KEYS.some((k) => typeof t.stats[k] === 'number'));
   if (counted.length < 2) return null;
   const parts = [
     [tr('조회'), 'views'],
@@ -1281,10 +1288,12 @@ function postTotals(targets) {
     [tr('공유'), 'shares'],
   ]
     .map(([label, key]) => {
-      const values = counted.map((t) => t.stats[key]).filter((v) => typeof v === 'number');
-      if (!values.length) return null;
-      const deltas = counted.map((t) => t.trend?.[key]).filter((v) => typeof v === 'number');
-      const delta = deltas.reduce((a, b) => a + b, 0);
+      const having = counted.filter((t) => typeof t.stats[key] === 'number');
+      if (!having.length) return null;
+      const values = having.map((t) => t.stats[key]);
+      // A change only when every platform in the sum has one; a partial sum would mislead.
+      const deltas = having.map((t) => t.trend?.[key]);
+      const delta = deltas.every((v) => typeof v === 'number') ? deltas.reduce((a, b) => a + b, 0) : 0;
       return h('span', {}, `${label} `, h('strong', {}, fmtNum(values.reduce((a, b) => a + b, 0))), delta ? h('span', { class: delta > 0 ? 'up' : 'down' }, ` ${delta > 0 ? '+' : ''}${fmtNum(delta)}`) : null);
     })
     .filter(Boolean);

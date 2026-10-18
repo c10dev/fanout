@@ -66,6 +66,8 @@ export interface Comment {
   likes?: number;
   replies?: number;
   url?: string;
+  /** Hidden from the public (Meta's hide, YouTube's held for review). */
+  hidden?: boolean;
 }
 
 /** Audience reaction to a published post, as far as the platform API and granted scopes allow. */

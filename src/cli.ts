@@ -300,7 +300,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
   fanout comments <postId> [--limit 20]  게시된 대상의 최근 댓글 (YouTube·Facebook·Instagram·Bluesky·Mastodon·PeerTube)
   fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]   댓글에 답글 (comments 의 [id])
-  fanout hide-comment <postId> <platform> <commentId> [--show]   댓글 숨기기 (YouTube·Instagram·Facebook, --show로 되돌림)
+  fanout hide-comment <postId> <platform> <commentId> [--show] [--account main]   댓글 숨기기 (YouTube·Instagram·Facebook, --show로 되돌림)
   fanout stats [postId] [--include-paid] [--history]  게시된 영상의 조회·좋아요·댓글과 24시간 변화 (X는 --include-paid일 때만)
   fanout limits [platform]               계정별 남은 게시 한도 (YouTube 하루 업로드, Instagram 24시간 게시, Bluesky·PeerTube 용량)
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off] [--format slack|discord|json]

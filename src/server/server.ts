@@ -906,6 +906,7 @@ export class Dashboard {
     const later = (at: unknown) => (typeof at === 'string' && Date.parse(at) > now ? at : undefined);
     if (t.options.privacy === 'private' && later(t.options.publishAt)) return t.options.publishAt as string;
     // Uploaded with a schedule the platform holds itself: private until then, whatever was asked.
+    // (A visibility change since records publishAt, null when there is none, and ends that.)
     if (this.#opts.providers.get(t.platform)?.capabilities.nativeSchedule && t.options.publishAt === undefined) return later(this.#opts.ctx.store.getPost(t.postId)?.scheduledAt);
     return undefined;
   }
