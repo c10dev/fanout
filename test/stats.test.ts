@@ -93,6 +93,19 @@ describe('provider stats', () => {
     assert.deepEqual(await facebook.stats!({ ctx: env2.ctx, account: acct('facebook', { pageToken: 'PT' }), target: target('facebook', 'R') }), { views: 900, likes: 4, comments: 1 });
   });
 
+  it('a passing failure of the second insights call keeps the last reach and saves', async () => {
+    const row = (name: string, value: number) => ({ name, period: 'lifetime', values: [{ value }] });
+    const ig = mockFetch([
+      ['GET', '/M/insights', (c) => (new URL(c.url).searchParams.get('metric') === 'views,shares' ? json({ data: [row('views', 400), row('shares', 6)] }) : json({ error: { code: 4, message: '(#4) Application request limit reached' } }, 400))],
+      ['GET', '/M?', () => json({ like_count: 11, comments_count: 3 })],
+    ]);
+    const env = makeCtx(ig.fetch);
+    env.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const before = { ...target('instagram', 'M'), stats: { views: 321, reach: 250, saves: 12, avgWatchSec: 4.3, fetchedAt: '2026-10-17T00:00:00Z' } };
+    const s = await instagram.stats!({ ctx: env.ctx, account: acct('instagram', { pageToken: 'PT' }), target: before });
+    assert.deepEqual([s.views, s.reach, s.saves, s.avgWatchSec], [400, 250, 12, 4.3]);
+  });
+
   it('without the insights permission, likes and comments still come back with a note', async () => {
     const ig = mockFetch([
       ['GET', '/M/insights', () => json({ error: { code: 10, message: '(#10) Application does not have permission for this action' } }, 403)],

@@ -206,15 +206,17 @@ export const instagram: Provider = {
     // Deeper Reels metrics in a call of their own: one the media doesn't have can't cost the views.
     const more = ins.note ? undefined : await readInsights(ctx, `/${target.remoteId}/insights`, { metric: 'reach,saved,ig_reels_avg_watch_time,ig_reels_video_view_total_time', access_token: c.pageToken }, 'instagram_manage_insights');
     const ms = (v?: number) => (v === undefined ? undefined : Math.round(v / 100) / 10);
+    // A passing failure of either call keeps that call's last numbers rather than dropping them.
+    const keep = ins.transient || more?.transient ? target.stats : undefined;
     return definedOnly({
       views: ins.values.views ?? last?.views,
       likes: m.like_count,
       comments: m.comments_count,
       shares: ins.values.shares ?? last?.shares,
-      reach: more?.values.reach ?? last?.reach,
-      saves: more?.values.saved ?? last?.saves,
-      avgWatchSec: ms(more?.values.ig_reels_avg_watch_time) ?? last?.avgWatchSec,
-      watchTimeSec: ms(more?.values.ig_reels_video_view_total_time) ?? last?.watchTimeSec,
+      reach: more?.values.reach ?? keep?.reach,
+      saves: more?.values.saved ?? keep?.saves,
+      avgWatchSec: ms(more?.values.ig_reels_avg_watch_time) ?? keep?.avgWatchSec,
+      watchTimeSec: ms(more?.values.ig_reels_video_view_total_time) ?? keep?.watchTimeSec,
       ...(ins.note ? { note: ins.note } : {}),
     });
   },

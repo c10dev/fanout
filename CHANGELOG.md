@@ -38,7 +38,7 @@
 - Slack·Discord·JSON webhook 알림(#26)
 - Facebook Reels: 제목, 게시 대신 초안으로 저장(Meta Business Suite에서 마무리)
 - 대시보드: Instagram·TikTok 커버 장면(초) 선택, YouTube 재생목록을 내 목록에서 고르기
-- YouTube: 제목·설명 언어와 음성 언어, 다른 언어 제목·설명, 크리에이티브 커먼즈 라이선스, 퍼가기·통계 공개 설정, 유료 PPL 표시(CLI·대시보드 "더 보기"·MCP)
+- YouTube: 제목·설명 언어, 다른 언어 제목·설명, 크리에이티브 커먼즈 라이선스, 퍼가기·확장 통계 공개 설정(CLI·대시보드 "더 보기"·MCP)
 - Instagram·Facebook 반응에 도달·저장·평균 시청 시간·총 시청 시간 추가(대시보드, `fanout stats`, 내보내기)
 - TikTok: 바로 게시할 때 계정 규칙(creator_info)을 미리보기에서 검사(허용 공개 범위, 최대 길이, 꺼진 댓글·듀엣·이어찍기). 대시보드는 게시할 계정 이름을 보여 주고 허용된 공개 범위만 고를 수 있게 함
 - Instagram: 공동 작업자·오디오 이름·AI 표시, @멘션 20개 검사. X: AI 표시·유료 파트너십·답글 허용 범위, Premium이 아닌 계정의 긴 글은 업로드 전에 막음. TikTok 캡션 길이를 TikTok 방식(UTF-16)으로 셈

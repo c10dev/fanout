@@ -201,13 +201,15 @@ export const facebook: Provider = {
       ? undefined
       : await readInsights(ctx, `/${target.remoteId}/video_insights`, { metric: 'post_impressions_unique,post_video_avg_time_watched,post_video_view_time', period: 'lifetime', access_token: c.pageToken }, 'read_insights·pages_manage_engagement');
     const ms = (n?: number) => (n === undefined ? undefined : Math.round(n / 100) / 10);
+    // A passing failure of either call keeps that call's last numbers rather than dropping them.
+    const keep = ins.transient || more?.transient ? target.stats : undefined;
     return definedOnly({
       views: ins.values.fb_reels_total_plays ?? last?.views,
       likes: v.likes?.summary?.total_count,
       comments: v.comments?.summary?.total_count,
-      reach: more?.values.post_impressions_unique ?? last?.reach,
-      avgWatchSec: ms(more?.values.post_video_avg_time_watched) ?? last?.avgWatchSec,
-      watchTimeSec: ms(more?.values.post_video_view_time) ?? last?.watchTimeSec,
+      reach: more?.values.post_impressions_unique ?? keep?.reach,
+      avgWatchSec: ms(more?.values.post_video_avg_time_watched) ?? keep?.avgWatchSec,
+      watchTimeSec: ms(more?.values.post_video_view_time) ?? keep?.watchTimeSec,
       ...(ins.note ? { note: ins.note } : {}),
     });
   },

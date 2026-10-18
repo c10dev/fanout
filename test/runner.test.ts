@@ -107,6 +107,9 @@ describe('runner', () => {
     const t = await step(deps, await step(deps, id).then((x) => x.id));
     assert.equal(t.state, 'processing');
     assert.equal(t.remoteId, 'R1', 'a retry must not upload it again');
+    // Parked until the reset: not picked up again every few seconds meanwhile.
+    assert.equal(t.notBefore, '2026-10-18T07:05:00.000Z');
+    assert.ok(!deps.ctx.store.workableTargets().some((w) => w.id === id));
   });
 
   it('does not wait past its deadline for a target parked until later', async () => {
