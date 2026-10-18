@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { ProviderError, kindForStatus, type ErrorKind } from '../core/errors.ts';
-import { jsonOr, openBrowser, pkcePair, readChunk, rotationContext, sleep, startLoopback } from '../core/http.ts';
+import { jsonOr, openBrowser, pkcePair, readChunk, redirectParams, rotationContext, sleep, startLoopback, waitForRedirect } from '../core/http.ts';
 import { makeTestClip } from '../core/media.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
@@ -287,12 +287,12 @@ async function fetchStatus(ctx: ProviderContext, account: Account, publishId: st
   return call<StatusData>(ctx, account, '/post/publish/status/fetch/', { publish_id: publishId });
 }
 
-async function readCallback(loopback: boolean, redirectUri: string): Promise<URLSearchParams> {
+async function readCallback(ctx: ProviderContext, loopback: boolean, redirectUri: string): Promise<URLSearchParams> {
   if (loopback) {
     const port = Number(new URL(redirectUri).port);
     const loop = await startLoopback(port, new URL(redirectUri).pathname, new URL(redirectUri).hostname);
     try {
-      return await loop.waitForCallback;
+      return await waitForRedirect(loop.waitForCallback, (line) => ctx.log.info(line));
     } finally {
       loop.close();
     }
@@ -300,7 +300,9 @@ async function readCallback(loopback: boolean, redirectUri: string): Promise<URL
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   try {
     const pasted = await rl.question(msg('리디렉트된 전체 URL을 붙여넣으세요: '));
-    return new URL(pasted.trim()).searchParams;
+    const params = redirectParams(pasted);
+    if (!params) throw new ProviderError('auth', 'tiktok.paste', msg('code가 있는 리디렉트 URL이 아닙니다. 주소창의 전체 URL을 붙여넣으세요'));
+    return params;
   } finally {
     rl.close();
   }
@@ -362,7 +364,7 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     const start = tiktok.oauthBegin!(ctx, redirectUri);
     ctx.log.info(msg('브라우저에서 TikTok에 로그인하고 권한을 승인하세요:\n{url}', { url: start.url }));
     openBrowser(start.url);
-    const params = await readCallback(host === '127.0.0.1' || host === 'localhost', redirectUri);
+    const params = await readCallback(ctx, host === '127.0.0.1' || host === 'localhost', redirectUri);
     if (params.get('state') !== start.state) throw new ProviderError('auth', 'tiktok.state', msg('OAuth state 불일치'));
     return tiktok.oauthFinish!(ctx, name, params, redirectUri, start.verifier);
   },

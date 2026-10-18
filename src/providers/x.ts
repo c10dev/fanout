@@ -1,7 +1,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { extname } from 'node:path';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
-import { jsonOr, openBrowser, pkcePair, readChunk, rotationContext, startLoopback } from '../core/http.ts';
+import { jsonOr, openBrowser, pkcePair, readChunk, rotationContext, startLoopback, waitForRedirect } from '../core/http.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
 import type { Issue, Post } from '../core/types.ts';
@@ -272,7 +272,7 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       const start = x.oauthBegin!(ctx, redirectUri);
       ctx.log.info(msg('브라우저에서 X에 로그인하고 권한을 승인하세요:\n{url}', { url: start.url }));
       openBrowser(start.url);
-      const params = await loop.waitForCallback;
+      const params = await waitForRedirect(loop.waitForCallback, (line) => ctx.log.info(line));
       if (params.get('state') !== start.state) throw new ProviderError('auth', 'x.state', msg('OAuth state 불일치'));
       return await x.oauthFinish!(ctx, name, params, redirectUri, start.verifier);
     } finally {

@@ -379,8 +379,21 @@ async function cmdAppSet(ctx: ProviderContext, provider: Provider, args: Args): 
   say(saved.length ? msg('{key} 앱 저장됨 ({fields})', { key, fields: saved.join(', ') }) : msg('{key} 앱 저장됨', { key }));
 }
 
+/**
+ * The account a command means when none is named: "main", or the platform's only account. With
+ * several and no "main", asking beats guessing (connect would otherwise add a new "main").
+ */
+export function namedOrOnly(ctx: ProviderContext, platform: string, given: string | undefined, flag: string): string {
+  if (given) return given;
+  const names = ctx.store.listAccounts().filter((a) => a.platform === platform).map((a) => a.name);
+  if (names.length > 1 && !names.includes('main')) {
+    throw new UsageError(msg('{platform} 계정이 여러 개입니다 ({names}) — {flag} 로 고르세요', { platform, names: names.join(', '), flag }));
+  }
+  return defaultAccountName(ctx.store.listAccounts(), platform);
+}
+
 async function cmdDoctor(ctx: ProviderContext, provider: Provider, args: Args): Promise<number> {
-  const name = str(args, 'account') ?? 'main';
+  const name = namedOrOnly(ctx, provider.id, str(args, 'account'), '--account');
   const account = ctx.store.getAccount(provider.id, name);
   if (!account) {
     say(msg('{id}/{name} 계정이 연결되지 않았습니다. 먼저: fanout setup {id}', { id: provider.id, name }));
@@ -1058,8 +1071,10 @@ export async function main(argv: string[]): Promise<number> {
         return 0;
       case 'connect': {
         const p = needProvider();
-        const name = str(args, 'name') ?? 'main';
+        const name = namedOrOnly(ctx, p.id, str(args, 'name'), '--name');
         if (!ACCOUNT_NAME.test(name)) throw new UsageError(msg('계정 이름은 영문·숫자·-·_ 32자 이내'));
+        // Reconnecting the only account under its own name; a second account needs --name.
+        if (!str(args, 'name') && name !== 'main') say(msg('{id}/{name} 계정을 다시 연결합니다 (새 계정을 더하려면 --name)', { id: p.id, name }));
         const account = await p.connect(ctx, name, args.flags);
         ctx.store.saveAccount(account);
         say(msg('연결됨: {id}/{name} {profile}', { id: p.id, name, profile: JSON.stringify(account.profile) }));
