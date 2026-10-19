@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -174,5 +174,39 @@ describe('vertical fit in the preview', () => {
     assert.equal(verdict({}).verdict, 'blocked');
     assert.equal(verdict({ fit: 'pad' }).verdict, 'transcode');
     assert.ok(verdict({ fit: 'stretch' }).errors.some((e) => /pad|crop/.test(e)));
+  });
+});
+
+describe('thumbnail from a frame', () => {
+  it('uses the same moment as the Instagram and TikTok (direct) covers, unless already set', async () => {
+    const { withCoverMoment } = await import('../src/core/media.ts');
+    const out = withCoverMoment(
+      [
+        { platform: 'instagram', options: {} },
+        { platform: 'instagram', options: { thumbOffsetMs: 500 } },
+        { platform: 'tiktok', options: { mode: 'direct' } },
+        { platform: 'tiktok', options: { mode: 'inbox' } },
+        { platform: 'youtube', options: {} },
+      ],
+      12.5,
+    );
+    assert.deepEqual(out.map((t) => t.options.thumbOffsetMs ?? t.options.coverTimestampMs), [12500, 500, 12500, undefined, undefined]);
+  });
+});
+
+describe('thumbnail from a frame (ffmpeg)', { skip: !hasFfmpeg && 'ffmpeg not installed' }, () => {
+  it('extracts one JPEG frame, reuses it, and refuses a moment outside the video', async () => {
+    const { extractFrame } = await import('../src/core/media.ts');
+    const dir = mkdtempSync(join(tmpdir(), 'fanout-frame-'));
+    const src = join(dir, 'clip.mp4');
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1920x1080:rate=30:duration=3', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', src]);
+    const info = await probe(src);
+    const frame = await extractFrame(info, 1.5, join(dir, 'media'));
+    assert.match(frame, /frame-[0-9a-f]{16}\.jpg$/);
+    assert.ok(statSync(frame).size > 0 && statSync(frame).size < 2 * 1024 * 1024);
+    assert.equal(await extractFrame(info, 1.5, join(dir, 'media')), frame, 'same moment, same file');
+    await assert.rejects(extractFrame(info, 99, join(dir, 'media')), /0초~영상 길이/);
+    // The very end still gives a frame.
+    assert.ok(statSync(await extractFrame(info, info.durationSec, join(dir, 'media'))).size > 0);
   });
 });

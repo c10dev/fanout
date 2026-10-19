@@ -17,6 +17,8 @@
 
 가로 영상은 `--vertical pad|crop`(TikTok·Instagram·Facebook, YouTube는 `--yt-vertical`로 Shorts용; 대시보드·MCP는 대상 옵션 `fit`)으로 세로 9:16(1080x1920, 플랫폼 긴 변 한도 안)으로 바꿔 올릴 수 있습니다. `pad`는 영상 전체를 보이게 두고 위아래를 같은 영상을 흐리게 깔아 채우고, `crop`은 가운데를 잘라 냅니다. Facebook 릴스는 9:16만 받으므로 가로 영상은 이 옵션 없이는 올라가지 않습니다. 원본은 그대로 두고, 그 옵션을 고른 대상만 변환본을 씁니다.
 
+썸네일은 이미지 파일 대신 영상의 한 장면을 고를 수 있습니다: `--thumbnail-at 12.5`(대시보드 "또는 영상의 이 장면", MCP `thumbnailAt`). 그 장면을 JPEG로 뽑아 썸네일을 받는 플랫폼(YouTube·X·Facebook·Mastodon·PeerTube)에 쓰고, 영상에서 커버를 고르는 Instagram(`thumbOffsetMs`)·TikTok direct(`coverTimestampMs`)에도 따로 정하지 않았으면 같은 장면을 씁니다.
+
 ## 계정 연결 (`fanout connect`)
 
 - YouTube·TikTok·X는 브라우저에서 승인하면 fanout이 `127.0.0.1`에서 리디렉트를 받습니다. fanout을 서버에서 돌리고 브라우저는 다른 기기에서 쓰면, 승인 뒤 브라우저가 연결 오류 페이지를 보여 줍니다. 그때는 그 주소창의 전체 URL(`…/callback?code=…`)을 fanout이 기다리는 터미널에 붙여넣으면 이어서 연결됩니다. 코드는 그 fanout만 가진 PKCE 값과 함께여야 쓸 수 있고 한 번만 쓰입니다.

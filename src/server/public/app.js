@@ -488,7 +488,7 @@ function renderTargets() {
 /** { postId, title, covered: Set<"platform/account"> } while adding to a post. */
 let addingTo = null;
 const COVERING = new Set(['queued', 'transcoding', 'uploading', 'processing', 'published', 'handed_off', 'needs_reauth']);
-const LOCKED_FIELDS = ['#file', '#title', '#description', '#tags', '#scheduled', '#ai', '#thumbnail', '#add-caption'];
+const LOCKED_FIELDS = ['#file', '#title', '#description', '#tags', '#scheduled', '#ai', '#thumbnail', '#thumbnail-at', '#add-caption'];
 
 function lockCoveredTargets() {
   for (const block of document.querySelectorAll('.target')) {
@@ -531,6 +531,7 @@ async function startAddMode(postId) {
   $('#tags').value = (m.post.tags ?? []).join(', ');
   $('#scheduled').value = '';
   $('#thumbnail').value = '';
+  $('#thumbnail-at').value = '';
   $('#captions').replaceChildren();
   $('#ai').checked = Boolean(m.post.containsSyntheticMedia);
   for (const q of LOCKED_FIELDS) $(q).disabled = true;
@@ -823,10 +824,19 @@ function collectForm() {
     .map((r) => ({ language: r.querySelector('[name="language"]').value.trim(), file: r.querySelector('[name="file"]').files[0] }))
     .filter((c) => c.file || c.language);
   for (const c of captionRows) if (!c.file || !c.language) errors.push(tr('자막은 언어 코드와 파일을 모두 넣어 주세요'));
-  // Which platforms actually use these files (capabilities in the providers).
-  const uses = (list) => targets.some((t) => list.includes(t.platform));
-  if (thumbnail && !uses(['youtube', 'mastodon', 'peertube'])) errors.push(tr('썸네일은 YouTube·Mastodon·PeerTube에만 적용됩니다. 해당 플랫폼을 고르거나 썸네일을 비워 주세요'));
-  if (captionRows.length && !uses(['youtube', 'bluesky', 'peertube'])) errors.push(tr('자막은 YouTube·Bluesky·PeerTube에만 적용됩니다. 해당 플랫폼을 고르거나 자막을 비워 주세요'));
+  const thumbAtText = $('#thumbnail-at').value.trim();
+  const thumbnailAt = thumbAtText === '' ? undefined : Number(thumbAtText);
+  if (thumbnailAt !== undefined && !(thumbnailAt >= 0)) errors.push(tr('썸네일 장면은 0초 이상이어야 합니다'));
+  if (thumbnail && thumbnailAt !== undefined) errors.push(tr('썸네일 이미지와 장면 중 하나만 고르세요'));
+  // Which platforms actually use these files (the providers' capabilities).
+  const able = (cap) => (overview?.platforms ?? []).filter((p) => p.capabilities?.[cap]);
+  const uses = (cap) => targets.some((t) => able(cap).some((p) => p.id === t.platform));
+  const names = (cap) => able(cap).map((p) => p.displayName).join('·');
+  // A frame also sets the Instagram/TikTok cover, so it is useful there too.
+  if ((thumbnail || (thumbnailAt !== undefined && !targets.some((t) => ['instagram', 'tiktok'].includes(t.platform)))) && !uses('thumbnail')) {
+    errors.push(tr('썸네일은 {names}에만 적용됩니다. 해당 플랫폼을 고르거나 썸네일을 비워 주세요', { names: names('thumbnail') }));
+  }
+  if (captionRows.length && !uses('captions')) errors.push(tr('자막은 {names}에만 적용됩니다. 해당 플랫폼을 고르거나 자막을 비워 주세요', { names: names('captions') }));
   const payload = {
     mediaId: media?.id,
     title,
@@ -834,6 +844,7 @@ function collectForm() {
     tags: $('#tags').value.split(',').map((t) => t.trim()).filter(Boolean),
     scheduledAt: scheduled ? new Date(scheduled).toISOString() : undefined,
     containsSyntheticMedia: $('#ai').checked,
+    thumbnailAt,
     targets,
   };
   return { errors, payload, thumbnail, captionRows };

@@ -288,6 +288,40 @@ export async function ensureVariant(
   return { path: output, transcoded: true, reasons };
 }
 
+/**
+ * One frame of a video as a JPEG thumbnail (long edge up to 1280 px, well under the 2 MB limit).
+ * The name comes from the video and the moment, so asking again reuses it. Returns its path.
+ */
+export async function extractFrame(info: MediaInfo, atSec: number, dir: string): Promise<string> {
+  if (!(atSec >= 0) || atSec > info.durationSec) {
+    throw new Error(msg('썸네일 장면은 0초~영상 길이({length}초) 사이여야 합니다', { length: info.durationSec.toFixed(1) }));
+  }
+  const st = statSync(info.path);
+  const key = createHash('sha256').update(JSON.stringify([info.path, st.size, st.mtimeMs, atSec])).digest('hex').slice(0, 16);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const output = join(dir, `frame-${key}.jpg`);
+  if (existsSync(output)) return output;
+  const partial = `${output}.part.jpg`;
+  // A frame right at the end may not exist; step back a little from the very last moment.
+  const at = Math.max(0, Math.min(atSec, info.durationSec - 0.05));
+  await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-ss', String(at), '-i', info.path, '-frames:v', '1', '-vf', "scale='min(1280,iw)':-2", '-q:v', '3', partial]);
+  renameSync(partial, output);
+  return output;
+}
+
+/**
+ * The same moment as the cover where a platform picks the cover from the video itself (Instagram
+ * thumb_offset, TikTok cover timestamp), unless a target already says otherwise.
+ */
+export function withCoverMoment<T extends { platform: string; options: Record<string, unknown> }>(targets: T[], atSec: number): T[] {
+  const ms = Math.round(atSec * 1000);
+  return targets.map((t) => {
+    if (t.platform === 'instagram' && t.options.thumbOffsetMs === undefined) return { ...t, options: { ...t.options, thumbOffsetMs: ms } };
+    if (t.platform === 'tiktok' && t.options.coverTimestampMs === undefined && t.options.mode === 'direct') return { ...t, options: { ...t.options, coverTimestampMs: ms } };
+    return t;
+  });
+}
+
 /** A tiny vertical test clip for `fanout doctor`. */
 export async function makeTestClip(output: string, seconds = 4): Promise<void> {
   await run('ffmpeg', [
