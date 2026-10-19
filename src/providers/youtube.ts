@@ -1074,21 +1074,29 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
   },
 
   async comments({ ctx, account, target, limit }) {
+    type Snippet = { authorDisplayName?: string; authorChannelId?: { value?: string }; textOriginal?: string; textDisplay?: string; publishedAt: string; likeCount?: number };
     const res = await api<{
       items?: Array<{
         id: string;
-        snippet: { totalReplyCount?: number; topLevelComment: { id?: string; snippet: { authorDisplayName?: string; textOriginal?: string; textDisplay?: string; publishedAt: string; likeCount?: number } } };
+        snippet: { totalReplyCount?: number; topLevelComment: { id?: string; snippet: Snippet } };
+        replies?: { comments?: Array<{ snippet?: Snippet }> };
       }>;
       // textOriginal is only returned to the comment's own author; textDisplay in plain text otherwise.
-    }>(ctx, account, `/commentThreads?part=snippet&order=time&textFormat=plainText&maxResults=${Math.min(limit, 100)}&videoId=${target.remoteId}`).catch((err: unknown) => {
+    }>(ctx, account, `/commentThreads?part=snippet,replies&order=time&textFormat=plainText&maxResults=${Math.min(limit, 100)}&videoId=${target.remoteId}`).catch((err: unknown) => {
       // Comments turned off (or the video is gone) isn't an error worth failing the panel for.
       if (err instanceof ProviderError && err.platformCode === 'commentsDisabled') return { items: [] };
       throw err;
     });
+    const channel = account.profile.channelId as string | undefined;
     return (res.items ?? []).map((t) => {
       const c = t.snippet.topLevelComment.snippet;
       // Replies take the top-level comment's id as parentId (in practice the same as the thread's).
       const id = t.snippet.topLevelComment.id ?? t.id;
+      // The thread carries up to five replies: one from the channel answers it; with more than five
+      // and none of those from the channel, it can't be told.
+      const replies = t.replies?.comments ?? [];
+      const byChannel = channel !== undefined && replies.some((r) => r.snippet?.authorChannelId?.value === channel);
+      const total = t.snippet.totalReplyCount ?? replies.length;
       return {
         id,
         author: c.authorDisplayName ?? '',
@@ -1097,6 +1105,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
         likes: c.likeCount,
         replies: t.snippet.totalReplyCount,
         url: `https://www.youtube.com/watch?v=${target.remoteId}&lc=${id}`,
+        ...(channel !== undefined ? { mine: c.authorChannelId?.value === channel } : {}),
+        ...(channel === undefined ? {} : byChannel ? { answered: true } : total <= replies.length ? { answered: false } : {}),
       };
     });
   },

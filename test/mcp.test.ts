@@ -42,7 +42,7 @@ describe('MCP server', () => {
     assert.equal(await mcp.handle({ jsonrpc: '2.0', method: 'notifications/initialized' }), undefined);
     const list = (await mcp.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' })) as { result: { tools: Array<{ name: string; annotations: { readOnlyHint: boolean } }> } };
     const tools = Object.fromEntries(list.result.tools.map((t) => [t.name, t.annotations.readOnlyHint]));
-    assert.deepEqual(tools, { list_accounts: true, check_video: true, preview_post: true, create_post: false, get_post_status: true, get_post_stats: true, get_insights: true, get_limits: true, get_post_comments: true, update_post: false, reply_to_comment: false, hide_comment: false, set_visibility: false, cancel_target: false, retry_target: false, add_to_post: false });
+    assert.deepEqual(tools, { list_accounts: true, check_video: true, preview_post: true, create_post: false, get_post_status: true, get_post_stats: true, get_comment_inbox: true, get_insights: true, get_limits: true, get_post_comments: true, update_post: false, reply_to_comment: false, hide_comment: false, set_visibility: false, cancel_target: false, retry_target: false, add_to_post: false });
     const missing = (await mcp.handle({ jsonrpc: '2.0', id: 3, method: 'nope' })) as { error: { code: number } };
     assert.equal(missing.error.code, -32601);
   });

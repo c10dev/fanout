@@ -70,6 +70,10 @@ export interface Comment {
   hidden?: boolean;
   /** false when the platform won't hide it (Instagram: the media owner's own comments always show). */
   hideable?: boolean;
+  /** Written by the connected account itself. */
+  mine?: boolean;
+  /** Whether the connected account has replied to it; absent when the platform can't tell. */
+  answered?: boolean;
 }
 
 /** Audience reaction to a published post, as far as the platform API and granted scopes allow. */

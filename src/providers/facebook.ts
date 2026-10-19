@@ -312,13 +312,22 @@ export const facebook: Provider = {
 
   async comments({ ctx, account, target, limit }) {
     const c = pageCreds(account);
-    const res = await graph<{ data?: Array<{ id: string; message?: string; created_time: string; like_count?: number; comment_count?: number; is_hidden?: boolean; from?: { name?: string } }> }>(
-      ctx,
-      'GET',
-      `/${target.remoteId}/comments`,
-      { fields: 'from{name},message,created_time,like_count,comment_count,is_hidden', order: 'reverse_chronological', limit: Math.min(limit, 100), access_token: c.pageToken },
-    );
-    return (res.data ?? []).map((m) => ({ id: m.id, author: m.from?.name ?? '', text: m.message ?? '', at: m.created_time, likes: m.like_count, replies: m.comment_count, hidden: m.is_hidden === true }));
+    type Reply = { from?: { id?: string } };
+    const res = await graph<{
+      data?: Array<{ id: string; message?: string; created_time: string; like_count?: number; comment_count?: number; is_hidden?: boolean; from?: { id?: string; name?: string }; comments?: { data?: Reply[] } }>;
+    }>(ctx, 'GET', `/${target.remoteId}/comments`, {
+      fields: 'from{id,name},message,created_time,like_count,comment_count,is_hidden,comments.limit(25){from{id}}',
+      order: 'reverse_chronological',
+      limit: Math.min(limit, 100),
+      access_token: c.pageToken,
+    });
+    return (res.data ?? []).map((m) => {
+      const replies = m.comments?.data ?? [];
+      const byPage = replies.some((r) => r.from?.id === c.pageId);
+      // Up to 25 replies come along: past that, with none from the Page among them, it can't be told.
+      const answered = byPage ? { answered: true } : (m.comment_count ?? replies.length) <= replies.length ? { answered: false } : {};
+      return { id: m.id, author: m.from?.name ?? '', text: m.message ?? '', at: m.created_time, likes: m.like_count, replies: m.comment_count, hidden: m.is_hidden === true, mine: m.from?.id === c.pageId, ...answered };
+    });
   },
 
   // Replying as the Page needs pages_manage_engagement, which posting alone doesn't.

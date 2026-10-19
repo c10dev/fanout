@@ -544,6 +544,54 @@ function withHidden(listed: Comment[], t: Target): Comment[] {
   return [...listed.map((c) => ({ ...c, hidden: c.hidden === true })), ...gone.map((c) => ({ ...c, hidden: true }))];
 }
 
+export interface InboxItem {
+  postId: string;
+  title: string;
+  targetId: string;
+  platform: string;
+  account: string;
+  comment: Comment;
+  canReply: boolean;
+  canHide: boolean;
+}
+
+/**
+ * Comments still waiting for the account's reply, across the posts published in the last `days`
+ * (newest posts first, at most `maxPosts` of them: each read is a platform call). Comments the
+ * account wrote, hidden ones and ones the platform can't say about are left out; how many couldn't
+ * be told is counted.
+ */
+export async function commentInbox(
+  ctx: ProviderContext,
+  providers: Map<string, Provider>,
+  opts: { days?: number; maxPosts?: number; perPost?: number } = {},
+): Promise<{ items: InboxItem[]; posts: number; unknown: number; errors: string[] }> {
+  const since = ctx.now().getTime() - (opts.days ?? 7) * 86_400_000;
+  const recent = new Map<string, number>();
+  for (const t of ctx.store.publishedTargets()) {
+    if (!providers.get(t.platform)?.comments) continue;
+    const at = (ctx.store.stateSince(t.id, 'published') ?? new Date(t.updatedAt)).getTime();
+    if (at >= since) recent.set(t.postId, Math.max(recent.get(t.postId) ?? 0, at));
+  }
+  const postIds = [...recent.entries()].sort((a, b) => b[1] - a[1]).slice(0, opts.maxPosts ?? 20).map(([id]) => id);
+  const items: InboxItem[] = [];
+  const errors: string[] = [];
+  let unknown = 0;
+  for (const postId of postIds) {
+    const title = ctx.store.getPost(postId)?.title ?? postId;
+    for (const r of await fetchComments(ctx, providers, postId, opts.perPost ?? 50)) {
+      if (r.error) errors.push(`${r.platform}/${r.account}: ${r.error}`);
+      for (const c of r.comments ?? []) {
+        if (c.mine || c.hidden) continue;
+        if (c.answered === undefined) unknown++;
+        else if (!c.answered) items.push({ postId, title, targetId: r.targetId, platform: r.platform, account: r.account, comment: c, canReply: Boolean(r.canReply), canHide: Boolean(r.canHide) });
+      }
+    }
+  }
+  items.sort((a, b) => Date.parse(b.comment.at) - Date.parse(a.comment.at));
+  return { items, posts: postIds.length, unknown, errors };
+}
+
 export const REPLY_MAX_CHARS = 5000;
 /** How far back a reply's comment is looked up; older comments can be answered on the platform itself. */
 const REPLY_LOOKBACK = 100;
