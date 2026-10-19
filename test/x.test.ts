@@ -148,7 +148,7 @@ describe('x upload', () => {
     assert.equal((store.getTarget(t.id)!.resume as { posting: boolean }).posting, false);
   });
 
-  it('posts again only after the user retries a maybe-posted target', async () => {
+  it('posts again only after the user confirms a maybe-posted target is not there', async () => {
     const { fetch, calls } = mockFetch([
       ['GET', '/2/media/upload?', () => json({ data: { id: 'M1' } })],
       ['POST', '/2/tweets', () => json({ data: { id: 'T9' } }, 201)],
@@ -160,7 +160,10 @@ describe('x upload', () => {
     store.transition(id, 'processing', { remoteId: 'M1', resume: { mediaId: 'M1', finalized: true, posting: true } });
     await assert.rejects(x.poll({ ctx, post: post(), target: { ...store.getTarget(id)!, remoteId: 'M1' }, account }), (e: ProviderError) => e.code === 'x.maybe_posted');
     store.transition(id, 'failed', { errorCode: 'x.maybe_posted' });
-    retryTarget(store, id, 'test');
+    // Not without the user saying they checked: X has no idempotency key, so a repeat is a second post.
+    assert.throws(() => retryTarget(store, id, 'test'), (e: Error & { code?: string }) => e.code === 'maybe_duplicate');
+    assert.equal(store.getTarget(id)!.state, 'failed');
+    retryTarget(store, id, 'test', { confirmedNotPosted: true });
     assert.equal((store.getTarget(id)!.resume as { posting: boolean }).posting, false);
     const out = await x.poll({ ctx, post: post(), target: { ...store.getTarget(id)!, remoteId: 'M1' }, account });
     assert.equal(out.remoteId, 'T9');

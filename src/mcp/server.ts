@@ -3,7 +3,7 @@ import { extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { extractFrame, fileHash, probe as realProbe, withCoverMoment, type MediaInfo } from '../core/media.ts';
-import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, editPost, fetchComments, hideComment, planAddTargets, previewPost, refreshStats, replyToComment, retryTarget, suggestCrossPosts, type TargetPreview } from '../core/posting.ts';
+import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, editPost, fetchComments, hideComment, planAddTargets, previewPost, refreshStats, replyToComment, MaybeDuplicateError, MaybeLiveError, retryTarget, suggestCrossPosts, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
 import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
@@ -537,6 +537,7 @@ export class McpServer {
         try {
           return { target: publicTarget(cancelTarget(store, String(args.targetId ?? ''), { confirmedNotPosted: args.confirmedNotPosted === true })) };
         } catch (err) {
+          if (err instanceof MaybeLiveError) throw new ToolError(err.message + ' ' + msg('사용자에게 플랫폼에서 확인을 받은 뒤에만 confirmedNotPosted: true 로 다시 호출하세요'));
           throw new ToolError((err as Error).message);
         }
       }
@@ -544,21 +545,17 @@ export class McpServer {
         try {
           return { firstComment: await retryFirstComment(this.#deps.ctx, providers, String(args.targetId ?? ''), args.confirmedNotPosted === true) };
         } catch (err) {
-          throw new ToolError(err instanceof Error ? err.message : String(err));
+          const e = err as Error & { needsConfirm?: boolean };
+          throw new ToolError(e.needsConfirm ? e.message + ' ' + msg('사용자에게 플랫폼에서 확인을 받은 뒤에만 confirmedNotPosted: true 로 다시 호출하세요') : e.message);
         }
       }
       case 'retry_target': {
-        const current = store.getTarget(String(args.targetId ?? ''));
-        // The user, not the model, has to vouch that a maybe-posted target didn't go out.
-        if (current && (current.resume as { posting?: boolean } | undefined)?.posting && args.confirmedNotPosted !== true) {
-          throw new ToolError(
-            msg('이 대상은 이미 게시됐을 수 있습니다 ({code}). 사용자에게 {platform}에서 확인을 받은 뒤 confirmedNotPosted: true 로 다시 호출하세요', { code: current.errorCode ?? 'posting', platform: current.platform }),
-          );
-        }
         let next: Target;
         try {
-          next = retryTarget(store, String(args.targetId ?? ''), 'retry via MCP');
+          next = retryTarget(store, String(args.targetId ?? ''), 'retry via MCP', { confirmedNotPosted: args.confirmedNotPosted === true });
         } catch (err) {
+          // The user, not the model, has to vouch that a maybe-posted target didn't go out.
+          if (err instanceof MaybeDuplicateError) throw new ToolError(err.message + ' ' + msg('사용자에게 플랫폼에서 확인을 받은 뒤에만 confirmedNotPosted: true 로 다시 호출하세요'));
           throw new ToolError((err as Error).message);
         }
         this.#deps.worker?.tick();

@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { extractFrame, fileHash, probe as realProbe, withCoverMoment, type MediaInfo } from '../core/media.ts';
-import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, editPost, fetchComments, hideComment, MaybeLiveError, planAddTargets, previewPost, refreshStats, removeTarget, replyToComment, retryTarget, suggestCrossPosts, withTimeout } from '../core/posting.ts';
+import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, editPost, fetchComments, hideComment, MaybeDuplicateError, MaybeLiveError, mayBeDuplicate, planAddTargets, previewPost, refreshStats, removeTarget, replyToComment, retryTarget, suggestCrossPosts, withTimeout } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import { msg, translate, translateDeep, type Lang } from '../core/i18n.ts';
@@ -366,7 +366,16 @@ export class Dashboard {
     if (method === 'POST' && parts[0] === 'posts' && parts.length === 1) return send(res, 201, await this.#createPost(req));
     if (method === 'POST' && parts[0] === 'preview' && parts.length === 1) return send(res, 200, await this.#preview(req));
     if (method === 'GET' && parts[0] === 'posts' && parts[1] && parts.length === 2) return send(res, 200, this.#postDetail(parts[1]));
-    if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'retry') return send(res, 200, this.#retry(parts[1]));
+    if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'retry') {
+      const body = await readJson<{ confirmedNotPosted?: unknown }>(req).catch(() => ({}) as { confirmedNotPosted?: unknown });
+      try {
+        return send(res, 200, this.#retry(parts[1], body.confirmedNotPosted === true));
+      } catch (err) {
+        // As for cancel: the dashboard asks the user to check the platform, then sends confirmedNotPosted.
+        if (err instanceof MaybeDuplicateError) return send(res, 409, { error: err.message, needsConfirm: true });
+        throw err;
+      }
+    }
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'first-comment') {
       const body = await readJson<{ confirmedNotPosted?: unknown }>(req).catch(() => ({}) as { confirmedNotPosted?: unknown });
       try {
@@ -934,11 +943,11 @@ export class Dashboard {
     };
   }
 
-  #retry(targetId: string) {
+  #retry(targetId: string, confirmedNotPosted: boolean) {
     const t = this.#opts.ctx.store.getTarget(targetId);
     if (!t) throw new HttpError(404, msg('대상이 없습니다'));
     if (t.state !== 'failed' && t.state !== 'needs_reauth') throw new HttpError(409, msg('{state} 상태는 다시 시도할 수 없습니다', { state: t.state }));
-    const next = retryTarget(this.#opts.ctx.store, targetId, 'manual retry');
+    const next = retryTarget(this.#opts.ctx.store, targetId, 'manual retry', { confirmedNotPosted });
     this.tick();
     return this.#publicTarget(next);
   }
@@ -1009,6 +1018,8 @@ export class Dashboard {
       terminal: isTerminal(t.state),
       statsCost: provider?.statsCost,
       removable: t.state === 'published' && Boolean(provider?.remove),
+      // Retrying it could post it twice: the dashboard asks the user to check the platform first.
+      mayBeDuplicate: Boolean(mayBeDuplicate(t)),
       visibilities: t.state === 'published' && provider?.setVisibility ? provider.visibilities : undefined,
       goesPublicAt: this.#goesPublicAt(t),
       trend: t.stats ? statsTrend(this.#opts.ctx.store, t.id, this.#opts.ctx.now()) : undefined,
