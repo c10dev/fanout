@@ -9,7 +9,7 @@
   --panel: #ffffff;
   --text: #0b0b0b;
   --muted: #52514e;
-  --faint: #898781;
+  --faint: #6f6e69;
   --line: rgba(11, 11, 11, 0.1);
   --line-soft: rgba(11, 11, 11, 0.05);
   --hover: rgba(11, 11, 11, 0.05);
@@ -376,6 +376,8 @@ details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1;
 @media (max-width: 703px) {
   .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; transform: translateX(-100%); transition: transform 0.2s ease; box-shadow: none; }
   .sidebar.open { transform: none; }
+  /* Closed and off screen: out of the tab order too. */
+  .sidebar:not(.open) { visibility: hidden; transition: transform 0.2s ease, visibility 0s linear 0.2s; }
   #sidebar-close, #sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; }
 }
 @media (min-width: 704px) { .scrim { display: none; } }
@@ -404,10 +406,14 @@ details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1;
 .compose-title input { border: 0; background: transparent; font-size: 15px; padding: 8px 10px; }
 .compose-title input:focus { outline: none; }
 .compose:focus-within { border-color: var(--accent); }
-.compose-panel.empty { background: transparent; border: 0; padding: 0; width: 100%; max-width: 640px; margin: 0 auto; min-height: calc(100vh - 48px - 64px); display: flex; flex-direction: column; justify-content: center; }
-.compose-panel.empty #post-form > :not(.compose):not(#add-banner) { display: none; }
+.compose-panel.empty { color: var(--text); text-align: start; background: transparent; border: 0; padding: 0; width: 100%; max-width: 640px; margin: 0 auto; min-height: calc(100vh - 48px - 64px); display: flex; flex-direction: column; justify-content: center; }
+.compose-panel.empty #post-form > :not(.compose):not(#add-banner):not(#form-error) { display: none; }
+.compose-panel.empty #form-error:empty { display: none; }
 .compose-panel.empty #post-form::before { content: none; }
 @media (max-width: 639px) {
   .compose-panel.empty { justify-content: flex-end; padding-bottom: 16px; }
 }
-@media (max-width: 767px) { input, textarea, select { font-size: 16px; } }
+/* 16px at least, or iOS zooms into the field (after the rules that set smaller sizes). */
+@media (max-width: 767px) {
+  input, textarea, select, .field input, .field textarea, .field select, .opt select, .opt input[type=text], .opt textarea, .compose-title input, .presets select, .reply-box textarea, #board-search { font-size: 16px; }
+}

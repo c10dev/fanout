@@ -597,7 +597,7 @@ export class Dashboard {
     const platform = url.pathname.split('/')[2] ?? '';
     this.#pendingOAuth.delete(state);
     if (!pending || pending.platform !== platform || pending.expiresAt < Date.now()) {
-      return back({ oauthError: translate(msg('연결 요청이 만료됐거나 올바르지 않습니다. 다시 연결을 눌러 주세요'), lang) });
+      return back({ oauthError: translate(msg('연결 요청이 만료됐거나 올바르지 않습니다. 다시 연결을 눌러 주세요'), lang), platform });
     }
     try {
       const provider = this.#provider(platform);
@@ -605,7 +605,7 @@ export class Dashboard {
       this.#opts.ctx.store.saveAccount(account);
       back({ connected: `${platform}/${pending.name}` });
     } catch (err) {
-      back({ oauthError: translate(err instanceof Error ? err.message : String(err), pending.lang) });
+      back({ oauthError: translate(err instanceof Error ? err.message : String(err), pending.lang), platform });
     }
   }
 
