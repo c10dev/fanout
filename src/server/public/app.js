@@ -348,6 +348,7 @@ function applyPreset(preset) {
   // In add mode the text belongs to the post being added to.
   if (!addingTo && preset.tags?.length) $('#tags').value = preset.tags.join(', ');
   if (!addingTo && preset.description) $('#description').value = preset.description;
+  if (!addingTo && preset.firstComment) $('#first-comment').value = preset.firstComment;
   hideConfirm();
   $('#form-error').textContent = missing.length ? tr('연결돼 있지 않아 건너뛴 계정: {list}', { list: missing.join(', ') }) : '';
 }
@@ -377,7 +378,7 @@ $('#preset-save').addEventListener('click', async () => {
     presets = (
       await api(`/presets/${encodeURIComponent(name.trim())}`, {
         method: 'PUT',
-        body: JSON.stringify({ targets, tags: $('#tags').value.split(',').map((t) => t.trim()).filter(Boolean), description: $('#description').value }),
+        body: JSON.stringify({ targets, tags: $('#tags').value.split(',').map((t) => t.trim()).filter(Boolean), description: $('#description').value, firstComment: $('#first-comment').value }),
       })
     ).presets;
     $('#preset-select').value = name.trim();
@@ -940,7 +941,7 @@ function saveDraft() {
     const account = block.querySelector('select[name="account"]')?.value ?? block.querySelector('[data-account]')?.dataset.account;
     targets.push({ platform, account, options: JSON.parse(JSON.stringify(readOptions(platform, block.querySelector('.target-body')))) });
   }
-  storage.set(DRAFT_KEY, { v: 1, savedAt: new Date().toISOString(), media, title, description, tags: $('#tags').value, scheduled: $('#scheduled').value, ai: $('#ai').checked, thumbnailAt: $('#thumbnail-at').value, targets });
+  storage.set(DRAFT_KEY, { v: 1, savedAt: new Date().toISOString(), media, title, description, tags: $('#tags').value, firstComment: $('#first-comment').value, scheduled: $('#scheduled').value, ai: $('#ai').checked, thumbnailAt: $('#thumbnail-at').value, targets });
 }
 
 for (const type of ['input', 'change']) {
@@ -967,6 +968,7 @@ async function restoreDraft(key, d) {
   $('#title').value = d.title ?? '';
   $('#description').value = d.description ?? '';
   $('#tags').value = d.tags ?? '';
+  $('#first-comment').value = d.firstComment ?? '';
   $('#scheduled').value = d.scheduled ?? '';
   $('#ai').checked = Boolean(d.ai);
   $('#thumbnail-at').value = d.thumbnailAt ?? '';
@@ -1059,6 +1061,7 @@ function collectForm() {
     tags: $('#tags').value.split(',').map((t) => t.trim()).filter(Boolean),
     scheduledAt: scheduled ? new Date(scheduled).toISOString() : undefined,
     containsSyntheticMedia: $('#ai').checked,
+    firstComment: $('#first-comment').value.trim() || undefined,
     thumbnailAt,
     targets,
   };
@@ -1229,6 +1232,38 @@ function sparkline(compact) {
   return svg;
 }
 
+/** The post's first comment on this target: on its way, there (with a link), or what went wrong (with a retry). */
+function firstCommentLine(t) {
+  const f = t.followup;
+  if (!f) return t.state === 'published' && t.hasFirstComment ? h('div', { class: 'muted' }, tr('첫 댓글: 곧 답니다')) : null;
+  if (f.state === 'unsupported') return h('div', { class: 'muted' }, tr('첫 댓글: 이 플랫폼에는 달 수 없습니다'));
+  if (f.state === 'posted') return h('div', { class: 'okline' }, tr('✓ 첫 댓글'), f.url && webUrl(f.url) ? [' ', h('a', { href: f.url, target: '_blank', rel: 'noopener noreferrer' }, tr('보기'))] : null);
+  const status = h('span', { class: 'msg' });
+  const retry = h(
+    'button',
+    {
+      class: 'small',
+      type: 'button',
+      onclick: async (e) => {
+        e.target.disabled = true;
+        const send = (confirmedNotPosted) => api(`/targets/${t.id}/first-comment`, { method: 'POST', body: JSON.stringify({ confirmedNotPosted }) });
+        try {
+          await send(false);
+        } catch (err) {
+          // It may already be there: only the user can say it isn't.
+          if (err.body?.needsConfirm && confirm(`${err.message}\n\n${tr('{platform}에서 직접 확인했고 첫 댓글이 없나요?', { platform: t.platform })}`)) {
+            await send(true).catch((again) => message(status, again.message, false));
+          } else if (!err.body?.needsConfirm) message(status, err.message, false);
+        }
+        refreshBoard();
+      },
+    },
+    tr('첫 댓글 다시 달기'),
+  );
+  const text = f.state === 'sending' ? tr('첫 댓글: 보내는 중이었습니다 — 달렸는지 확인하세요') : tr('첫 댓글 실패: {error}', { error: f.error ?? '' }) + (f.maybePosted ? ` (${tr('달렸을 수도 있습니다')})` : '');
+  return h('div', { class: 'warnline' }, text, ' ', retry, status);
+}
+
 function targetRow(t) {
   const detail = h('div', { class: 'tdetail' });
   if (t.remoteUrl) detail.append(webUrl(t.remoteUrl) ? h('a', { href: t.remoteUrl, target: '_blank', rel: 'noopener noreferrer' }, t.remoteUrl) : h('span', {}, t.remoteUrl));
@@ -1238,6 +1273,8 @@ function targetRow(t) {
   for (const w of t.warnings) detail.append(h('div', { class: 'warnline' }, `⚠ ${w}`));
   if (t.attempts > 1) detail.append(h('div', { class: 'muted' }, tr('시도 {n}회', { n: t.attempts })));
   if (t.stats) detail.append(statsLine(t.stats, t.trend, t.views30d));
+  const comment = firstCommentLine(t);
+  if (comment) detail.append(comment);
   if (t.state === 'published' && t.statsCost) {
     detail.append(
       h(
@@ -1686,7 +1723,7 @@ function postCard({ post, targets }) {
     { class: 'post', 'data-post': post.id },
     h('div', { class: 'post-head' }, h('span', { class: 'post-title' }, post.title), h('span', { class: 'muted' }, [fmtTime(post.createdAt), post.scheduledAt && tr('예약 {time}', { time: fmtTime(post.scheduledAt) }), post.hasThumbnail && tr('썸네일'), post.captionLanguages?.length && tr('자막 {list}', { list: post.captionLanguages.join(', ') })].filter(Boolean).join(' · '))),
     postTotals(targets),
-    targets.map(targetRow),
+    targets.map((t) => targetRow({ ...t, hasFirstComment: Boolean(post.firstComment) })),
     h('div', { class: 'post-foot' }, history, h('div', { class: 'actions-inline' }, retryStatus, retryAll, commentsButton, editButton, addButton, refreshStats)),
     commentsPanel(post.id),
   );

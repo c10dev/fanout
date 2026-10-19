@@ -223,6 +223,11 @@ function targetLine(t: Target): string {
   const lines = [`${head} ${shown.filter(Boolean).join('  ')}`.trimEnd()];
   if (t.errorCode) lines.push(`      ${t.errorCode}: ${local(t.errorMessage ?? '')}`);
   for (const w of t.warnings) lines.push(`      ⚠ ${local(w)}`);
+  const f = t.followup;
+  const pad = '      ';
+  if (f?.state === 'posted') lines.push(pad + local(msg('첫 댓글 ✓ {where}', { where: f.url ?? f.id ?? '' })));
+  else if (f?.state === 'failed') lines.push(pad + local(msg('첫 댓글 실패: {error}', { error: f.error ?? '' })) + (f.maybePosted ? ' ' + local(msg('(달렸을 수도 있음)')) : ''));
+  else if (f?.state === 'sending') lines.push(pad + local(msg('첫 댓글: 보내는 중이었음 — 달렸는지 확인하세요')));
   return lines.join('\n');
 }
 
@@ -339,6 +344,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
 
 post 공통 옵션
   --description 텍스트 | --description-file 파일   --tags a,b,c
+  --first-comment 텍스트 (게시 뒤 같은 계정으로 첫 댓글: YouTube·Instagram·Facebook·X)
   --thumbnail 이미지 | --thumbnail-at 12.5 (그 장면을 썸네일로, Instagram·TikTok 커버도 같은 장면)   --caption ko:subs.srt (여러 번)   --ai (AI 생성·합성 콘텐츠 표시: YouTube·TikTok·Instagram·X)
   --paid-partnership yes (유료 파트너십·광고 표시: X·TikTok(direct)·Instagram)
   --vertical pad|crop (가로 영상을 세로 9:16으로: TikTok·Instagram·Facebook — pad는 흐린 배경, crop은 가운데)
@@ -501,6 +507,7 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
     captions: parseCaptions(args.lists.caption),
     containsSyntheticMedia: Boolean(args.flags.ai),
     scheduledAt: at ? new Date(at).toISOString() : undefined,
+    ...(str(args, 'first-comment')?.trim() ? { firstComment: str(args, 'first-comment')!.trim() } : {}),
   };
   let targets = parseTargets(to, deps.providers, args, ctx.store.listAccounts());
   const thumbAt = num(args, 'thumbnail-at');
