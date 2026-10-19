@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
-import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
+import { extractFrame, fileHash, probe as realProbe, withCoverMoment, type MediaInfo } from '../core/media.ts';
 import {
   accountLabel,
   addTargets,
@@ -204,6 +204,8 @@ interface CreatePostBody {
   targets?: TargetInput[];
   /** From POST /api/assets/thumbnail. */
   thumbnailId?: string;
+  /** Or a frame of the video, in seconds, as the thumbnail (and the Instagram/TikTok cover). */
+  thumbnailAt?: number;
   /** From POST /api/assets/caption. */
   captions?: Array<{ language?: string; assetId?: string }>;
 }
@@ -835,9 +837,22 @@ export class Dashboard {
     return { input, targets };
   }
 
+  /** A frame of the video as the thumbnail, when the form asks for one (same file for preview and post). */
+  async #withFrame(body: CreatePostBody, parsed: { input: PostInput; targets: TargetInput[] }): Promise<{ input: PostInput; targets: TargetInput[] }> {
+    if (body.thumbnailAt === undefined || body.thumbnailAt === null) return parsed;
+    if (typeof body.thumbnailAt !== 'number') throw new HttpError(400, msg('썸네일 장면은 초 단위 숫자로 넣으세요'));
+    if (body.thumbnailId) throw new HttpError(400, msg('썸네일 이미지와 장면 중 하나만 고르세요'));
+    const media = await (this.#opts.probe ?? realProbe)(parsed.input.mediaPath);
+    const thumbnailPath = await extractFrame(media, body.thumbnailAt, this.#mediaDir).catch((err: Error) => {
+      throw new HttpError(400, err.message);
+    });
+    return { input: { ...parsed.input, thumbnailPath }, targets: withCoverMoment(parsed.targets, body.thumbnailAt) };
+  }
+
   /** Who and how each target would post, plus every error/warning preflight would raise. Creates nothing. */
   async #preview(req: IncomingMessage) {
-    const { input, targets } = this.#parsePost(await readJson<CreatePostBody>(req));
+    const body = await readJson<CreatePostBody>(req);
+    const { input, targets } = await this.#withFrame(body, this.#parsePost(body));
     input.mediaHash = await fileHash(input.mediaPath);
     const media = await (this.#opts.probe ?? realProbe)(input.mediaPath);
     const previews = previewPost(this.#opts.ctx.store, this.#opts.providers, input, targets, media);
@@ -846,7 +861,8 @@ export class Dashboard {
   }
 
   async #createPost(req: IncomingMessage) {
-    const { input, targets } = this.#parsePost(await readJson<CreatePostBody>(req));
+    const body = await readJson<CreatePostBody>(req);
+    const { input, targets } = await this.#withFrame(body, this.#parsePost(body));
     input.mediaHash = await fileHash(input.mediaPath);
     const created = createScheduledPost(this.#opts.ctx.store, this.#opts.providers, input, targets);
     this.tick();

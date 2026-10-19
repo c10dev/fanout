@@ -2,7 +2,7 @@ import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
-import { fileHash, probe as realProbe, type MediaInfo } from '../core/media.ts';
+import { extractFrame, fileHash, probe as realProbe, withCoverMoment, type MediaInfo } from '../core/media.ts';
 import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, createScheduledPost, hideComment, editPost, fetchComments, planAddTargets, previewPost, refreshStats, replyToComment, retryTarget, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
@@ -71,7 +71,8 @@ const POST_SCHEMA = {
     tags: { type: 'array', items: { type: 'string' } },
     scheduledAt: { type: 'string', description: 'ISO-8601 time to publish (optional).' },
     aiGenerated: { type: 'boolean', description: 'Realistic AI-generated or altered content (disclosed on YouTube/TikTok).' },
-    thumbnailPath: { type: 'string', description: 'JPEG/PNG ≤2MB, YouTube only.' },
+    thumbnailPath: { type: 'string', description: 'JPEG/PNG ≤2MB (YouTube, X, Facebook, Mastodon, PeerTube).' },
+    thumbnailAt: { type: 'number', description: 'Instead of thumbnailPath: use the video frame at this many seconds (also as the Instagram/TikTok cover).' },
     captions: {
       type: 'array',
       description: 'YouTube only.',
@@ -565,6 +566,14 @@ export class McpServer {
     };
     const media = await this.#probe(mediaPath);
     input.mediaHash = await fileHash(mediaPath);
+    if (args.thumbnailAt !== undefined) {
+      if (typeof args.thumbnailAt !== 'number') throw new ToolError(msg('썸네일 장면은 초 단위 숫자로 넣으세요'));
+      if (args.thumbnailPath) throw new ToolError(msg('썸네일 이미지와 장면 중 하나만 고르세요'));
+      input.thumbnailPath = await extractFrame(media, args.thumbnailAt, join(this.#deps.ctx.home, 'media')).catch((err: Error) => {
+        throw new ToolError(err.message);
+      });
+      return { input, targets: withCoverMoment(targets, args.thumbnailAt), media };
+    }
     return { input, targets, media };
   }
 }

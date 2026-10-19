@@ -9,7 +9,7 @@ import { DEFAULT_EVENTS, detectFormat, eventsToSave, flushNotifications, KNOWN_E
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, watchAccount, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
-import { fileHash, probe } from './core/media.ts';
+import { extractFrame, fileHash, probe, withCoverMoment } from './core/media.ts';
 import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, changeVisibility, hideComment, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Limit, Provider, ProviderContext } from './core/provider.ts';
@@ -334,7 +334,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
 
 post 공통 옵션
   --description 텍스트 | --description-file 파일   --tags a,b,c
-  --thumbnail 이미지   --caption ko:subs.srt (여러 번)   --ai (AI 생성·합성 콘텐츠 표시: YouTube·TikTok·Instagram·X)
+  --thumbnail 이미지 | --thumbnail-at 12.5 (그 장면을 썸네일로, Instagram·TikTok 커버도 같은 장면)   --caption ko:subs.srt (여러 번)   --ai (AI 생성·합성 콘텐츠 표시: YouTube·TikTok·Instagram·X)
   --paid-partnership yes (유료 파트너십·광고 표시: X·TikTok(direct)·Instagram)
   --vertical pad|crop (가로 영상을 세로 9:16으로: TikTok·Instagram·Facebook — pad는 흐린 배경, crop은 가운데)
   --at 2026-10-20T09:00:00+09:00 (예약)   --yes (확인 생략)   --no-wait
@@ -497,7 +497,18 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
     containsSyntheticMedia: Boolean(args.flags.ai),
     scheduledAt: at ? new Date(at).toISOString() : undefined,
   };
-  const targets = parseTargets(to, deps.providers, args, ctx.store.listAccounts());
+  let targets = parseTargets(to, deps.providers, args, ctx.store.listAccounts());
+  const thumbAt = num(args, 'thumbnail-at');
+  if (thumbAt !== undefined) {
+    if (thumb) throw new UsageError(msg('--thumbnail 과 --thumbnail-at 은 함께 쓸 수 없습니다'));
+    // A frame of the video as the thumbnail, and the same moment as the cover where the platform picks one.
+    try {
+      input.thumbnailPath = await extractFrame(await probe(mediaPath), thumbAt, join(ctx.home, 'media'));
+    } catch (err) {
+      throw new UsageError((err as Error).message);
+    }
+    targets = withCoverMoment(targets, thumbAt);
+  }
   input.mediaHash = await fileHash(mediaPath);
   const prior = priorPosts(ctx.store, input.mediaHash, targets);
   const limitNotes = targets.map((t) => ({ platform: t.platform, account: t.account, warnings: [] as string[], errors: [] as string[] }));
