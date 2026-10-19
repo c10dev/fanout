@@ -308,7 +308,9 @@ body.modal-open { overflow: hidden; }
 .stats .up { color: var(--ok); font-size: 12px; }
 .stats .down { color: var(--bad); font-size: 12px; }
 .add-banner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; background: var(--bg); border: 1px solid var(--accent); border-radius: var(--radius-control); padding: 8px 10px; margin-bottom: 10px; font-size: 14px; }
-#board-search { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-control); padding: 4px 8px; min-width: 0; flex: 1 1 140px; max-width: 260px; }
+#board-search { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-control); padding: 4px 8px; min-width: 0; flex: 1 1 200px; max-width: 320px; }
+/* A narrow board: the search gets a row of its own above the filter and the time. */
+@container (max-width: 36rem) { #board-search { flex-basis: 100%; max-width: none; order: -1; } }
 #board-more { display: block; margin: 10px auto 0; }
 .small-check { font-size: 13px; white-space: nowrap; }
 /* Language switch: end of the first header row; the account chips wrap below. */
