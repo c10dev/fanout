@@ -25,7 +25,7 @@ npm install -g --allow-git=all github:c10dev/fanout
 
 This installs `main` (the latest, ahead of the next release). For the release as tagged, add the tag: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`.
 
-npm 12 blocks installs from git by default, hence `--allow-git=all` (not needed on npm 11 and earlier). Not published to the npm registry yet. npm may warn `install scripts blocked … fanout (prepare)`; `dist/` is already built, so it works as is. `fanout version` shows the installed version.
+npm 12 blocks installs from git by default, hence `--allow-git=all` (not needed on npm 11 and earlier). Not published to the npm registry yet. npm may warn `install scripts blocked … fanout (prepare)`; `dist/` is already built, so it works as is. `fanout version` shows the installed version and the commit it was built from, e.g. `fanout 0.1.0 (f7d5c62)`.
 
 **Docker**
 
@@ -65,7 +65,7 @@ The CLI and its logs speak Korean by default; set `FANOUT_LANG=en` for English (
 
 - **Web dashboard** (`fanout serve`): a sidebar of screens with their own addresses and Back/Forward. Drag-and-drop upload with per-platform verdicts and a draft kept in the browser, suggested posting times, a preview of exactly which account and visibility each post will use before anything uploads, a live status board with retry, per-platform reactions (views, likes, comments), a week calendar, unanswered comments with replies, performance insights, editing and deletion, remaining limits (uploads per day, posts per 24 hours, storage), and a settings dialog for app registration, account connection and checks. Light and dark, phone-sized screens included. Loopback-only by default, per-start API token, Host-header check against DNS rebinding. The dashboard follows your browser language (English or Korean) with a switch in the sidebar, and the server's messages (platform errors, preview warnings, checks, setup guides) follow it too.
 - **Watch folder** (`fanout watch <dir>`): drop videos into a folder and they're posted according to `fanout.watch.json`, with per-video overrides in a sidecar JSON.
-- **AI agents over MCP** (`fanout mcp`): tools to check a video, preview and create posts, follow their status, reactions, comments (replies, hiding, first comments), calendar, insights and suggested times, and manage published posts (edit, visibility, cancel, retry): 20 in all, listed in [docs/mcp.en.md](docs/mcp.en.md). Register with `claude mcp add fanout -- fanout mcp`, or install the Claude Code plugin: `/plugin marketplace add c10dev/fanout`, then `/plugin install fanout@fanout`. See [docs/mcp.en.md](docs/mcp.en.md).
+- **AI agents over MCP** (`fanout mcp`): tools to check a video, preview and create posts, follow their status, reactions, comments (replies, hiding, first comments), calendar, insights and suggested times, and manage published posts (edit, visibility, cancel, retry): 20 in all, listed in [docs/mcp.en.md](docs/mcp.en.md). Install fanout first (see [Install](#install)) so `fanout` is on the PATH. Then register it with `claude mcp add fanout -- fanout mcp`, or install the Claude Code plugin: `/plugin install fanout --marketplace c10dev/fanout` (or `/plugin marketplace add c10dev/fanout`, then `/plugin install fanout@fanout`). See [docs/mcp.en.md](docs/mcp.en.md).
 - **CLI**: everything above from the terminal (`fanout help`).
 
 ## Platforms

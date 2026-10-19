@@ -27,7 +27,7 @@ npm install -g --allow-git=all github:c10dev/fanout
 
 이 명령은 `main`(다음 릴리스 전 최신)을 설치합니다. 릴리스 그대로 쓰려면 태그를 붙이세요: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`.
 
-npm 12부터 git 저장소에서 설치하는 것이 기본으로 막혀 있어 `--allow-git=all`이 필요합니다(npm 11 이하는 없어도 됩니다). 설치 중 `install scripts blocked … fanout (prepare)` 경고가 나와도 `dist/`는 만들어져 있어 그대로 쓰면 됩니다. `fanout version`으로 설치된 버전을 확인합니다. 설치하면 `fanout` 명령이 생깁니다. 아래 예시의 `node src/cli.ts`를 `fanout`으로 바꿔 쓰면 됩니다.
+npm 12부터 git 저장소에서 설치하는 것이 기본으로 막혀 있어 `--allow-git=all`이 필요합니다(npm 11 이하는 없어도 됩니다). 설치 중 `install scripts blocked … fanout (prepare)` 경고가 나와도 `dist/`는 만들어져 있어 그대로 쓰면 됩니다. `fanout version`으로 설치된 버전과 빌드한 커밋을 확인합니다(예: `fanout 0.1.0 (f7d5c62)`). 설치하면 `fanout` 명령이 생깁니다. 아래 예시의 `node src/cli.ts`를 `fanout`으로 바꿔 쓰면 됩니다.
 
 **Docker**
 
@@ -73,7 +73,7 @@ node src/cli.ts status
 |---|---|
 | 웹 대시보드: 업로드 폼과 초안, 게시 전 미리보기, 올리기 좋은 시간 추천, 게시 현황과 반응 통계, 달력, 답을 기다리는 댓글과 답글, 성과 요약, 게시 후 수정·삭제, 남은 게시 한도, 설정(앱 등록·계정 연결·점검) | [docs/dashboard.md](docs/dashboard.md) |
 | 감시 폴더: 폴더에 영상을 넣으면 정해 둔 대로 자동 게시 | [docs/watch-folder.md](docs/watch-folder.md) |
-| AI 에이전트(MCP): Claude 등이 영상 검사·미리보기·게시. Claude Code 플러그인(`/plugin marketplace add c10dev/fanout`) | [docs/mcp.md](docs/mcp.md) |
+| AI 에이전트(MCP): Claude 등이 영상 검사·미리보기·게시. Claude Code 플러그인: 먼저 위처럼 fanout을 설치한 뒤 Claude Code에서 `/plugin install fanout --marketplace c10dev/fanout`(또는 `/plugin marketplace add c10dev/fanout` 다음 `/plugin install fanout@fanout`) | [docs/mcp.md](docs/mcp.md) |
 | 플랫폼별 방식·제약·남은 한도(`fanout limits`)·실제 확인 결과·정책(YouTube 데이터 보관 포함) | [docs/platforms.md](docs/platforms.md) |
 | 알림(Slack·Discord webhook), 백업·내보내기, 디스크 정리, 여러 프로세스 함께 쓰기 | [docs/operations.md](docs/operations.md) |
 | 구조, 테스트, 중복 게시를 막는 규칙 | [docs/development.md](docs/development.md) |

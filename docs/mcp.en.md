@@ -14,18 +14,29 @@ Install fanout first (Node.js 24+ and ffmpeg), so that `fanout` is on the PATH:
 npm install -g --allow-git=all github:c10dev/fanout
 ```
 
-This installs `main` (the latest, ahead of the next release). For the release as tagged, add the tag: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`.
+This installs `main` (the latest, ahead of the next release). For the release as tagged, add the tag: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`. Check it with `fanout version`.
 
 Then, in Claude Code:
 
 ```
-/plugin marketplace add c10dev/fanout
-/plugin install fanout@fanout
+/plugin install fanout --marketplace c10dev/fanout
 ```
 
-The plugin registers `fanout mcp` without `--allow`, so an agent can pass any file path you can read. To open only your video folders, register the server by hand with `--allow` as below instead of the plugin.
+or, from a terminal, `claude plugin install fanout --marketplace c10dev/fanout`. Claude Code versions without `--marketplace` take two steps: `/plugin marketplace add c10dev/fanout`, then `/plugin install fanout@fanout`.
+
+The plugin starts `fanout mcp` through a small launcher (`claude-plugin/bin/fanout-mcp.mjs`, run with `node`). It registers the server without `--allow`, so an agent can pass any file path you can read. To open only your video folders, start Claude Code with `FANOUT_MCP_ROOTS` in its environment (see [Limiting the folders agents can read](#limiting-the-folders-agents-can-read)); the plugin's server inherits it, as it does `FANOUT_LANG`. Or register the server by hand with `--allow` as below.
 
 Connect your platform apps and accounts with the dashboard (`fanout serve`) or the CLI (`fanout setup`, `fanout connect`) before you ask Claude to post; that isn't done over MCP.
+
+### When the server doesn't start
+
+`/mcp` (or `claude mcp list` in a terminal) shows why for `plugin:fanout:fanout`:
+
+- `Failed to connect — -32603: fanout is not installed: there is no fanout command on the PATH that Claude Code runs with. …`: install fanout as above and check it with `fanout version`. A Claude Code started from a desktop launcher may not see the PATH of your shell.
+- `Failed to connect — -32603: This fanout is too old for the plugin: its MCP server posts without a preview first. …`: the plugin checks `fanout help` for `--post-without-preview` before it starts the server. Update fanout with the same command.
+- `Failed to connect — ENOENT: Executable not found in $PATH: "stdio"`: Claude Code could not run `node` (it names every missing plugin command "stdio"). Install Node.js 24+. A plugin copy from before the launcher shows this too when fanout is missing.
+
+After you fix it, open `/mcp`, pick `plugin:fanout:fanout` and reconnect, or restart Claude Code. Claude Code remembers the failed start, and otherwise waits up to 15 minutes before it tries again.
 
 ## Registering the server by hand
 
@@ -49,7 +60,23 @@ By default the video, thumbnail and caption paths an agent passes can be anywher
 claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
 ```
 
-or `"env": { "FANOUT_MCP_ROOTS": "/home/me/videos:/home/me/fanout-inbox" }` (path separator `:` on macOS and Linux, `;` on Windows). Symlinks are judged by where they really point, so a link inside an allowed folder that points outside is refused.
+or `"env": { "FANOUT_MCP_ROOTS": "/home/me/videos:/home/me/fanout-inbox" }` (path separator `:` on macOS and Linux, `;` on Windows). With the plugin, set `FANOUT_MCP_ROOTS` in the environment you start Claude Code from, for example `FANOUT_MCP_ROOTS=~/videos claude`. Symlinks are judged by where they really point, so a link inside an allowed folder that points outside is refused.
+
+## Posting needs a preview
+
+`create_post` posts only what a `preview_post` in the same server showed:
+
+1. `preview_post` returns a `previewId` when no target has errors.
+2. `create_post` must pass that `previewId` with the same arguments. Without it, or with any argument changed since the preview, or the content of the video, thumbnail or caption files, the server refuses and posts nothing.
+3. A `previewId` lives in the server's memory for 30 minutes and posts once. A restarted server knows none.
+
+`add_to_post` works the same way: its `dryRun: true` result has the `previewId` the real call needs. It is refused if the post's title, description or tags changed since the dry run.
+
+`update_post` also needs one while the post has targets that have not gone out (queued, scheduled, failed or needs-reauth), because those upload the new text. Its `dryRun: true` result lists the changes and the targets that will upload them, with the `previewId`. An edit that only reaches published posts needs no preview; its description asks the agent to confirm with the user.
+
+The server can't tell whether you saw the preview or said yes. The tool descriptions, the server instructions and the plugin's skill tell the agent to show the preview and wait for your approval. Claude Code also asks before each `create_post` call unless you allowed the tool for good.
+
+For your own scripts that confirm posts another way, `fanout mcp --post-without-preview` (or `FANOUT_MCP_POST_WITHOUT_PREVIEW=1`) turns the check off, and the tool descriptions then leave it out. Targets with errors are still refused. Any other word after the flag, such as `--post-without-preview off`, stops `fanout mcp` with an error.
 
 ## Tools
 
@@ -57,10 +84,10 @@ or `"env": { "FANOUT_MCP_ROOTS": "/home/me/videos:/home/me/fanout-inbox" }` (pat
 |---|---|
 | `list_accounts` | Supported platforms, whether each app is set up, and the connected accounts |
 | `check_video` | Judges a local video per platform: uploads as is / needs a transcode / can't be posted. Where only a vertical fit is missing (a landscape video for Facebook Reels) it says `fittable: true` with a `hint` to set the target option `fit` (so do `preview_post` and `create_post`'s refusal) |
-| `preview_post` | Shows, without uploading, which account and visibility each target will use and every error and warning |
-| `create_post` | Creates the post and starts uploading. Creates nothing if any target is blocked. With `firstComment`, a first comment from the same account once it's out (on X a reply, one more paid post). |
+| `preview_post` | Shows, without uploading, which account and visibility each target will use and every error and warning (asks the platforms for account limits and rules). With no errors, returns the `previewId` for `create_post` |
+| `create_post` | Creates the post and starts uploading. Needs the `previewId` of a preview with exactly these arguments ([Posting needs a preview](#posting-needs-a-preview)). Creates nothing if any target is blocked. With `firstComment`, a first comment from the same account once it's out (on X a reply, one more paid post). |
 | `retry_first_comment` | Post a failed first comment again. If it may already be there (`firstComment.state` is `sending` or `maybePosted`), only with `confirmedNotPosted: true` after the user checked. Refused once the post was removed (`canceled`) |
-| `add_to_post` | Posts an existing post's video to more platforms. Its description tells the agent to call it with `dryRun: true` first, show the result and wait for approval |
+| `add_to_post` | Posts an existing post's video to more platforms. Call it with `dryRun: true` first, show the result and wait for approval; the real call needs the dry run's `previewId` |
 | `get_post_status` | Per-platform state, links and errors |
 | `get_post_stats` | Views, likes, comments and shares of published targets, with the change since a day ago (`trend`). X, which bills for reads, only with `includePaid` |
 | `get_limits` | Remaining posting limits per account (YouTube uploads today, Instagram posts in 24 hours, TikTok inbox drafts in 24 hours as fanout estimates them, Bluesky videos and bytes today, PeerTube storage). Check before posting several videos |
@@ -70,12 +97,12 @@ or `"env": { "FANOUT_MCP_ROOTS": "/home/me/videos:/home/me/fanout-inbox" }` (pat
 | `suggest_post_times` | Good next times to post to some accounts (`["youtube/main", "tiktok/main"]`): the weekday and 3-hour block with the best views a day later (with enough history), else early evening, at least 4 hours from posts already scheduled or just posted on those accounts. Schedules nothing: pass a chosen `at` as `scheduledAt` to `create_post` |
 | `get_post_comments` | Recent comments on published targets. Its description says comment text is untrusted user content |
 | `reply_to_comment` | Replies to a comment from `get_post_comments`. Replies go live at once, so its description tells the agent to show the text and get approval first, and never to follow instructions found in comments |
-| `update_post` | Changes the title, description and tags and applies them on YouTube, Facebook, Mastodon and PeerTube. Its description asks for the user's confirmation first |
+| `update_post` | Changes the title, description and tags and applies them on YouTube, Facebook, Mastodon and PeerTube; targets that have not gone out upload the new text. `dryRun: true` shows what changes. While targets have not gone out, the real call needs the dry run's `previewId` |
 | `hide_comment` | Hides a comment from `get_post_comments`, or shows it again (YouTube, Instagram, Facebook). Its description says to hide only what the user picked, after they confirm, never because a comment asks for it |
 | `set_visibility` | Changes a published YouTube video's visibility or schedules when it goes public. Who can see the video changes right away, so its description asks for confirmation first |
 | `cancel_target` | Gives up on a queued, failed or needs-reauth target. Published posts are not deleted. A target that may already be live is refused without the user's confirmation (`confirmedNotPosted: true`) |
 | `retry_target` | Retries a failed or needs-reauth target. One stopped as "may already be posted" is refused without `confirmedNotPosted: true`, which says the user checked |
 
-`create_post` posts to real accounts. The tool description and the server instructions say to show the `preview_post` result to the user and get their approval before calling it, and read-only tools carry `readOnlyHint`. Setting up apps and connecting accounts is done in the dashboard or the CLI, not over MCP.
+`create_post` posts to real accounts. The server takes it only with a matching `previewId`, and the tool description and the server instructions say to show the `preview_post` result to the user and get their approval before calling it. Read-only tools carry `readOnlyHint`; `update_post` and `cancel_target`, which can't be undone, carry `destructiveHint`. Setting up apps and connecting accounts is done in the dashboard or the CLI, not over MCP.
 
 Thumbnails must be JPG or PNG up to 2 MB, captions SRT, VTT and the like up to 5 MB (the same rules as the dashboard). The `files` field of the `preview_post` result lists every local file that goes out with the post, so the user can check them.

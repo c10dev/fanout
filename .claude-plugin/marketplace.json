@@ -8,7 +8,7 @@
     {
       "name": "fanout",
       "source": "./claude-plugin",
-      "description": "Check, preview and post one video to many platforms through your own fanout install. Posting is public and always asks for approval first.",
+      "description": "Check, preview and post one video to many platforms through your own fanout install. Posting is public: fanout posts only what a preview showed, and the skill asks for your approval each time.",
       "category": "productivity"
     }
   ]

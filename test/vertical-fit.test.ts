@@ -204,10 +204,13 @@ describe('MCP: the fit is named, never applied unasked', () => {
     env.store.saveAccount(PAGE);
     const path = join(mkdtempSync(join(tmpdir(), 'fanout-mcp-fit-')), 'wide.mp4');
     writeFileSync(path, 'x');
-    const mcp = new McpServer({ ctx: env.ctx, providers: providerMap(), probe: async (p) => ({ ...wide(), path: p }), worker: { tick: () => {} } as never });
-    let id = 0;
-    const call = async (name: string, args: Record<string, unknown>) =>
-      ((await mcp.handle({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } })) as { result: { isError?: boolean; structuredContent: Record<string, any>; content: Array<{ text: string }> } }).result;
+    const caller = (postWithoutPreview: boolean) => {
+      const mcp = new McpServer({ ctx: env.ctx, providers: providerMap(), probe: async (p) => ({ ...wide(), path: p }), worker: { tick: () => {} } as never, postWithoutPreview });
+      let id = 0;
+      return async (name: string, args: Record<string, unknown>) =>
+        ((await mcp.handle({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name, arguments: args } })) as { result: { isError?: boolean; structuredContent: Record<string, any>; content: Array<{ text: string }> } }).result;
+    };
+    const call = caller(false);
 
     const check = await call('check_video', { path });
     const fb = check.structuredContent.platforms.find((p: { platform: string }) => p.platform === 'facebook');
@@ -217,12 +220,16 @@ describe('MCP: the fit is named, never applied unasked', () => {
 
     const preview = await call('preview_post', { path, title: 'T', targets: [{ platform: 'facebook' }] });
     assert.match(preview.structuredContent.targets[0].hint, /fit: "pad"/);
-    const refused = await call('create_post', { path, title: 'T', targets: [{ platform: 'facebook' }] });
+    assert.equal(preview.structuredContent.previewId, undefined, 'a blocked preview cannot be posted');
+    // Even a server that takes posts without a preview refuses it, and names the fit.
+    const refused = await caller(true)('create_post', { path, title: 'T', targets: [{ platform: 'facebook' }] });
     assert.ok(refused.isError);
     assert.match(refused.content[0]!.text, /facebook\/main: .*9:16.* \/ .*fit: "pad"/);
     assert.equal(env.store.listPosts().length, 0, 'nothing made, nothing padded');
 
-    const made = await call('create_post', { path, title: 'T', targets: [{ platform: 'facebook', options: { fit: 'pad' } }] });
+    const fitted = { path, title: 'T', targets: [{ platform: 'facebook', options: { fit: 'pad' } }] };
+    const previewId = (await call('preview_post', fitted)).structuredContent.previewId;
+    const made = await call('create_post', { ...fitted, previewId });
     assert.ok(!made.isError, made.content[0]?.text);
     assert.equal(env.store.targetsForPost(made.structuredContent.postId)[0]!.options.fit, 'pad');
   });
