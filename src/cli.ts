@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, join, resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { createInterface } from 'node:readline/promises';
 import { fanoutHome, openContext, stderrLogger } from './core/context.ts';
 import { restoreBackup, RestoreError } from './core/restore.ts';
@@ -749,6 +751,27 @@ function packageVersion(): string {
   }
 }
 
+/**
+ * The commit this copy was built from, when it can be known: the build records it next to the
+ * compiled CLI (dist/commit.txt); run from a checkout, git says. Between releases main keeps the
+ * last release's version, so this is what tells the two apart. `here` is the CLI's own folder.
+ */
+export function buildCommit(here: URL = new URL('./', import.meta.url)): string | undefined {
+  try {
+    const recorded = readFileSync(new URL('commit.txt', here), 'utf8').trim();
+    if (/^[0-9a-f]{7,40}$/.test(recorded)) return recorded;
+  } catch {
+    // not a build that recorded one
+  }
+  const root = new URL('../', here);
+  if (!existsSync(new URL('.git', root))) return undefined;
+  try {
+    return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: fileURLToPath(root), encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const host = str(args, 'host') ?? '127.0.0.1';
   const assumeLocal = process.env.FANOUT_ASSUME_LOCAL === '1';
@@ -1284,7 +1307,8 @@ export async function main(argv: string[]): Promise<number> {
   const [cmd] = args.positionals;
   const providers = providerMap();
   if (cmd === 'version' || args.flags.version || (!cmd && args.flags.v)) {
-    console.log(`fanout ${packageVersion()}`);
+    const commit = buildCommit();
+    console.log(commit ? `fanout ${packageVersion()} (${commit})` : `fanout ${packageVersion()}`);
     return 0;
   }
   if (!cmd || cmd === 'help' || args.flags.help) {

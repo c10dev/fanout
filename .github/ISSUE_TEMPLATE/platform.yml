@@ -1,5 +1,5 @@
-name: 플랫폼 요청
-description: 새 영상 플랫폼 지원 요청
+name: 플랫폼 기능 요청
+description: 지원하는 플랫폼(YouTube·Instagram·Facebook·X·TikTok 등)에서 더 쓰고 싶은 기능. 새 플랫폼은 지금 받지 않습니다
 labels: [platform]
 body:
   - type: input
@@ -11,8 +11,8 @@ body:
   - type: textarea
     id: api
     attributes:
-      label: 공식 업로드 API
-      description: 공식 문서 링크, 앱 심사 필요 여부, 한도를 아는 대로 적어 주세요. 공식 API가 없으면 코어가 아닌 별도 플러그인 대상입니다.
+      label: 공식 API
+      description: 그 기능의 공식 문서 링크, 필요한 권한·앱 심사, 한도를 아는 대로 적어 주세요. 공식 API로 안 되는 기능은 코어 대상이 아닙니다.
   - type: textarea
     id: why
     attributes:

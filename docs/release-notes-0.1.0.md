@@ -15,7 +15,7 @@ fanout is a self-hosted, video-first uploader: one video, posted to YouTube, Tik
 ## Install
 
 ```bash
-npm install -g --allow-git=all github:c10dev/fanout
+npm install -g --allow-git=all github:c10dev/fanout#v0.1.0
 ```
 
 or `docker compose up -d` and open http://127.0.0.1:8780/. See the README for both.

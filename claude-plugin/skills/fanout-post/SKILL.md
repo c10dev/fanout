@@ -41,4 +41,6 @@ The plugin starts `fanout mcp`, so the `fanout` command must be on the PATH (Nod
 npm install -g --allow-git=all github:c10dev/fanout
 ```
 
+This installs `main` (the latest, ahead of the next release). For the release as tagged, add the tag: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`.
+
 Results are in English by default; set `FANOUT_LANG=ko` in the environment Claude Code runs in for Korean. Data lives in `FANOUT_HOME` (default `~/.fanout`). Full tool reference: https://github.com/c10dev/fanout/blob/main/docs/mcp.en.md
