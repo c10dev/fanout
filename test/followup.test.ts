@@ -68,6 +68,18 @@ describe('first comment', () => {
     assert.equal(later.store.getTarget(later.id)!.followup, undefined);
   });
 
+  it('X: a reply to the video post, with what it costs said up front', async () => {
+    const x = { accessToken: 'A', refreshToken: 'R', expiresAt: Date.now() + 3_600_000, userId: 'U', username: 'me' };
+    const { ctx, calls, id, store } = published('x', x, 'TW1', [['POST', '/2/tweets', () => json({ data: { id: 'TW2' } })]]);
+    store.setApp('x', { clientId: 'c' });
+    await postDueFirstComments(ctx, providerMap());
+    const f = store.getTarget(id)!.followup!;
+    assert.deepEqual([f.state, f.url], ['posted', 'https://x.com/me/status/TW2']);
+    assert.deepEqual(JSON.parse(String(calls.at(-1)!.body)), { text: '링크는 프로필에 있어요', reply: { in_reply_to_tweet_id: 'TW1' } });
+    const warn = firstCommentWarnings(providerMap().get('x')!, '한'.repeat(141));
+    assert.equal(warn.length, 2, 'over 280 weighted (Korean counts double), and the cost');
+  });
+
   it('warns where it will not go or breaks the platform rules', () => {
     const providers = providerMap();
     assert.match(firstCommentWarnings(providers.get('tiktok')!, 'hi')[0]!, /건너뜁니다/);

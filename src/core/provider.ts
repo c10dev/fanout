@@ -209,6 +209,17 @@ export interface Provider {
    */
   postComment?(args: StatsArgs & { text: string; sending: () => void }): Promise<{ id: string; url?: string }>;
 
+  /** What postComment's API accepts (from its docs), checked in the preview; breaking it fails only the comment. */
+  readonly commentRules?: {
+    max: number;
+    /** How the platform counts length (default: characters). */
+    length?: (text: string) => number;
+    hashtags?: number;
+    urls?: number;
+    /** Said in the preview when posting the comment costs something. */
+    cost?: string;
+  };
+
   /** Apply an edited title/description/tags (already saved on `post`) to the published post. */
   update?(args: StatsArgs & { post: Post }): Promise<void>;
 

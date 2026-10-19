@@ -9,30 +9,21 @@ import type { Followup, Target } from './types.ts';
  * followup is never picked again by itself. A failure is the comment's, never the post's.
  */
 
-/**
- * What each platform's comment API accepts, from its docs (2026-10). Instagram also refuses a
- * comment in all capitals. Breaking these fails only the comment, so they are warnings.
- */
-const RULES: Record<string, { max: number; hashtags?: number; urls?: number }> = {
-  youtube: { max: 10_000 },
-  instagram: { max: 300, hashtags: 4, urls: 1 },
-  facebook: { max: 8_000 },
-};
-
-/** Warnings about the first comment on one platform: not supported there, or past its limits. */
+/** Warnings about the first comment on one platform: not supported there, past its limits, or what it costs. */
 export function firstCommentWarnings(provider: Provider, text: string | undefined): string[] {
   const t = text?.trim();
   if (!t) return [];
   if (!provider.postComment) return [msg('첫 댓글: {platform}에는 API로 댓글을 달 수 없어 건너뜁니다', { platform: provider.displayName })];
-  const rule = RULES[provider.id];
+  const rule = provider.commentRules;
   if (!rule) return [];
   const out: string[] = [];
-  const length = [...t].length;
+  const length = rule.length ? rule.length(t) : [...t].length;
   if (length > rule.max) out.push(msg('첫 댓글이 {platform} 한도({max}자)보다 깁니다 (지금 {length}자) — 댓글만 실패합니다', { platform: provider.displayName, max: rule.max, length }));
   const hashtags = t.match(/#[\p{L}\p{N}_]+/gu)?.length ?? 0;
   if (rule.hashtags !== undefined && hashtags > rule.hashtags) out.push(msg('첫 댓글: {platform} 댓글은 해시태그 {max}개까지입니다 (지금 {n}개)', { platform: provider.displayName, max: rule.hashtags, n: hashtags }));
   const urls = t.match(/https?:\/\/\S+/g)?.length ?? 0;
   if (rule.urls !== undefined && urls > rule.urls) out.push(msg('첫 댓글: {platform} 댓글은 링크 {max}개까지입니다 (지금 {n}개)', { platform: provider.displayName, max: rule.urls, n: urls }));
+  if (rule.cost) out.push(rule.cost);
   return out;
 }
 
@@ -50,10 +41,12 @@ export async function postFirstComment(ctx: ProviderContext, providers: Map<stri
   if (!provider?.postComment) return save({ state: 'unsupported', at: now() });
   if (!target.remoteId) return save({ state: 'failed', at: now(), error: msg('플랫폼의 게시물 id가 없어 댓글을 달 수 없습니다') });
   const posted = { ...target, remoteId: target.remoteId };
-  const account = store.getAccount(target.platform, target.account);
+  let account = store.getAccount(target.platform, target.account);
   if (!account) return save({ state: 'failed', at: now(), error: msg('연결되지 않은 계정: {platform}/{account}', { platform: target.platform, account: target.account }) });
   let sent = false;
   try {
+    // A token that expired since the upload is renewed first, as for any other call.
+    account = await provider.refresh(ctx, account);
     const res = await provider.postComment({
       ctx,
       account,

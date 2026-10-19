@@ -1114,6 +1114,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     });
   },
 
+  commentRules: { max: 10_000 },
+
   // A new thread on the video, as the channel. Comments must be on (not "made for kids").
   async postComment({ ctx, account, target, text, sending }) {
     sending();

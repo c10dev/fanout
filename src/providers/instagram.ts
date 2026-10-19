@@ -314,6 +314,9 @@ export const instagram: Provider = {
     }));
   },
 
+  // Instagram also refuses a comment in all capitals.
+  commentRules: { max: 300, hashtags: 4, urls: 1 },
+
   async postComment({ ctx, account, target, text, sending }) {
     const c = pageCreds(account);
     sending();
