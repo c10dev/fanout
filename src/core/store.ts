@@ -349,6 +349,17 @@ export class Store {
     return next;
   }
 
+  /** Posts whose time (its schedule, or when it was made) falls in [from, to), earliest first. */
+  postsBetween(fromIso: string, toIso: string, limit = 500): Post[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT body FROM posts WHERE coalesce(json_extract(body, '$.scheduledAt'), created_at) >= ? AND coalesce(json_extract(body, '$.scheduledAt'), created_at) < ?
+         ORDER BY coalesce(json_extract(body, '$.scheduledAt'), created_at) LIMIT ?`,
+      )
+      .all(fromIso, toIso, limit) as Array<{ body: string }>;
+    return rows.map((r) => JSON.parse(r.body) as Post);
+  }
+
   getPost(id: string): Post | undefined {
     const row = this.#db.prepare('SELECT body FROM posts WHERE id = ?').get(id) as { body: string } | undefined;
     return row ? (JSON.parse(row.body) as Post) : undefined;

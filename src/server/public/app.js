@@ -1824,9 +1824,69 @@ async function refreshAll() {
   renderTargets();
   if (!$('#view-settings').hidden) await loadSettings();
   reloadInsights?.();
+  reloadCalendar?.();
 }
 
 let reloadInsights;
+
+/** This week's posts by day (scheduled and published), with previous/next week; from the store. */
+let reloadCalendar;
+function calendarPanel() {
+  const box = $('#calendar');
+  if (!box) return;
+  let offset = 0;
+  const body = h('div', { class: 'calendar' });
+  const label = h('span', { class: 'muted' });
+  const ICON = { published: '✓', handed_off: '📲', failed: '✗', needs_reauth: '🔑', canceled: '–', removed: '🗑' };
+  const load = async () => {
+    try {
+      const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone ?? '');
+      const c = await api(`/calendar?weeks=1&offset=${offset}&lang=${LANG}&tz=${tz}`);
+      label.textContent = `${c.from} – ${c.to}`;
+      body.replaceChildren(
+        ...c.days.map((d) =>
+          h(
+            'div',
+            { class: d.today ? 'cal-day today' : 'cal-day' },
+            h('div', { class: 'cal-date' }, `${d.weekday} ${d.date.slice(5)}`),
+            d.items.length
+              ? d.items.map((i) =>
+                  h(
+                    'div',
+                    { class: 'cal-item', title: i.targets.map((t) => `${t.platform}/${t.account}: ${t.state}`).join('\n') },
+                    h('span', { class: 'muted' }, `${i.time}${i.scheduled ? '*' : ''} `),
+                    i.title,
+                    h('span', { class: 'cal-targets' }, ' ' + i.targets.map((t) => `${ICON[t.state] ?? '⏳'}${t.platform}`).join(' ')),
+                  ),
+                )
+              : h('div', { class: 'muted cal-empty' }, '·'),
+          ),
+        ),
+      );
+    } catch (err) {
+      body.replaceChildren(h('p', { class: 'form-error' }, err.message));
+    }
+  };
+  const move = (by) => () => {
+    offset = by === 0 ? 0 : offset + by;
+    load();
+  };
+  reloadCalendar = load;
+  box.replaceChildren(
+    h(
+      'div',
+      { class: 'panel-head' },
+      h('h2', {}, tr('달력')),
+      h('button', { class: 'small', type: 'button', onclick: move(-1), 'aria-label': tr('지난주') }, '‹'),
+      h('button', { class: 'small', type: 'button', onclick: move(0) }, tr('이번 주')),
+      h('button', { class: 'small', type: 'button', onclick: move(1), 'aria-label': tr('다음 주') }, '›'),
+      label,
+    ),
+    body,
+    h('p', { class: 'muted' }, tr('* 예약 시각 · ✓ 게시됨 · ⏳ 기다림/진행 중 · ✗ 실패')),
+  );
+  load();
+}
 
 /**
  * Comments still waiting for a reply across recent posts. Loaded on request: each post read is a
@@ -1941,6 +2001,7 @@ async function init() {
   renderAccounts();
   renderTargets();
   refreshBoard();
+  calendarPanel();
   inboxPanel();
   insightsPanel();
   loadPresets();

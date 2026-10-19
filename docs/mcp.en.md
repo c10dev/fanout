@@ -59,6 +59,7 @@ or `"env": { "FANOUT_MCP_ROOTS": "/home/me/videos:/home/me/fanout-inbox" }` (pat
 | `get_post_status` | Per-platform state, links and errors |
 | `get_post_stats` | Views, likes, comments and shares of published targets, with the change since a day ago (`trend`). X, which bills for reads, only with `includePaid` |
 | `get_limits` | Remaining posting limits per account (YouTube uploads today, Instagram posts in 24 hours, Bluesky videos and bytes today, PeerTube storage). Check before posting several videos |
+| `get_calendar` | Week by week from Monday (1–8 weeks, `offset` to move), each day's posts with each target's state. From the record only |
 | `get_comment_inbox` | Comments on recent posts the account hasn't replied to yet (YouTube, Facebook, Instagram; 7 days by default). Answer with `reply_to_comment` once the user approves the text |
 | `get_insights` | What performs, from the recorded reactions: per platform and account, posts, total and median views, likes per 100 views, top posts, and the weekday and 3-hour block with the best views a day later (once there are enough posts). No platform calls; `timeZone` picks the zone |
 | `get_post_comments` | Recent comments on published targets. Its description says comment text is untrusted user content |
