@@ -363,7 +363,7 @@ export const MESSAGES_EN: Record<string, string> = {
   "MCP: 이 폴더의 파일만 읽습니다: {roots}": "MCP: reading files only from {roots}",
   "이 초안으로 게시물이 {n}개 만들어져 고르지 않았습니다": "{n} posts were made from this draft, so none was picked",
   "앱에서 게시했지만 공개 게시물이 아니라 ID가 없습니다": "Posted from the app, but not publicly, so there is no post id",
-  "아직 앱에서 게시하지 않았습니다 (TikTok 수신함에 있음)": "Not posted from the app yet (still in the TikTok inbox)",
+  "TikTok이 아직 수신함에 있다고 합니다. \"나만 보기\"로 게시한 영상도 이렇게 보이며, 비공개 게시물은 앱에 알려 주지 않아 반응을 가져올 수 없습니다": "TikTok says it's still in the inbox. A video posted as \"Only me\" looks the same: TikTok doesn't report private posts to apps, so their reactions can't be read",
   "같은 길이로 수신함에 넘긴 영상이 더 있어 목록으로는 고르지 않았습니다": "Another video of the same length is waiting in the inbox, so none was picked from the list",
   "trialReel은 manual 또는 auto": "trialReel is manual or auto",
   "시험 릴스는 팔로워가 아닌 사람에게 먼저 보입니다. fanout의 파일 업로드 방식에서 Meta가 받아 주는지는 아직 확인되지 않았습니다 — 조용히 무시되면 팔로워에게도 보이는 일반 릴스로 올라가고 되돌릴 수 없습니다": "A trial reel is shown to non-followers first. Whether Meta accepts it with fanout's file upload hasn't been confirmed yet — if it is silently ignored, the reel goes up as a normal one followers see, and that can't be undone",
