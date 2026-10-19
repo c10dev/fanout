@@ -419,25 +419,33 @@ export async function removeTarget(baseCtx: ProviderContext, providers: Map<stri
   if (!provider?.remove) throw new Error(msg('{provider}는 API로 삭제할 수 없습니다. 앱에서 직접 지우세요', { provider: provider?.displayName ?? t.platform }));
   let account = ctx.store.getAccount(t.platform, t.account);
   if (!account) throw new Error(msg('연결된 계정이 없습니다: {platform}/{account}', { platform: t.platform, account: t.account }));
-  account = await provider.refresh(ctx, account);
-  // A first comment not yet tried is taken now, so the worker can't post it while (or after) the
-  // post is removed. If the worker got there first, its outcome is read back below.
-  if (!t.followup && ctx.store.getPost(t.postId)?.firstComment) {
-    ctx.store.claimFollowup(t.id, undefined, { state: 'failed', at: ctx.now().toISOString(), error: msg('게시물을 지우는 중이라 첫 댓글을 달지 않았습니다') });
-  }
-  // Where the first comment is a post of its own (X), it goes first: a failure then leaves the post
-  // up with its reply, never a reply with nothing to answer.
-  const f = ctx.store.getTarget(t.id)?.followup;
+  // A first comment not yet tried is taken first, before anything waits on the network, so neither
+  // the worker nor a retry can post it to a post being removed. If the post can't be removed after
+  // all, it is handed back and goes up as planned.
+  const now = () => ctx.now().toISOString();
+  const held = !t.followup && Boolean(ctx.store.getPost(t.postId)?.firstComment) && ctx.store.claimFollowup(t.id, undefined, { state: 'canceled', at: now() });
   const notes: string[] = [];
-  if (provider.firstCommentIsPost && f?.state === 'posted' && f.id) {
-    await provider.remove({ ctx, account, target: { ...t, remoteId: f.id } });
-    // Gone now: if the post itself can't be removed, the first comment can be posted again.
-    ctx.store.setFollowup(t.id, { state: 'failed', at: ctx.now().toISOString(), error: msg('게시물을 지우려고 첫 댓글 답글을 먼저 지웠습니다') });
+  let replyRemoved = false;
+  try {
+    account = await provider.refresh(ctx, account);
+    // Where the first comment is a post of its own (X), it goes first: a failure then leaves the post
+    // up with its reply, never a reply with nothing to answer.
+    const f = ctx.store.getTarget(t.id)?.followup;
+    if (provider.firstCommentIsPost && f?.state === 'posted' && f.id) {
+      await provider.remove({ ctx, account, target: { ...t, remoteId: f.id } });
+      replyRemoved = true;
+    } else if (provider.firstCommentIsPost && (f?.state === 'sending' || f?.maybePosted)) {
+      notes.push(msg('첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못했습니다. {platform}에서 확인해 직접 지우세요', { platform: provider.displayName }));
+    }
+    await provider.remove({ ctx, account, target: { ...t, remoteId: t.remoteId } });
+  } catch (err) {
+    // The post stays up: its first comment goes back to waiting, or, if its reply is already gone,
+    // can be posted again.
+    if (held) ctx.store.setFollowup(t.id, null);
+    if (replyRemoved) ctx.store.setFollowup(t.id, { state: 'failed', at: now(), error: msg('게시물을 지우려고 첫 댓글 답글을 먼저 지웠습니다') });
+    throw err;
   }
-  else if (provider.firstCommentIsPost && (f?.state === 'sending' || f?.maybePosted)) {
-    notes.push(msg('첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못했습니다. {platform}에서 확인해 직접 지우세요', { platform: provider.displayName }));
-  }
-  await provider.remove({ ctx, account, target: { ...t, remoteId: t.remoteId } });
+  if (replyRemoved) ctx.store.setFollowup(t.id, { state: 'canceled', at: now() });
   return ctx.store.transition(t.id, 'removed', notes.length ? { warnings: [...t.warnings, ...notes] } : {}, 'removed by user');
 }
 

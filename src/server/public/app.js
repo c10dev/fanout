@@ -1239,6 +1239,8 @@ function firstCommentLine(t) {
   const f = t.followup;
   if (!f) return t.state === 'published' && t.hasFirstComment ? h('div', { class: 'muted' }, tr('첫 댓글: 곧 답니다')) : null;
   if (f.state === 'unsupported') return h('div', { class: 'muted' }, tr('첫 댓글: 이 플랫폼에는 달 수 없습니다'));
+  // Not to be posted (the post was removed): nothing to say or retry.
+  if (f.state === 'canceled' || t.state !== 'published') return null;
   if (f.state === 'posted') return h('div', { class: 'okline' }, tr('✓ 첫 댓글'), f.url && webUrl(f.url) ? [' ', h('a', { href: f.url, target: '_blank', rel: 'noopener noreferrer' }, tr('보기'))] : null);
   const status = h('span', { class: 'msg' });
   const retry = h(

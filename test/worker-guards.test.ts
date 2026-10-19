@@ -125,6 +125,20 @@ describe('worker guards', () => {
     assert.equal(worker.health().ok, false);
   });
 
+  it('database errors under the first-comment run count too', async () => {
+    const env = makeCtx();
+    env.ctx.log = { ...env.ctx.log, warn: () => {} };
+    const worker = new Worker({ ctx: env.ctx, providers: new Map(), probe: async () => fakeMedia() });
+    env.store.followupsDue = () => {
+      throw Object.assign(new Error('disk I/O error'), { code: 'ERR_SQLITE_ERROR' });
+    };
+    for (let i = 0; i < 4; i++) {
+      worker.tick();
+      await worker.idle();
+    }
+    assert.equal(worker.health().ok, false);
+  });
+
   it('a loop whose ticks stop running for three intervals is unhealthy', () => {
     let now = Date.parse('2026-10-19T00:00:00Z');
     const env = makeCtx(undefined, () => new Date(now));

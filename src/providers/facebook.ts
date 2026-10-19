@@ -159,11 +159,22 @@ export const facebook: Provider = {
     // response may have been lost), starting over would publish a second Reel.
     if (resume.videoId) {
       // Only a definite "no such video" means it never published: anything else (a 5xx, a rate
-      // limit, a dropped connection) is a question unanswered, and starting over could post twice.
+      // limit, a dropped connection, a reply with no readable status) is a question unanswered, and
+      // starting over could post twice.
+      let gone = false;
       const st = await graph<ReelStatus>(ctx, 'GET', `/${resume.videoId}`, { fields: 'status', access_token: c.pageToken }).catch((err: unknown) => {
-        if (err instanceof ProviderError && err.platformCode?.startsWith('100')) return undefined;
+        if (err instanceof ProviderError && err.platformCode?.startsWith('100')) {
+          gone = true;
+          return undefined;
+        }
         throw err;
       });
+      if (!gone && !st?.status) throw new ProviderError('retryable', 'facebook.status_unknown', msg('Facebook 릴스 상태를 읽지 못했습니다. 잠시 뒤 다시 확인합니다'));
+      // The account now posts as another Page: the old video's fate there can't be read from here.
+      const oldPage = (resume as { pageId?: string }).pageId;
+      if (gone && oldPage && oldPage !== c.pageId) {
+        throw new ProviderError('rejected', 'facebook.maybe_posted', msg('이전 시도의 릴스가 다른 페이지에 올라갔을 수 있습니다. 그 페이지에서 확인한 뒤, 없으면 다시 시도하세요'), undefined, { keepResume: true });
+      }
       const phases = st?.status;
       const published = phases?.publishing_phase?.status && phases.publishing_phase.status !== 'not_started';
       if (published || (phases?.processing_phase?.status && phases.processing_phase.status !== 'not_started')) {

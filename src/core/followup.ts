@@ -100,6 +100,7 @@ export async function retryFirstComment(ctx: ProviderContext, providers: Map<str
   const f = target.followup;
   if (!f) throw new Error(msg('첫 댓글은 아직 차례를 기다리는 중입니다'));
   if (f.state === 'posted') throw new Error(msg('첫 댓글은 이미 달렸습니다'));
+  if (f.state === 'canceled') throw new Error(msg('게시물을 지우는 중이거나 지워서 첫 댓글을 달지 않습니다'));
   if ((f.state === 'sending' || f.maybePosted) && !confirmedNotPosted) {
     throw Object.assign(new Error(msg('첫 댓글이 이미 달렸을 수 있습니다. 플랫폼에서 확인한 뒤 다시 시도하세요')), { needsConfirm: true });
   }

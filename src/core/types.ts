@@ -151,7 +151,8 @@ export interface Target {
  * a timeout), it may be on the platform already, so it's never sent again by itself.
  */
 export interface Followup {
-  state: 'sending' | 'posted' | 'failed' | 'unsupported';
+  /** canceled: not to be posted (its post was removed). */
+  state: 'sending' | 'posted' | 'failed' | 'unsupported' | 'canceled';
   at: string;
   id?: string;
   url?: string;

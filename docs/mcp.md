@@ -59,7 +59,7 @@ claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
 | `check_video` | 로컬 영상을 플랫폼별로 원본 그대로 / 변환 필요 / 불가로 판정 |
 | `preview_post` | 실제로 올리지 않고, 어느 계정에 어떤 공개 범위로 올라가는지와 오류·경고를 미리 보여줌 |
 | `create_post` | 게시물을 만들고 업로드 시작. 막히는 문제가 있으면 만들지 않음. `firstComment`을 주면 게시된 뒤 같은 계정으로 첫 댓글(X는 답글, 요금 한 건 더). |
-| `retry_first_comment` | 실패한 첫 댓글 다시 달기. 이미 달렸을 수 있으면(`firstComment.state`가 `sending`이거나 `maybePosted`) 사용자 확인 뒤 `confirmedNotPosted: true` |
+| `retry_first_comment` | 실패한 첫 댓글 다시 달기. 이미 달렸을 수 있으면(`firstComment.state`가 `sending`이거나 `maybePosted`) 사용자 확인 뒤 `confirmedNotPosted: true`. 게시물을 지웠으면(`canceled`) 거부 |
 | `add_to_post` | 기존 게시물을 다른 플랫폼에도 올림. 먼저 `dryRun: true`로 미리보기를 보여 주고 승인받은 뒤 호출하도록 설명에 적어 둠 |
 | `get_post_status` | 플랫폼별 상태, 링크, 오류 |
 | `get_post_stats` | 게시된 대상의 조회·좋아요·댓글·공유와 하루 전 대비 변화(`trend`). 요금이 드는 X는 `includePaid`일 때만 |
