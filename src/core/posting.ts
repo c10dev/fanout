@@ -209,14 +209,43 @@ export function addTargets(store: Store, providers: Map<string, Provider>, postI
 }
 
 /**
- * Queue a failed or needs_reauth target again on the user's request. Clears the error and backoff,
- * and the `posting` marker a provider leaves when a post's outcome was unknown: the user retrying
- * means they checked it did not go out.
+ * Why trying a target again could post it a second time: the last attempt sent the request that
+ * creates the post and never learned the answer (X, Mastodon: `posting` left set), or the provider
+ * said so (`*.maybe_posted`, `*.media_attached`). Platforms without an idempotency key would take
+ * a repeat as a new post. Resuming from saved upload ids (YouTube session, Instagram container,
+ * Facebook, TikTok) is not a repeat and isn't gated.
  */
-export function retryTarget(store: Store, id: string, via: string): Target {
+export function mayBeDuplicate(t: Target): string | undefined {
+  if (t.errorCode && /maybe_posted|media_attached/.test(t.errorCode)) return msg('"{errorCode}"로 멈췄습니다', { errorCode: t.errorCode });
+  if ((t.resume as { posting?: unknown } | undefined)?.posting === true) return msg('지난 시도가 게시 요청을 보낸 뒤 결과를 받지 못했습니다');
+  return undefined;
+}
+
+export class MaybeDuplicateError extends Error {
+  readonly code = 'maybe_duplicate';
+  constructor(t: Target, reason: string) {
+    super(
+      msg('{platform}/{account}: {reason}. 이미 게시됐을 수 있습니다. 플랫폼에서 올라가지 않은 것을 확인한 뒤에만 다시 시도하세요. 그렇지 않으면 두 번 올라갑니다', {
+        platform: t.platform,
+        account: t.account,
+        reason,
+      }),
+    );
+  }
+}
+
+/**
+ * Queue a failed or needs_reauth target again on the user's request. Clears the error and backoff,
+ * and the `posting` marker a provider leaves when a post's outcome was unknown. A target that may
+ * already be on the platform (mayBeDuplicate) is queued only once the user has checked and says
+ * it isn't (`confirmedNotPosted`), as for cancel.
+ */
+export function retryTarget(store: Store, id: string, via: string, opts: { confirmedNotPosted?: boolean } = {}): Target {
   const t = store.getTarget(id);
   if (!t) throw new Error(msg('대상 없음: {id}', { id }));
   if (t.state !== 'failed' && t.state !== 'needs_reauth') throw new Error(msg('{state} 상태는 다시 시도할 수 없습니다', { state: t.state }));
+  const dup = mayBeDuplicate(t);
+  if (dup && !opts.confirmedNotPosted) throw new MaybeDuplicateError(t, dup);
   const resume = t.resume && 'posting' in t.resume ? { ...t.resume, posting: false } : t.resume;
   return store.transition(t.id, 'queued', { attempts: 0, errorCode: undefined, errorMessage: undefined, notBefore: undefined, resume }, via);
 }

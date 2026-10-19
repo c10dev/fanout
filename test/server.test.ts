@@ -340,6 +340,32 @@ describe('dashboard server', () => {
     assert.equal(env.store.getTarget(targetId)!.state, 'published');
     assert.equal((await fetch(`${base}/api/targets/${targetId}/retry`, { method: 'POST', headers: auth })).status, 409);
 
+    // One that may already be on the platform: 409 needsConfirm, queued only with confirmedNotPosted.
+    const made = env.store.createPost({ mediaPath: '/v.mp4', title: 'maybe posted', description: '', tags: [], captions: [], containsSyntheticMedia: false }, [{ platform: 'beta', account: 'main', options: {} }]);
+    const maybe = made.targets[0]!.id;
+    env.store.transition(maybe, 'uploading');
+    env.store.transition(maybe, 'failed', { errorCode: 'beta.maybe_posted' });
+    const board = (await (await fetch(`${base}/api/posts?limit=5`, { headers: auth })).json()) as Array<{ targets: Array<{ id: string; mayBeDuplicate?: boolean }> }>;
+    assert.equal(board.flatMap((p) => p.targets).find((t) => t.id === maybe)!.mayBeDuplicate, true);
+    const held = await fetch(`${base}/api/targets/${maybe}/retry`, { method: 'POST', headers: auth });
+    assert.equal(held.status, 409);
+    assert.equal(((await held.json()) as { needsConfirm?: boolean }).needsConfirm, true);
+    assert.equal(env.store.getTarget(maybe)!.state, 'failed');
+    const confirmed = await fetch(`${base}/api/targets/${maybe}/retry`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ confirmedNotPosted: true }) });
+    assert.equal(confirmed.status, 200);
+
+    // Cancel works the same way: a target that may be live needs the user's word first.
+    const live = env.store.createPost({ mediaPath: '/v.mp4', title: 'maybe live', description: '', tags: [], captions: [], containsSyntheticMedia: false }, [{ platform: 'beta', account: 'main', options: {} }]);
+    const liveId = live.targets[0]!.id;
+    env.store.transition(liveId, 'uploading');
+    env.store.transition(liveId, 'failed', { errorCode: 'beta.maybe_posted' });
+    const cancelHeld = await fetch(`${base}/api/targets/${liveId}/cancel`, { method: 'POST', headers: auth });
+    assert.equal(cancelHeld.status, 409);
+    assert.equal(((await cancelHeld.json()) as { needsConfirm?: boolean }).needsConfirm, true);
+    const cancelled = await fetch(`${base}/api/targets/${liveId}/cancel`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ confirmedNotPosted: true }) });
+    assert.equal(cancelled.status, 200);
+    assert.equal(env.store.getTarget(liveId)!.state, 'canceled');
+
     const detail = (await (await fetch(`${base}/api/posts/${created.post.id}`, { headers: auth })).json()) as {
       targets: Array<{ events: Array<{ to: string }> }>;
     };

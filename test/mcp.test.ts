@@ -99,6 +99,20 @@ describe('MCP server', () => {
     assert.equal(r.structuredContent.target.state, 'queued');
   });
 
+  it('holds a target that may already be posted until the user vouches for it', async () => {
+    const { call, env } = server();
+    const { targets } = env.store.createPost({ mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false }, [{ platform: 'x', account: 'main', options: {} }]);
+    const id = targets[0]!.id;
+    env.store.transition(id, 'uploading');
+    env.store.transition(id, 'failed', { errorCode: 'x.maybe_posted', resume: { mediaId: 'M1', posting: true } });
+    const held = await call('retry_target', { targetId: id });
+    assert.equal(held.isError, true);
+    assert.match(JSON.stringify(held.content), /confirmedNotPosted: true/);
+    assert.equal(env.store.getTarget(id)!.state, 'failed');
+    const ok = await call('retry_target', { targetId: id, confirmedNotPosted: true });
+    assert.equal(ok.structuredContent.target.state, 'queued');
+  });
+
   it('reports bad paths as tool errors, not protocol errors', async () => {
     const { call } = server();
     const r = await call('check_video', { path: '/definitely/not/here.mp4' });

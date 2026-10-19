@@ -1346,10 +1346,14 @@ function targetRow(t) {
             type: 'button',
             onclick: async (e) => {
               e.target.disabled = true;
+              const retryIt = (confirmedNotPosted) => api(`/targets/${t.id}/retry`, { method: 'POST', body: JSON.stringify({ confirmedNotPosted }) });
               try {
-                await api(`/targets/${t.id}/retry`, { method: 'POST' });
+                await retryIt(false);
               } catch (err) {
-                alert(err.message);
+                // It may already be on the platform: only the user can say it isn't, or it goes up twice.
+                if (err.body?.needsConfirm && confirm(`${err.message}\n\n${tr('{platform}에서 직접 확인했고 올라가지 않았나요?', { platform: t.platform })}`)) {
+                  await retryIt(true).catch((again) => alert(again.message));
+                } else if (!err.body?.needsConfirm) alert(err.message);
               }
               refreshBoard();
             },
@@ -1411,6 +1415,8 @@ async function fillHistory(details, postId) {
 
 /** Open comment panels: post id → last results (null while loading). Survive board re-renders. */
 const openComments = new Map();
+/** The last "retry all failed" outcome per post, shown on its card across board redraws. */
+const retryResults = new Map();
 
 function commentsPanel(postId) {
   const results = openComments.get(postId);
@@ -1667,9 +1673,14 @@ function postCard({ post, targets }) {
     ? h('button', { class: 'small', type: 'button', onclick: () => toggleComments(post.id) }, openComments.has(post.id) ? tr('댓글 닫기') : tr('댓글'))
     : null;
   // Two or more to retry: one button for all of them, one after another, with what happened to each.
-  // Failed only: one waiting for a reconnect fails again until the account is reconnected.
-  const retryable = targets.filter((t) => t.state === 'failed');
+  // Failed only: one waiting for a reconnect fails again until the account is reconnected. One that
+  // may already be on the platform is left for its own Retry, which asks the user to check first.
+  const failedHere = targets.filter((t) => t.state === 'failed');
+  const retryable = failedHere.filter((t) => !t.mayBeDuplicate);
+  const held = failedHere.filter((t) => t.mayBeDuplicate);
   const retryStatus = h('span', { class: 'msg', role: 'status' });
+  const last = retryResults.get(post.id);
+  if (last) message(retryStatus, last.text, last.ok);
   const retryAll =
     retryable.length >= 2
       ? h(
@@ -1680,16 +1691,23 @@ function postCard({ post, targets }) {
             onclick: async (e) => {
               e.target.disabled = true;
               const failed = [];
+              let done = 0;
               for (const [i, t] of retryable.entries()) {
                 message(retryStatus, `${i + 1}/${retryable.length} ${t.platform}/${t.account}…`, true);
                 try {
                   await api(`/targets/${t.id}/retry`, { method: 'POST' });
+                  done++;
                 } catch (err) {
-                  // 409: no longer failed (retried from another button meanwhile), which is fine.
-                  if (err.status !== 409) failed.push(`${t.platform}/${t.account}: ${err.message}`);
+                  // 409 without needsConfirm: no longer failed (retried from another button meanwhile), which is fine.
+                  if (err.status === 409 && !err.body?.needsConfirm) done++;
+                  else failed.push(`${t.platform}/${t.account}: ${err.message}`);
                 }
               }
-              if (failed.length) alert(failed.join('\n'));
+              // Kept across board redraws, so the outcome is still there to read.
+              const parts = [tr('{n}곳 다시 시도함', { n: done })];
+              if (failed.length) parts.push(tr('실패: {list}', { list: failed.join(', ') }));
+              if (held.length) parts.push(tr('직접 확인이 필요해 건너뜀: {list}', { list: held.map((t) => `${t.platform}/${t.account}`).join(', ') }));
+              retryResults.set(post.id, { text: parts.join(' · '), ok: !failed.length });
               refreshBoard();
             },
           },

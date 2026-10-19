@@ -10,7 +10,7 @@ import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, watchAccount, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
 import { extractFrame, fileHash, probe, withCoverMoment } from './core/media.ts';
-import { accountLabel, addTargets, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, describePrior, editPost, fetchComments, hideComment, MaybeLiveError, planAddTargets, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, suggestCrossPosts, visibilityLabel, withTimeout } from './core/posting.ts';
+import { accountLabel, addTargets, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, describePrior, editPost, fetchComments, hideComment, MaybeLiveError, planAddTargets, priorPosts, refreshStats, removeTarget, replyToComment, MaybeDuplicateError, retryTarget, suggestCrossPosts, visibilityLabel, withTimeout } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Limit, Provider, ProviderContext } from './core/provider.ts';
 import { readLimits } from './core/limits.ts';
@@ -312,7 +312,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout post <video> --title T --to youtube,tiktok:main,instagram,facebook [옵션]
   fanout add <postId> --to tiktok,x [플랫폼 옵션] [--yes]   이미 만든 게시물에 플랫폼 추가 (원본이 남아 있을 때)
   fanout status [postId] [--events]
-  fanout retry <postId> [platform]
+  fanout retry <postId> [platform] [--confirmed-not-posted]   실패한 대상 다시 시도 (이미 올라갔을 수 있으면 확인 뒤 플래그)
   fanout first-comment <postId> <platform> [--account main] [--not-posted]   실패한 첫 댓글 다시 달기
   fanout run                             밀린 작업 처리 후 종료
   fanout worker [--interval 60] [--stats-every 6]   예약·재시도 작업을 계속 처리 (+ 최근 30일 게시물 반응을 6시간마다 기록, 0이면 끔)
@@ -1249,18 +1249,27 @@ async function cmdFirstComment(ctx: ProviderContext, deps: RunnerDeps, args: Arg
 
 async function cmdRetry(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
-  if (!post) throw new UsageError('fanout retry <postId> [platform]');
+  if (!post) throw new UsageError('fanout retry <postId> [platform] [--confirmed-not-posted]');
   const only = args.positionals[2];
   const ids: string[] = [];
+  let held = 0;
   for (const t of ctx.store.targetsForPost(post.id)) {
     if ((t.state === 'failed' || t.state === 'needs_reauth') && (!only || t.platform === only)) {
-      retryTarget(ctx.store, t.id, 'manual retry');
-      ids.push(t.id);
+      try {
+        retryTarget(ctx.store, t.id, 'manual retry', { confirmedNotPosted: Boolean(args.flags['confirmed-not-posted']) });
+        ids.push(t.id);
+      } catch (err) {
+        // May already be on the platform: only the user can say it isn't.
+        if (!(err instanceof MaybeDuplicateError)) throw err;
+        sayErr(err.message);
+        held++;
+      }
     }
   }
+  if (held) sayErr(msg('플랫폼에서 없는 것을 확인했으면 --confirmed-not-posted 를 붙여 다시 실행하세요'));
   if (!ids.length) {
-    say(msg('다시 시도할 대상 없음'));
-    return 0;
+    if (!held) say(msg('다시 시도할 대상 없음'));
+    return held ? 1 : 0;
   }
   await settle(deps, ids, settleOpts(ctx));
   await firstComments(ctx, deps);
