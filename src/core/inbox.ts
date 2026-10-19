@@ -259,19 +259,24 @@ export function planPost(args: {
   });
   if (!wanted.length) throw new WatchConfigError(msg('올릴 곳(to)이 없습니다'));
 
-  const assessments = new Map(assessMedia(media, wanted.map((w) => providers.get(w.platform)!)).map((a) => [a.platform, a]));
+  const optionsFor = (platform: string): Record<string, unknown> => ({ ...config.options?.[platform], ...sidecar.options?.[platform] });
+  // A fit set in the options (options.facebook.fit) goes into the check: it is what makes a landscape
+  // video postable there. None set, a shape a fit would solve still skips the platform.
+  const fits = Object.fromEntries(wanted.map((w) => [w.platform, { fit: renderDeep(optionsFor(w.platform).fit, vars, `options.${w.platform}.fit`) }]));
+  const assessments = new Map(assessMedia(media, wanted.map((w) => providers.get(w.platform)!), fits).map((a) => [a.platform, a]));
   const skipped: Plan['skipped'] = [];
   const targets: TargetInput[] = [];
   for (const w of wanted) {
     const a = assessments.get(w.platform)!;
     if (a.verdict === 'blocked') {
-      const reason = a.violations.filter((v) => !v.fixable).map((v) => v.message).join(' / ');
+      const reasons = a.violations.filter((v) => !v.fixable).map((v) => v.message);
+      if (a.fittable) reasons.push(msg('options.{platform}.fit을 "pad"(흐린 배경)나 "crop"(가운데)으로 두면 세로 9:16으로 맞춰 올립니다', { platform: w.platform }));
+      const reason = reasons.join(' / ');
       if ((config.onBlocked ?? 'skip') === 'fail') throw new WatchConfigError(msg('{platform}에 올릴 수 없는 영상입니다: {reason}', { platform: w.platform, reason }));
       skipped.push({ platform: w.platform, reason });
       continue;
     }
-    const options = { ...config.options?.[w.platform], ...sidecar.options?.[w.platform] };
-    targets.push({ platform: w.platform, account: w.account, options: renderDeep(options, vars, `options.${w.platform}`) as Record<string, unknown> });
+    targets.push({ platform: w.platform, account: w.account, options: renderDeep(optionsFor(w.platform), vars, `options.${w.platform}`) as Record<string, unknown> });
   }
   if (!targets.length) throw new WatchConfigError(msg('올릴 수 있는 플랫폼이 없습니다:\n{skipped}', { skipped: skipped.map((s) => `  ${s.platform}: ${s.reason}`).join('\n') }));
   return { input, targets, skipped };

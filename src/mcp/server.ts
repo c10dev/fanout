@@ -112,7 +112,7 @@ const TOOLS = [
   {
     name: 'check_video',
     title: 'Check a video against platform specs',
-    description: 'Probe a local video and say per platform whether it uploads as is, needs a transcode first, or cannot be posted.',
+    description: 'Probe a local video and say per platform whether it uploads as is, needs a transcode first, or cannot be posted. A platform blocked only by the shape (Facebook Reels take 9:16 only) is marked fittable with a hint: it posts once the target sets fit; nothing is fitted unasked.',
     inputSchema: { type: 'object', required: ['path'], properties: { path: { type: 'string' } } },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
@@ -411,14 +411,14 @@ export class McpServer {
       }
       case 'check_video': {
         const media = await this.#probe(this.#file(args.path, 'path'));
-        return { media: { ...media, path: undefined }, youtubeShort: isShort(media), platforms: assessMedia(media, providers.values()) };
+        return { media: { ...media, path: undefined }, youtubeShort: isShort(media), platforms: assessMedia(media, providers.values()).map(withFitHint) };
       }
       case 'preview_post': {
         const { input, targets, media } = await this.#postArgs(args);
         const previews = previewPost(store, providers, input, targets, media);
         await addLiveChecks(this.#deps.ctx, providers, previews, { input, targets, media });
         return {
-          targets: previews,
+          targets: previews.map(withFitHint),
           // Shown so the user sees exactly which local files go out with the post.
           files: { video: input.mediaPath, thumbnail: input.thumbnailPath, captions: input.captions.map((c) => ({ language: c.language, path: c.path })) },
         };
@@ -457,7 +457,7 @@ export class McpServer {
           if (args.dryRun === true) {
             const { preview } = planAddTargets(store, providers, p.id, targets, media);
             await addLiveChecks(this.#deps.ctx, providers, preview, { input: p, targets, media });
-            return { postId: p.id, targets: preview };
+            return { postId: p.id, targets: preview.map(withFitHint) };
           }
           const created = addTargets(store, providers, p.id, targets, media);
           this.#deps.worker?.tick();
@@ -675,7 +675,17 @@ export class McpServer {
 }
 
 function describeBlocked(p: TargetPreview): string {
-  return `- ${p.platform}/${p.account}: ${p.errors.join(' / ')}`;
+  return `- ${p.platform}/${p.account}: ${[...p.errors, ...(p.fittable ? [fitHint()] : [])].join(' / ')}`;
+}
+
+/** What to add when only the video's shape keeps it off a platform (nothing pads unasked). */
+function fitHint(): string {
+  return msg('세로로 맞추면 올릴 수 있습니다: 이 대상의 옵션에 fit: "pad"(흐린 배경) 또는 "crop"(가운데)을 넣으세요');
+}
+
+/** A check or preview result, with the fit hint where only the shape is in the way. */
+function withFitHint<T extends { fittable?: true }>(r: T): T & { hint?: string } {
+  return r.fittable ? { ...r, hint: fitHint() } : r;
 }
 
 /** firstComment from a tool call: text up to 10,000 characters, or none. */

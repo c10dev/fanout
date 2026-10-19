@@ -250,7 +250,11 @@ export interface Provider {
 
 /** The media rules for one target: the platform's, plus a vertical fit when the target asks for one. */
 export function targetSpec(provider: Provider, post: Post, target: Target): MediaSpec {
-  const base = provider.specFor?.(post, target) ?? provider.spec;
-  const fit = (target.options as { fit?: unknown }).fit;
-  return fit === 'pad' || fit === 'crop' ? { ...base, fit } : base;
+  return withFit(provider.specFor?.(post, target) ?? provider.spec, target.options);
+}
+
+/** `spec` plus the vertical fit `options` ask for, if any. */
+export function withFit(spec: MediaSpec, options: Record<string, unknown> | undefined): MediaSpec {
+  const fit = options?.fit;
+  return fit === 'pad' || fit === 'crop' ? { ...spec, fit } : spec;
 }

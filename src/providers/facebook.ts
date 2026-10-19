@@ -116,6 +116,7 @@ export const facebook: Provider = {
     minShortEdge: 540,
     maxLongEdge: 1920,
     aspect: { min: 9 / 16, max: 9 / 16 },
+    canFit: true,
   },
   appFields: META_APP_FIELDS,
   setupGuide: () => META_SETUP_GUIDE,

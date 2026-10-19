@@ -118,6 +118,7 @@ export const instagram: Provider = {
     maxLongEdge: 1920,
     maxBitrate: 25_000_000,
     aspect: { min: 0.01, max: 10 },
+    canFit: true,
   },
   appFields: META_APP_FIELDS,
   setupGuide: () => META_SETUP_GUIDE,

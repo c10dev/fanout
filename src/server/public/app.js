@@ -346,6 +346,7 @@ function applyPreset(preset) {
     const body = block.querySelector('.target-body');
     body.hidden = false;
     applyOptions(t.platform, body, t.options);
+    preselectFit(t.platform, body);
   }
   // In add mode the text belongs to the post being added to.
   if (!addingTo && preset.tags?.length) $('#tags').value = preset.tags.join(', ');
@@ -457,7 +458,14 @@ function restoreTargets(snap) {
     const body = block.querySelector('.target-body');
     body.hidden = false;
     applyOptions(platform, body, t.options);
+    preselectFit(platform, body);
   }
+}
+
+/** Ticked for a video only its shape keeps off the platform: the vertical fit starts at pad, unless one is chosen. */
+function preselectFit(platform, body) {
+  const fit = body.querySelector('select[name="fit"]');
+  if (fit && !fit.value && media?.assessments.find((a) => a.platform === platform)?.fittable) fit.value = 'pad';
 }
 
 function renderTargets() {
@@ -465,13 +473,19 @@ function renderTargets() {
   const blocks = overview.platforms.map((p) => {
       const connected = p.accounts.length > 0;
       const assessment = media?.assessments.find((a) => a.platform === p.id);
-      const blocked = assessment?.verdict === 'blocked';
+      // Only the shape in the way (a landscape video for Facebook Reels): it can still be ticked, and
+      // ticking it opens the vertical fit with pad chosen.
+      const fittable = Boolean(assessment?.fittable);
+      const blocked = assessment?.verdict === 'blocked' && !fittable;
       const body = h('div', { class: 'target-body', hidden: true }, OPTION_FORMS[p.id]?.() ?? []);
       const toggle = h('input', {
         type: 'checkbox',
         name: 'enabled',
         disabled: !connected || blocked,
-        onchange: (e) => (body.hidden = !e.target.checked),
+        onchange: (e) => {
+          body.hidden = !e.target.checked;
+          if (e.target.checked) preselectFit(p.id, body);
+        },
       });
       const account = connected
         ? p.accounts.length > 1
@@ -483,11 +497,11 @@ function renderTargets() {
         { class: 'target-head' },
         h('label', { class: 'check' }, toggle, p.displayName),
         account,
-        assessment ? badge(VERDICT[assessment.verdict]) : null,
+        assessment ? badge(fittable ? [tr('세로로 맞추면 올릴 수 있습니다'), 'warn'] : VERDICT[assessment.verdict]) : null,
         p.id === 'youtube' && media?.isShort ? badge(['Shorts', 'info']) : null,
       );
       const reasons = assessment?.violations.length
-        ? h('p', { class: 'note' }, assessment.violations.map((v) => `${v.fixable ? tr('변환') : tr('불가')}: ${v.message}`).join(' · '))
+        ? h('p', { class: 'note' }, assessment.violations.map((v) => `${v.fixable ? tr('변환') : v.fittable ? tr('그대로는 불가') : tr('불가')}: ${v.message}`).join(' · '))
         : null;
       const block = h('div', { class: `target${connected && !blocked ? '' : ' disabled'}`, 'data-platform': p.id }, head, reasons, body);
       if (p.id === 'tiktok') {
@@ -539,7 +553,11 @@ function lockCoveredTargets() {
   }
 }
 
-async function startAddMode(postId) {
+/**
+ * Load a post into the form to add platforms. `picks` (a cross-post suggestion's targets) come
+ * ticked, with pad chosen where the suggestion counted on a vertical fit.
+ */
+async function startAddMode(postId, picks = []) {
   let m;
   try {
     m = await api(`/posts/${postId}/media`);
@@ -572,6 +590,19 @@ async function startAddMode(postId) {
   $('#form-error').textContent = '';
   renderMedia();
   renderTargets();
+  for (const pick of picks) {
+    const block = document.querySelector(`.target[data-platform="${pick.platform}"]`);
+    const toggle = block?.querySelector('[name="enabled"]');
+    if (!toggle || toggle.disabled || toggle.checked) continue;
+    const select = block.querySelector('select[name="account"]');
+    const accounts = select ? [...select.options].map((o) => o.value) : [block.querySelector('[data-account]')?.dataset.account];
+    if (!accounts.includes(pick.account)) continue;
+    if (select) select.value = pick.account;
+    toggle.checked = true;
+    const body = block.querySelector('.target-body');
+    body.hidden = false;
+    applyOptions(pick.platform, body, pick.vertical ? { fit: 'pad' } : {});
+  }
   $('#post-form').scrollIntoView?.({ block: 'start' });
 }
 
@@ -2599,7 +2630,7 @@ function insightsPanel() {
                       class: 'small',
                       type: 'button',
                       onclick: () => {
-                        startAddMode(sg.postId);
+                        startAddMode(sg.postId, sg.targets);
                         $('#post-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                       },
                     },

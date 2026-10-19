@@ -8,7 +8,7 @@ import { checkMedia, FITS, probe as probeMedia, type MediaInfo, type Violation }
 import { computeInsights } from './insights.ts';
 import { notifyEvent } from './notify.ts';
 import { isTerminal } from './state.ts';
-import { targetSpec, type Provider, type ProviderContext } from './provider.ts';
+import { targetSpec, withFit, type Provider, type ProviderContext } from './provider.ts';
 import type { Store } from './store.ts';
 import { FIND_HANDED_OFF_DAYS, statsTrend } from './stats.ts';
 import type { Comment, Post, PostInput, PostStats, StatsTrend, Target, TargetInput } from './types.ts';
@@ -20,14 +20,25 @@ export interface Assessment {
   platform: string;
   verdict: Verdict;
   violations: Violation[];
+  /** Blocked only by what a vertical fit solves: posting needs the fit chosen (fit option, --vertical). */
+  fittable?: true;
 }
 
-/** Per-platform verdict for one file: upload the original, transcode first, or cannot post. */
-export function assessMedia(media: MediaInfo, providers: Iterable<Provider>): Assessment[] {
+/** Blocked, and a vertical fit would take every block away. */
+function onlyFittable(violations: Violation[]): boolean {
+  const blocks = violations.filter((v) => !v.fixable);
+  return blocks.length > 0 && blocks.every((v) => v.fittable);
+}
+
+/**
+ * Per-platform verdict for one file: upload the original, transcode first, or cannot post. `options`
+ * (by platform) bring a fit someone chose; without one, a shape a fit would solve stays blocked.
+ */
+export function assessMedia(media: MediaInfo, providers: Iterable<Provider>, options: Record<string, Record<string, unknown>> = {}): Assessment[] {
   return [...providers].map((p) => {
-    const violations = checkMedia(media, p.spec);
+    const violations = checkMedia(media, withFit(p.spec, options[p.id]));
     const verdict: Verdict = violations.some((v) => !v.fixable) ? 'blocked' : violations.length ? 'transcode' : 'as_is';
-    return { platform: p.id, verdict, violations };
+    return { platform: p.id, verdict, violations, ...(onlyFittable(violations) ? { fittable: true as const } : {}) };
   });
 }
 
@@ -110,6 +121,8 @@ export interface TargetPreview {
   warnings: string[];
   /** What a transcode would fix first. */
   transcode: string[];
+  /** The video's only blocks are ones a vertical fit solves (see Assessment.fittable). */
+  fittable?: true;
 }
 
 /** Everything the runner's preflight would say, without creating anything. */
@@ -145,6 +158,7 @@ export function previewPost(
         ...firstCommentWarnings(provider, input.firstComment, t.options, account ?? undefined),
       ],
       transcode: violations.filter((v) => v.fixable).map((v) => v.message),
+      ...(onlyFittable(violations) ? { fittable: true as const } : {}),
     };
   });
 }
