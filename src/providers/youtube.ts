@@ -61,6 +61,8 @@ export interface YouTubeOptions {
   localizations?: Record<string, { title: string; description?: string }>;
   /** When the video was recorded, YYYY-MM-DD (recordingDetails.recordingDate). */
   recordingDate?: string;
+  /** Tell viewers the video has paid product placement (paidProductPlacementDetails), set after the upload. */
+  paidProductPlacement?: boolean;
 }
 
 const RECORDING_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -272,9 +274,9 @@ export function unitCost(method: string, url: string): number {
   return 50;
 }
 
-/** Units a post will spend: the insert, its captions, thumbnail and playlist entry, and a few status checks. */
-export function postUnits(post: Pick<Post, 'captions' | 'thumbnailPath'>, o: Pick<YouTubeOptions, 'playlistId'>): number {
-  return 1 + post.captions.length * 400 + (post.thumbnailPath ? 50 : 0) + (o.playlistId ? 50 : 0) + 10;
+/** Units a post will spend: the insert, its captions, thumbnail, playlist entry and paid-placement update, and a few status checks. */
+export function postUnits(post: Pick<Post, 'captions' | 'thumbnailPath'>, o: Pick<YouTubeOptions, 'playlistId' | 'paidProductPlacement'>): number {
+  return 1 + post.captions.length * 400 + (post.thumbnailPath ? 50 : 0) + (o.playlistId ? 50 : 0) + (o.paidProductPlacement === true ? 50 : 0) + 10;
 }
 
 /** fetch for YouTube calls, counting the quota units each one spends (charged even when it fails). */
@@ -449,7 +451,7 @@ async function uploadBytes(
 }
 
 /**
- * Thumbnail, captions and playlist, each attempted at most once per video: `done` lists what earlier
+ * Paid-placement disclosure, thumbnail, captions and playlist, each attempted at most once per video: `done` lists what earlier
  * attempts already sent (captions and playlist items would duplicate if re-sent), and a failure here
  * only becomes a warning so it never sends the whole upload step round again.
  */
@@ -479,6 +481,22 @@ async function applyExtras(
       warnings.push(msg('{label} 실패: {err} — Studio에서 직접 확인하세요', { label, err: (err as Error).message }));
     }
   };
+
+  // videos.insert doesn't take paidProductPlacementDetails; an update right after does (live check
+  // 2026-10-19, issue #116). The read-back lags a few seconds, so it isn't read back here.
+  if (opts.paidProductPlacement === true) {
+    await attempt(
+      'paidPlacement',
+      msg('유료 PPL 표시'),
+      () =>
+        ytFetch(ctx, `${API}/videos?part=paidProductPlacementDetails`, {
+          method: 'PUT',
+          headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+          body: JSON.stringify({ id: videoId, paidProductPlacementDetails: { hasPaidProductPlacement: true } }),
+        }),
+      () => msg('YouTube Studio에서 직접 표시하세요'),
+    );
+  }
 
   if (post.thumbnailPath) {
     const path = post.thumbnailPath;
@@ -753,6 +771,9 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const realDay = (d: string) => RECORDING_DATE.test(d) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d);
     if (o.recordingDate !== undefined && !(typeof o.recordingDate === 'string' && realDay(o.recordingDate))) {
       issues.push({ severity: 'error', code: 'recording_date', message: msg('recordingDate는 YYYY-MM-DD 날짜') });
+    }
+    if (o.paidProductPlacement !== undefined && typeof o.paidProductPlacement !== 'boolean') {
+      issues.push({ severity: 'error', code: 'paid_placement', message: msg('paidProductPlacement는 true 또는 false') });
     }
     const unsettable = ['paidPromotion', 'audioLanguage'].filter((k) => k in (target.options ?? {}));
     if (unsettable.length) {

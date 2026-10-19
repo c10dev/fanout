@@ -98,7 +98,6 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
   const drop = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined));
   switch (platform) {
     case 'youtube':
-      if (bool(args, 'paid-partnership')) console.error('⚠ ' + local(msg('--paid-partnership은 {platform} API로 표시할 수 없습니다. 앱에서 직접 설정하세요', { platform: 'YouTube' })));
       for (const gone of ['yt-paid-promo', 'yt-audio-lang']) {
         if (args.flags[gone] !== undefined) console.error('⚠ ' + local(msg('--{flag}는 YouTube API로 설정할 수 없어 무시합니다. YouTube Studio에서 직접 설정하세요', { flag: gone })));
       }
@@ -115,6 +114,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         localizations: localizationsFile(str(args, 'yt-localizations')),
         recordingDate: str(args, 'yt-recorded'),
         fit: str(args, 'yt-vertical'),
+        paidProductPlacement: bool(args, 'yt-paid-placement') ?? bool(args, 'paid-partnership'),
       });
     case 'tiktok': {
       const privacy = str(args, 'tt-privacy');
@@ -349,7 +349,7 @@ post 공통 옵션
   --description 텍스트 | --description-file 파일   --tags a,b,c
   --first-comment 텍스트 (게시 뒤 같은 계정으로 첫 댓글: YouTube·Instagram·Facebook·X)
   --thumbnail 이미지 | --thumbnail-at 12.5 (그 장면을 썸네일로, Instagram·TikTok 커버도 같은 장면)   --caption ko:subs.srt (여러 번)   --ai (AI 생성·합성 콘텐츠 표시: YouTube·TikTok·Instagram·X)
-  --paid-partnership yes (유료 파트너십·광고 표시: X·TikTok(direct)·Instagram)
+  --paid-partnership yes (유료 파트너십·광고 표시: X·TikTok(direct)·Instagram·YouTube(유료 PPL))
   --vertical pad|crop (가로 영상을 세로 9:16으로: TikTok·Instagram·Facebook — pad는 흐린 배경, crop은 가운데)
   --at 2026-10-20T09:00:00+09:00 (예약)   --yes (확인 생략)   --no-wait
 
@@ -359,6 +359,7 @@ post 공통 옵션
              --yt-license creativeCommon  --yt-embeddable no  --yt-hide-stats (확장 통계 숨김)
              --yt-localizations titles.json ({"en": {"title": "…", "description": "…"}})
              --yt-recorded 2026-10-18 (촬영일)  --yt-vertical pad|crop (세로로 맞춰 Shorts로)
+             --yt-paid-placement yes (유료 PPL 포함 표시, 올린 뒤 따로 설정)
   TikTok     --tt-mode inbox|direct (기본 inbox)
              direct 전용: --tt-privacy public|friends|followers|private (필수)
              --tt-music-consent yes (필수)  --tt-allow-comment/--tt-allow-duet/--tt-allow-stitch yes
