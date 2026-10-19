@@ -1,37 +1,13 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { globSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { catalogue, msg, translate, translateDeep } from '../src/core/i18n.ts';
 
 const ROOT = join(import.meta.dirname, '..');
 const HANGUL = /[가-힣]/;
-/** Files whose user-facing messages go through msg(); more join as they are converted. */
-const CONVERTED = [
-  'src/server/server.ts',
-  'src/core/posting.ts',
-  'src/core/media.ts',
-  'src/core/runner.ts',
-  'src/core/livecheck.ts',
-  'src/core/notify.ts',
-  'src/core/http.ts',
-  'src/providers/youtube.ts',
-  'src/providers/tiktok.ts',
-  'src/providers/meta.ts',
-  'src/providers/instagram.ts',
-  'src/providers/facebook.ts',
-  'src/providers/x.ts',
-  'src/providers/bluesky.ts',
-  'src/providers/mastodon.ts',
-  'src/providers/peertube.ts',
-  'src/cli.ts',
-  'src/mcp/server.ts',
-  'src/core/inbox.ts',
-  'src/core/restore.ts',
-  'src/core/accounts.ts',
-  'src/core/limits.ts',
-  'src/core/assets.ts',
-];
+/** Every source file but the English catalogue itself: a new file is checked from its first string. */
+const CONVERTED = globSync('src/**/*.ts', { cwd: ROOT }).filter((f) => f !== join('src', 'core', 'messages.en.ts')).sort();
 const LITERAL = /'(?:[^'\\\n]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
 
 function unquote(lit: string): string {

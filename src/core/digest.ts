@@ -36,7 +36,7 @@ export function buildDigest(ctx: ProviderContext, providers: Map<string, Provide
   if (!insights.groups.length) lines.push(msg('게시된 영상이 없습니다'));
   for (const g of insights.groups) {
     const top = g.top[0];
-    lines.push(msg('{platform}/{account}: 게시물 {posts}개, 조회 {views}', { platform: g.platform, account: g.account, posts: g.posts, views: fmt(g.totalViews) }) + (top ? ` — ${msg('최고 "{title}" {views}', { title: top.title, views: fmt(top.views) })}` : ''));
+    lines.push(msg('{platform}/{account}: 게시물 {posts}개, 조회 {views}', { platform: g.platform, account: g.account, posts: g.posts, views: fmt(g.totalViews) }) + (top ? ' — ' + msg('최고 "{title}" {views}', { title: top.title, views: fmt(top.views) }) : ''));
   }
   if (failed.length) lines.push(msg('실패한 게시 {n}건: {list}', { n: failed.length, list: failed.slice(0, 5).map((f) => `${f.platform} "${f.title}"`).join(', ') }));
   for (const e of expiring) lines.push(msg('🔑 {platform}/{account} 로그인 만료 {date}', { platform: e.platform, account: e.account, date: e.expiresAt.slice(0, 10) }));
