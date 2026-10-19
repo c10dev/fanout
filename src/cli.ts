@@ -1115,6 +1115,7 @@ async function cmdInsights(ctx: ProviderContext, deps: RunnerDeps, args: Args): 
       const converted = s.targets.some((t) => t.transcode) ? '  ' + local(msg('(일부는 변환 후 업로드)')) : '';
       console.log(`  "${printable(s.title).slice(0, 40)}"  ` + where);
       console.log(`    ${s.command}` + converted);
+      for (const c of s.needsChoices) console.log('      ' + local(c));
     }
   }
   return 0;

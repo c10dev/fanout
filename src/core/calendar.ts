@@ -57,7 +57,9 @@ export function computeCalendar(store: Store, now: Date, opts: { weeks?: number;
   const today = local(now, timeZone);
   // The local Monday, as a calendar date (UTC midnight stands for it while counting days).
   const todayUtc = Date.parse(`${today.date}T00:00:00Z`);
-  const monday = todayUtc - ((today.weekday + 6) % 7) * DAY_MS + Math.trunc(opts.offset ?? 0) * 7 * DAY_MS;
+  // About ten years either way: past that a date can't be written (and nothing is there).
+  const offset = Number.isFinite(opts.offset) ? Math.max(-520, Math.min(520, Math.trunc(opts.offset!))) : 0;
+  const monday = todayUtc - ((today.weekday + 6) % 7) * DAY_MS + offset * 7 * DAY_MS;
   const dates = Array.from({ length: weeks * 7 }, (_, i) => new Date(monday + i * DAY_MS).toISOString().slice(0, 10));
   const dayName = new Intl.DateTimeFormat(opts.locale ?? 'ko-KR', { weekday: 'short', timeZone: 'UTC' });
   const days = new Map<string, CalendarDay>(

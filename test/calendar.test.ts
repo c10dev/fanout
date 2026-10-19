@@ -33,5 +33,7 @@ describe('calendar', () => {
     assert.equal(computeCalendar(store, now, { weeks: 1, timeZone: 'UTC' }).days.flatMap((d) => d.items).length, 0);
     const back = computeCalendar(store, now, { weeks: 1, offset: -2, timeZone: 'UTC' });
     assert.deepEqual([back.from, back.days.flatMap((d) => d.items).map((i) => i.title)], ['2026-10-05', ['two weeks ago']]);
+    assert.doesNotThrow(() => computeCalendar(store, now, { offset: Infinity }));
+    assert.doesNotThrow(() => computeCalendar(store, now, { offset: 1e300 }));
   });
 });

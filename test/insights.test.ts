@@ -88,6 +88,10 @@ describe('cross-post suggestions', () => {
     for (const [platform, name] of [['youtube', 'main'], ['tiktok', 'mainmain'], ['facebook', 'main'], ['x', 'main']] as const) {
       env.store.saveAccount({ platform, name, credentials: {}, profile: {} });
     }
+    env.store.setApp('youtube', { clientId: 'c', clientSecret: 's' });
+    env.store.setApp('tiktok', { clientKey: 'k', clientSecret: 's' });
+    env.store.setApp('x', { clientId: 'c' });
+    env.store.setApp('meta', { appId: 'a', appSecret: 's' });
     const video = tempFile(10);
     const { targets } = env.store.createPost({ ...POST('hit'), mediaPath: video }, [{ platform: 'youtube', account: 'main', options: {} }, { platform: 'x', account: 'main', options: {} }]);
     env.store.transition(targets[0]!.id, 'uploading');
@@ -102,6 +106,29 @@ describe('cross-post suggestions', () => {
     assert.equal(s.length, 1);
     assert.deepEqual(s[0]!.targets.map((t) => `${t.platform}/${t.account}`).sort(), ['tiktok/mainmain', 'x/main']);
     assert.match(s[0]!.command, /^fanout add [0-9a-f]{8} --to (tiktok,x|x,tiktok)$/);
+
+    // A short landscape clip: Facebook Reels takes it with a vertical fit.
+    env.store.saveAccount({ platform: 'instagram', name: 'main', credentials: {}, profile: {} });
+    const short = async () => fakeMedia({ durationSec: 30 }, { width: 1920, height: 1080 });
+    const s2 = await suggestCrossPosts(env.ctx, providerMap(), { days: 30, probe: short });
+    const fb = s2[0]!.targets.find((t) => t.platform === 'facebook');
+    assert.equal(fb?.vertical, true, 'a vertical fit makes it postable');
+    assert.match(s2[0]!.command, / --vertical pad$/);
+    // An account whose access was refused isn't suggested; a removed target counts as meant to be gone.
+    const ttAcct = env.store.getAccount('tiktok', 'mainmain')!;
+    env.store.saveAccount({ ...ttAcct, credentials: { ...ttAcct.credentials, authFailedAt: clock } });
+    env.store.transition(targets[1]!.id, 'canceled');
+    const s3 = await suggestCrossPosts(env.ctx, providerMap(), { days: 30, probe: short });
+    assert.ok(!s3[0]!.targets.some((t) => t.platform === 'tiktok' || t.platform === 'x'));
+    // A caption the platform refuses (Instagram: over 30 hashtags) drops that platform, not the rest.
+    const tagged = env.store.createPost({ ...POST('tags'), mediaPath: video, tags: Array.from({ length: 31 }, (_, i) => `t${i}`) }, [{ platform: 'youtube', account: 'main', options: {} }]);
+    env.store.transition(tagged.targets[0]!.id, 'uploading');
+    env.store.transition(tagged.targets[0]!.id, 'published', { remoteId: 'V2' });
+    env.store.saveStats(tagged.targets[0]!.id, { fetchedAt: new Date(clock).toISOString(), views: 9000 });
+    const s4 = await suggestCrossPosts(env.ctx, providerMap(), { days: 30, probe: async () => fakeMedia({ durationSec: 30 }, { width: 1080, height: 1920 }) });
+    const forTags = s4.find((x) => x.title === 'tags')!;
+    assert.ok(!forTags.targets.some((t) => t.platform === 'instagram'));
+    assert.ok(forTags.targets.some((t) => t.platform === 'facebook'));
 
     // Once the original is cleaned up, `fanout add` can't work: no suggestion.
     const { rmSync } = await import('node:fs');

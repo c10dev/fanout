@@ -314,7 +314,8 @@ export class Dashboard {
       const tz = url.searchParams.get('tz') || undefined;
       if (tz && !validTimeZone(tz)) throw new HttpError(400, msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz }));
       const window = days > 0 ? Math.min(days, 365) : 30;
-      const suggestions = await suggestCrossPosts(this.#opts.ctx, this.#opts.providers, { days: window, probe: this.#opts.probe });
+      // Probes originals: only when asked for, not on every dashboard load.
+      const suggestions = url.searchParams.get('suggestions') === '1' ? await suggestCrossPosts(this.#opts.ctx, this.#opts.providers, { days: window, probe: this.#opts.probe }) : undefined;
       return send(res, 200, { ...computeInsights(this.#opts.ctx.store, this.#opts.ctx.now(), { days: window, locale, timeZone: tz }), suggestions });
     }
     if (method === 'GET' && parts[0] === 'limits' && !parts[1]) return send(res, 200, { accounts: await readLimits(this.#opts.ctx, this.#opts.providers, url.searchParams.get('platform') ?? undefined) });

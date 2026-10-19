@@ -101,6 +101,8 @@ const MESSAGES_EN = {
   '다른 곳에도 올려 볼 만한 게시물': 'Worth posting elsewhere too',
   '{platform}에서 조회 {views}': '{views} views on {platform}',
   '이 게시물에 플랫폼 추가': 'Add platforms to this post',
+  '지금은 제안할 게시물이 없습니다': 'Nothing to suggest right now',
+  '다른 곳에도 올려 볼 게시물 찾기': 'Find posts worth posting elsewhere',
   '{time}에 공개 예약됨': 'Goes public {time}',
   '이 댓글을 숨길까요? 나중에 다시 보이게 할 수 있습니다.': 'Hide this comment? You can show it again later.',
   '다시 보이기': 'Show again',

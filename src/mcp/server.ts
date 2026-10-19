@@ -168,8 +168,8 @@ const TOOLS = [
     title: 'Get insights',
     description:
       'What performs, from the reactions fanout already recorded (no platform calls): per platform and account over the last N days, posts, total/median views, likes per 100 views, top posts, ' +
-      'and the weekday and 3-hour block whose posts had the most views a day later (only with enough posts). `suggestions`: top posts that could also go to connected accounts they haven\'t gone to (rules met), with the add command; suggest them, never add without the user.',
-    inputSchema: { type: 'object', properties: { days: { type: 'number', description: 'default 30' }, platform: { type: 'string' }, timeZone: { type: 'string', description: 'IANA zone for weekdays and hours, e.g. Asia/Seoul (default: FANOUT_TZ or the server\'s)' } } },
+      'and the weekday and 3-hour block whose posts had the most views a day later (only with enough posts). With suggestions: true, `suggestions`: top posts that could also go to connected accounts they haven\'t gone to (rules met), with the add command; suggest them, never add without the user.',
+    inputSchema: { type: 'object', properties: { days: { type: 'number', description: 'default 30' }, platform: { type: 'string' }, suggestions: { type: 'boolean', description: 'also list top posts that could go to connected accounts they have not gone to (reads the originals)' }, timeZone: { type: 'string', description: 'IANA zone for weekdays and hours, e.g. Asia/Seoul (default: FANOUT_TZ or the server\'s)' } } },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
   {
@@ -459,7 +459,7 @@ export class McpServer {
       case 'get_insights': {
         const days = typeof args.days === 'number' && args.days > 0 ? Math.min(args.days, 365) : 30;
         if (typeof args.timeZone === 'string' && args.timeZone && !validTimeZone(args.timeZone)) throw new ToolError(msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz: args.timeZone }));
-        const suggestions = await suggestCrossPosts(this.#deps.ctx, providers, { days });
+        const suggestions = args.suggestions === true ? await suggestCrossPosts(this.#deps.ctx, providers, { days }) : undefined;
         return { suggestions, ...computeInsights(store, this.#deps.ctx.now(), { days, platform: typeof args.platform === 'string' ? args.platform : undefined, locale: currentLang() === 'en' ? 'en-US' : 'ko-KR', timeZone: typeof args.timeZone === 'string' ? args.timeZone : undefined }) };
       }
       case 'get_limits':
