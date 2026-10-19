@@ -1,8 +1,39 @@
 # 변경 기록
 
-형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/)를 따릅니다. 아직 정식 릴리스 전이라 모든 변경이 "출시 전"에 있습니다.
+형식은 [Keep a Changelog](https://keepachangelog.com/ko/1.1.0/)를 따릅니다.
 
-## 출시 전 (v0.1.0 준비 중)
+## 0.1.0 (출시일은 태그할 때 정함)
+
+첫 릴리스입니다. 아래는 지금까지 쌓인 전부입니다(플랫폼 깊이·게시 이후·대시보드는 밀스톤 M2–M13, 나머지는 그 전).
+
+### 업그레이드
+- 처음 쓰는 버전이라 옮길 데이터는 없습니다. 개발 중 빌드를 쓰던 경우 데이터베이스에 새로 생긴 열(통계, 첫 댓글 등)은 실행할 때 자동으로 더해지고, 기존 게시물과 계정은 그대로 남습니다.
+
+### 플랫폼을 더 깊게 (YouTube·Meta·X·TikTok)
+- YouTube: YouTube Analytics 반응(평균 시청 시간·시청 비율·구독 증가, `yt-analytics.readonly` 권한으로 다시 연결), 챕터 검사, 촬영일
+- TikTok: 수신함으로 보낸 영상이 앱에서 게시되면 그 게시물을 정확히 찾아 연결하고 반응을 가져옴
+- Instagram: 내 댓글은 숨기기 대상에서 빼기, 체험용 릴스(실험), 유료 파트너십 표시, 사람 태그, 장소
+- Facebook: 커버 이미지, 공동 작업자, 장소, 저작권 차단 상태를 알림으로
+- X: 썸네일, 사람 태그, 커뮤니티에 게시
+- 가로 영상을 세로 9:16으로(흐린 배경 `pad` 또는 가운데 `crop`): TikTok·Instagram·Facebook
+- 영상 한 장면을 썸네일로, 같은 장면을 Instagram·TikTok 커버로
+- 로그인 만료 예정 알림(14일 전), 게시물 경고(저작권 차단 등) 알림
+
+### 게시한 뒤
+- 성과 요약: 플랫폼·계정별 조회 합계·중앙값·상위 게시물과, 기록이 쌓이면 하루 뒤 조회가 좋았던 요일·3시간대(`fanout insights`, 대시보드, MCP `get_insights`)
+- 다른 계정에도 올려 볼 만한 게시물 제안(규칙을 지키는 것만, 명령과 함께)
+- 달력(`fanout calendar`, 대시보드, MCP `get_calendar`)과 주간 요약 알림
+- 답을 기다리는 댓글을 한곳에 모으고 그 자리에서 답하기(YouTube·Facebook·Instagram)
+- 게시된 대상마다 최근 30일 조회 추이
+- 첫 댓글: 게시 뒤 같은 계정으로 댓글 한 번(YouTube·Instagram·Facebook, X는 답글). 여러 프로세스가 함께 돌아도 한 번만, 실패하면 다시 달기(`--first-comment`, `fanout first-comment`, MCP `retry_first_comment`)
+- 한 게시물에서 실패한 곳을 한 번에 다시 시도
+
+### 대시보드
+- 새 화면 구성: 사이드바와 화면별 주소, 뒤로·앞으로 가기, 대화상자로 여는 설정(앱마다 한 부분), 좁은 화면의 서랍·가로 탭, 다크 모드, 보라색 강조
+- 올리기 좋은 시간 추천(`fanout best-time`, MCP `suggest_post_times`)
+- 쓰던 게시물 초안을 브라우저 탭마다 저장하고 다시 열 때 이어서 쓰기
+- 대시보드가 다시 시작되면 열어 둔 화면이 요청을 멈추고 새로고침을 안내
+
 
 ### 플랫폼
 - YouTube: 재개형 업로드, Shorts 자동 분류, 썸네일·자막·재생목록, 네이티브 예약, AI 콘텐츠 표시
@@ -73,6 +104,7 @@
 - `fanout doctor peertube --live`, `fanout doctor mastodon --live`: 나만 보이는 테스트 게시물을 올렸다가 지우며 전체 경로 확인
 - `dist/` 빌드, GitHub에서 바로 설치, Docker 이미지와 compose(#9, #10)
 - GitHub Actions CI: 타입 검사, 테스트, 패키지 설치 확인, Docker 빌드(#2, #9)
+- 문서 링크·앵커를 테스트에서 검사, CI가 Docker 이미지를 compose 설정대로 띄워 대시보드를 확인
 
 ### 문서
 - 주제별 문서(`docs/`)와 영어 README(#22)
