@@ -2348,6 +2348,59 @@ function calendarPanel() {
  * Comments still waiting for a reply across recent posts. Loaded on request: each post read is a
  * platform call (and YouTube quota).
  */
+/** Under a waiting comment: reply here, or open the post on the board. */
+function inboxActions(i) {
+  const row = h('div', { class: 'actions-inline' });
+  const toPost = h(
+    'button',
+    {
+      class: 'small link',
+      type: 'button',
+      onclick: () => {
+        showView('board');
+        loadComments(i.postId);
+        document.querySelector(`#board [data-post="${CSS.escape(i.postId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      },
+    },
+    tr('게시물에서 보기'),
+  );
+  if (!i.canReply) return h('div', {}, row, toPost);
+  const open = h('button', { class: 'small', type: 'button' }, tr('답글'));
+  const wrap = h('div', {}, row);
+  open.addEventListener('click', () => {
+    const status = h('div', { class: 'msg' });
+    const text = h('textarea', { rows: 2, maxlength: 5000, 'aria-label': tr('답글 내용') });
+    const send = h('button', { class: 'small primary', type: 'button' }, tr('답글 달기'));
+    const cancel = h('button', { class: 'small', type: 'button' }, tr('취소'));
+    const box = h('div', { class: 'reply-box' }, text, h('p', { class: 'note' }, tr('연결된 계정 이름으로 바로 공개됩니다.')), h('div', { class: 'row-actions' }, send, cancel), status);
+    cancel.addEventListener('click', () => {
+      box.remove();
+      row.hidden = false;
+      open.focus();
+    });
+    send.addEventListener('click', async () => {
+      if (!text.value.trim()) return text.focus();
+      send.disabled = true;
+      message(status, tr('보내는 중…'), true);
+      try {
+        await api(`/targets/${i.targetId}/reply`, { method: 'POST', body: JSON.stringify({ commentId: i.comment.id, text: text.value }) });
+        repliedComments.add(`${i.targetId}:${i.comment.id}`);
+        // Answered: it no longer waits.
+        wrap.closest('.comment')?.classList.add('answered');
+        box.replaceWith(h('div', { class: 'okline' }, tr('✓ 답글을 달았습니다')));
+      } catch (err) {
+        message(status, err.message, false);
+        send.disabled = false;
+      }
+    });
+    row.hidden = true;
+    wrap.append(box);
+    text.focus();
+  });
+  row.append(open, toPost);
+  return wrap;
+}
+
 function inboxPanel() {
   const box = $('#inbox');
   if (!box) return;
@@ -2375,20 +2428,7 @@ function inboxPanel() {
               webUrl(i.comment.url) ? h('a', { href: i.comment.url, target: '_blank', rel: 'noopener noreferrer', class: 'comment-link' }, tr('열기')) : null,
             ),
             h('div', { class: 'comment-text' }, i.comment.text),
-            h(
-              'button',
-              {
-                class: 'small link',
-                type: 'button',
-                onclick: () => {
-                  // Answer it on the post's own card, with its reply box.
-                  showView('board');
-                  loadComments(i.postId);
-                  document.querySelector(`#board [data-post="${CSS.escape(i.postId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                },
-              },
-              tr('게시물에서 답하기'),
-            ),
+            inboxActions(i),
           ),
         ),
       );

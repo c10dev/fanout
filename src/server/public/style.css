@@ -293,6 +293,7 @@ body.modal-open { overflow: hidden; }
 .comment-meta { display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; font-size: 13px; }
 .comment-link { margin-left: auto; color: var(--accent); font-size: 12px; }
 .comment-text { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
+.comment.answered .comment-text { color: var(--muted); }
 
 .presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 10px; }
 .presets select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-control); padding: 4px 8px; min-width: 0; max-width: 100%; }
@@ -428,3 +429,6 @@ details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1;
 @media (max-width: 767px) {
   input, textarea, select, .field input, .field textarea, .field select, .opt select, .opt input[type=text], .opt textarea, .compose-title input, .presets select, .reply-box textarea, #board-search { font-size: 16px; }
 }
+.comment .actions-inline { justify-content: flex-start; margin-top: 6px; }
+.reply-box .row-actions { flex-direction: row; justify-content: flex-start; align-items: center; margin-top: 6px; }
+.reply-box .primary { width: auto; margin: 0; padding: 6px 14px; }
