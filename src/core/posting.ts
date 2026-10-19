@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { ProviderError } from './errors.ts';
 import { isStaleOwner } from './lease.ts';
-import { checkMedia, FITS, type MediaInfo, type Violation } from './media.ts';
+import { checkMedia, FITS, probe as probeMedia, type MediaInfo, type Violation } from './media.ts';
+import { computeInsights } from './insights.ts';
 import { notifyEvent } from './notify.ts';
 import { isTerminal } from './state.ts';
 import { targetSpec, type Provider, type ProviderContext } from './provider.ts';
@@ -542,6 +543,63 @@ function withHidden(listed: Comment[], t: Target): Comment[] {
   const ids = new Set(listed.map((c) => c.id));
   const gone = hiddenByFanout(t).filter((c) => !ids.has(c.id));
   return [...listed.map((c) => ({ ...c, hidden: c.hidden === true })), ...gone.map((c) => ({ ...c, hidden: true }))];
+}
+
+export interface CrossPostSuggestion {
+  postId: string;
+  title: string;
+  /** Views where it did best. */
+  views: number;
+  platform: string;
+  /** Connected accounts it hasn't gone to, whose rules the video meets (converted if need be). */
+  targets: Array<{ platform: string; account: string; transcode: boolean }>;
+  command: string;
+}
+
+/**
+ * Top posts of the last `days` that could also go where they haven't: connected accounts not on the
+ * post, whose media rules the original meets (as is or after conversion). Only posts whose original
+ * is still there (`fanout add` needs it). Suggestions only: nothing is posted.
+ */
+export async function suggestCrossPosts(
+  ctx: ProviderContext,
+  providers: Map<string, Provider>,
+  opts: { days?: number; max?: number; probe?: (path: string) => Promise<MediaInfo> } = {},
+): Promise<CrossPostSuggestion[]> {
+  const insights = computeInsights(ctx.store, ctx.now(), { days: opts.days ?? 30 });
+  // The best showing of each post, best first.
+  const best = new Map<string, { title: string; views: number; platform: string }>();
+  for (const g of insights.groups) {
+    for (const t of g.top) if ((best.get(t.postId)?.views ?? -1) < t.views) best.set(t.postId, { title: t.title, views: t.views, platform: g.platform });
+  }
+  const accounts = ctx.store.listAccounts();
+  const out: CrossPostSuggestion[] = [];
+  for (const [postId, b] of [...best.entries()].sort((x, y) => y[1].views - x[1].views)) {
+    if (out.length >= (opts.max ?? 5)) break;
+    const post = ctx.store.getPost(postId);
+    if (!post || !existsSync(post.mediaPath)) continue;
+    const onPost = ctx.store.targetsForPost(postId);
+    const covered = (platform: string, account: string) => onPost.some((t) => t.platform === platform && t.account === account && (COVERING_STATES.has(t.state) || (t.state === 'failed' && mayBeLive(t))));
+    const open = accounts.filter((a) => providers.has(a.platform) && !covered(a.platform, a.name));
+    if (!open.length) continue;
+    let media: MediaInfo;
+    try {
+      media = await (opts.probe ?? probeMedia)(post.mediaPath);
+    } catch {
+      continue;
+    }
+    const verdicts = new Map(assessMedia(media, open.map((a) => providers.get(a.platform)!)).map((v) => [v.platform, v.verdict]));
+    const targets = open.filter((a) => verdicts.get(a.platform) !== 'blocked').map((a) => ({ platform: a.platform, account: a.name, transcode: verdicts.get(a.platform) === 'transcode' }));
+    if (!targets.length) continue;
+    // A bare platform means main, or its only account (as `fanout add` reads it).
+    const plain = (platform: string, account: string) => {
+      const names = accounts.filter((a) => a.platform === platform).map((a) => a.name);
+      return account === 'main' || (names.length === 1 && !names.includes('main'));
+    };
+    const to = targets.map((t) => (plain(t.platform, t.account) ? t.platform : `${t.platform}:${t.account}`)).join(',');
+    out.push({ postId, title: b.title, views: b.views, platform: b.platform, targets, command: `fanout add ${postId.slice(0, 8)} --to ${to}` });
+  }
+  return out;
 }
 
 export interface InboxItem {
