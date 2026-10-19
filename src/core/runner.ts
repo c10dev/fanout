@@ -14,6 +14,8 @@ export const MAX_ATTEMPTS = 4;
 /** Renewed every RENEW_MS while a step runs, so it only matters when the holder died or stalled. */
 const LEASE_MS = 15 * 60_000;
 const RENEW_MS = 5 * 60_000;
+/** Renewals that may throw in a row before the lease is treated as lost (then at most 5 minutes are left). */
+const RENEW_FAILURES_MAX = 2;
 /** A platform that hasn't finished processing after this long is not going to. */
 export const PROCESSING_MAX_MS = 24 * 3600_000;
 const POLL_TIMEOUT_MS = 60_000;
@@ -56,12 +58,33 @@ export async function step(deps: RunnerDeps, targetId: string): Promise<Target> 
     return fresh ?? target;
   }
   inFlight.add(targetId);
-  // Keep the lease alive through long uploads; if another process took it (we were suspended past
-  // the lease), stop writing this target's state.
-  const renew = setInterval(() => store.claim(targetId, owner, LEASE_MS), RENEW_MS);
+  // Keep the lease alive through long uploads. It counts as lost when another process holds it (we
+  // were suspended past the lease) or renewing keeps failing (the database is full, locked, gone):
+  // from then on this step starts no new platform request. One already in flight is left to finish,
+  // since cutting it off could leave a post made with no record of it.
+  let leaseLost = false;
+  let renewFailures = 0;
+  const renew = setInterval(() => {
+    try {
+      if (store.claim(targetId, owner, LEASE_MS)) {
+        renewFailures = 0;
+        return;
+      }
+      leaseLost = true;
+      deps.ctx.log.warn(msg('작업 잠금을 다른 프로세스가 가져갔습니다. 이 대상은 지금 요청이 끝나면 멈춥니다'));
+    } catch (err) {
+      renewFailures++;
+      deps.ctx.log.warn(msg('작업 잠금을 연장하지 못했습니다 ({n}번째): {err}', { n: renewFailures, err: err instanceof Error ? err.message : String(err) }));
+      if (renewFailures >= RENEW_FAILURES_MAX) leaseLost = true;
+    }
+  }, RENEW_MS);
   renew.unref();
+  const fetchWhileOwned = ((input, init) =>
+    leaseLost
+      ? Promise.reject(new ProviderError('retryable', 'lease_lost', msg('작업 잠금을 잃어 이 단계를 멈췄습니다. 이어서 할 정보는 남겨 두었습니다'), undefined, { keepResume: true }))
+      : deps.ctx.fetch(input, init)) as typeof fetch;
   try {
-    return await stepClaimed(deps, targetId);
+    return await stepClaimed({ ...deps, ctx: { ...deps.ctx, fetch: fetchWhileOwned } }, targetId);
   } finally {
     clearInterval(renew);
     inFlight.delete(targetId);

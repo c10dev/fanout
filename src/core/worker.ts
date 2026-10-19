@@ -4,10 +4,15 @@ import { refreshDueStats } from './stats.ts';
 import { verifyDueAccounts, warnExpiringAccounts } from './accounts.ts';
 import { sendWeeklyDigest } from './digest.ts';
 import { postDueFirstComments } from './followup.ts';
+import { msg } from './i18n.ts';
+import { notifyEvent } from './notify.ts';
 
 export const DEFAULT_STATS_EVERY_MS = 6 * 3600_000;
 const STATS_CHECK_MS = 30 * 60_000;
 const STATS_FIRST_MS = 60_000;
+/** Ticks that fail in a row before health() reports it, and before one alert goes out. */
+const TICK_FAILURES_UNHEALTHY = 3;
+const TICK_FAILURES_ALERT = 5;
 
 export interface WorkerOptions {
   intervalMs?: number;
@@ -34,10 +39,13 @@ export class Worker {
   #upkeepFirst?: NodeJS.Timeout;
   #upkeepRun?: Promise<number>;
   #followupRun?: Promise<number>;
+  #tickFailures = 0;
+  #lastGoodTick: number;
 
   constructor(deps: RunnerDeps, opts: WorkerOptions = {}) {
     this.#deps = deps;
     this.#opts = opts;
+    this.#lastGoodTick = deps.ctx.now().getTime();
   }
 
   start(): void {
@@ -127,10 +135,46 @@ export class Worker {
     await this.#followupRun;
   }
 
+  /**
+   * Whether the loop is doing its job: ticks that can't read the database (full disk, I/O error,
+   * locked past the busy timeout) are logged and retried. It is unhealthy after a few failed ticks
+   * in a row, or when no tick has succeeded for three intervals (a loop that stopped running), and
+   * the dashboard's /healthz answers 503 so a container or service manager sees it.
+   */
+  health(): { ok: boolean } {
+    const since = this.#deps.ctx.now().getTime() - this.#lastGoodTick;
+    return { ok: this.#tickFailures < TICK_FAILURES_UNHEALTHY && since < 3 * this.#interval() };
+  }
+
+  #interval(): number {
+    return this.#opts.intervalMs ?? 15_000;
+  }
+
   tick(): void {
     void this.followupTick();
+    let workable: ReturnType<RunnerDeps['ctx']['store']['workableTargets']>;
+    const { ctx } = this.#deps;
+    try {
+      workable = ctx.store.workableTargets();
+      this.#tickFailures = 0;
+      this.#lastGoodTick = ctx.now().getTime();
+    } catch (err) {
+      this.#tickFailures++;
+      const error = err instanceof Error ? err.message : String(err);
+      ctx.log.warn(msg('작업 처리기가 데이터베이스를 읽지 못했습니다 ({n}번 연속): {error}', { n: this.#tickFailures, error }));
+      // One alert per stall: the next one only after a good tick in between. (When the store itself
+      // is what fails, the webhook setting may not be readable either; /healthz still says so.)
+      if (this.#tickFailures === TICK_FAILURES_ALERT) {
+        try {
+          notifyEvent(ctx, 'alert', msg('fanout 작업 처리기가 멈췄습니다: 데이터베이스 오류가 계속됩니다 — {error}', { error }), { worker: 'stalled' });
+        } catch {
+          // nothing more to do: the warning above and /healthz remain
+        }
+      }
+      return;
+    }
     const byPlatform = new Map<string, string[]>();
-    for (const t of this.#deps.ctx.store.workableTargets()) {
+    for (const t of workable) {
       if (this.#busyPlatforms.has(t.platform)) continue;
       byPlatform.set(t.platform, [...(byPlatform.get(t.platform) ?? []), t.id]);
     }
