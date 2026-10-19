@@ -223,7 +223,9 @@ export const instagram: Provider = {
       // Published earlier but the media id was never saved (a crash, or the poll's deadline, right
       // after media_publish). The container doesn't say which post it became: look for it among
       // the account's latest posts, and only take an unambiguous match.
-      const found = await findPublishedMedia(ctx, c, post, target).catch(() => undefined);
+      // A failed lookup (5xx, rate limit, timeout, sign-in, a lost work lock) is not "no match": it
+      // throws, so the target stays in processing and the next poll looks again.
+      const found = await findPublishedMedia(ctx, c, post, target);
       if (found) {
         ctx.store.updateTarget(target.id, { resume: { ...resume, mediaId: found.id, permalink: found.permalink } });
         return { state: 'published', remoteId: found.id, remoteUrl: found.permalink, warnings: [msg('게시 직후 응답을 놓쳤지만 계정의 최근 게시물에서 찾았습니다')] };

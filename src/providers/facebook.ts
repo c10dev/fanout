@@ -158,7 +158,12 @@ export const facebook: Provider = {
     // An earlier attempt got as far as creating the video. If its finish call went through (the
     // response may have been lost), starting over would publish a second Reel.
     if (resume.videoId) {
-      const st = await graph<ReelStatus>(ctx, 'GET', `/${resume.videoId}`, { fields: 'status', access_token: c.pageToken }).catch(() => undefined);
+      // Only a definite "no such video" means it never published: anything else (a 5xx, a rate
+      // limit, a dropped connection) is a question unanswered, and starting over could post twice.
+      const st = await graph<ReelStatus>(ctx, 'GET', `/${resume.videoId}`, { fields: 'status', access_token: c.pageToken }).catch((err: unknown) => {
+        if (err instanceof ProviderError && err.platformCode?.startsWith('100')) return undefined;
+        throw err;
+      });
       const phases = st?.status;
       const published = phases?.publishing_phase?.status && phases.publishing_phase.status !== 'not_started';
       if (published || (phases?.processing_phase?.status && phases.processing_phase.status !== 'not_started')) {

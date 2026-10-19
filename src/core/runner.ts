@@ -243,7 +243,9 @@ function handleError(deps: RunnerDeps, targetId: string, err: unknown): Target {
     }
     return store.transition(target.id, 'failed', { ...fields, attempts }, pe.code);
   }
-  if (target.state === 'processing' && !pe.keepResume) {
+  // A post request whose answer never came (`posting`) may be live: keep the marker whatever this
+  // error is, so the retry gate (mayBeDuplicate) still asks the user before anything is sent again.
+  if (target.state === 'processing' && !pe.keepResume && (target.resume as { posting?: unknown } | undefined)?.posting !== true) {
     // The platform rejected the remote object itself (processing failed, container expired…). Forget it
     // so a manual retry uploads afresh instead of polling the same dead id again.
     return store.transition(target.id, 'failed', { ...fields, remoteId: undefined, remoteUrl: undefined, resume: undefined }, pe.code);

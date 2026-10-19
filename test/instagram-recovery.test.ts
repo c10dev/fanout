@@ -64,6 +64,21 @@ describe('instagram: a container published without its media id', () => {
     assert.equal(calls.length, before, 'no Graph call with the container id');
   });
 
+  it('a lookup that fails is not "no match": it throws, so the next poll looks again', async () => {
+    const { fetch } = mockFetch([
+      ['GET', '/C1?', () => json({ status_code: 'PUBLISHED' })],
+      ['GET', '/IG/media?', () => json({ error: { code: 2, message: 'Service temporarily unavailable' } }, 500)],
+    ]);
+    const env = makeCtx(fetch, () => NOW);
+    env.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    env.store.saveAccount({ platform: 'instagram', name: 'main', credentials: CREDS, profile: {} });
+    const { post, targets } = env.store.createPost(POST, [{ platform: 'instagram', account: 'main', options: {} }]);
+    env.store.transition(targets[0]!.id, 'uploading');
+    env.store.transition(targets[0]!.id, 'processing', { remoteId: 'C1', resume: { containerId: 'C1', uploaded: true } });
+    await assert.rejects(instagram.poll({ ctx: env.ctx, post, target: { ...env.store.getTarget(targets[0]!.id)!, remoteId: 'C1' }, account: env.store.getAccount('instagram', 'main')! }));
+    assert.equal((env.store.getTarget(targets[0]!.id)!.resume as { mediaIdUnknown?: boolean }).mediaIdUnknown, undefined, 'not marked');
+  });
+
   it('no match: marked', async () => {
     const { out } = await recover([{ id: 'X1', caption: 'another post', timestamp: '2026-10-19T02:59:00+0000' }]);
     assert.equal(out.remoteId, 'C1');

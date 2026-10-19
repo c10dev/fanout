@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { SecretBox } from '../src/core/crypto.ts';
+import { retryTarget } from '../src/core/posting.ts';
 import { restoreBackup } from '../src/core/restore.ts';
 import { Store } from '../src/core/store.ts';
 
@@ -40,6 +41,32 @@ describe('fanout restore', () => {
     assert.deepEqual(back.listPosts(10).map((p) => p.title), ['backed up']);
     assert.equal(back.getAccount('youtube', 'main')!.credentials.accessToken, 'secret');
     assert.equal(statSync(join(home, 'fanout.db')).mode & 0o777, 0o600);
+    back.close();
+  });
+
+  it('holds what may have gone out since the backup, and leaves later schedules queued', () => {
+    const root = mkdtempSync(join(tmpdir(), 'fanout-restore-hold-'));
+    const home = join(root, 'home');
+    mkdirSync(home);
+    const key = randomBytes(32);
+    writeFileSync(join(home, 'secret.key'), key.toString('base64'), { mode: 0o600 });
+    const store = new Store(join(home, 'fanout.db'), new SecretBox(key), () => NOW);
+    const due = store.createPost(POST, [{ platform: 'x', account: 'main', options: {} }]).targets[0]!.id;
+    const later = store.addTargets(store.createPost({ ...POST, title: 'later' }, []).post.id, [{ platform: 'youtube', account: 'main', options: {} }], () => '2026-12-01T00:00:00.000Z')[0]!.id;
+    const uploading = store.createPost({ ...POST, title: 'mid-upload' }, [{ platform: 'tiktok', account: 'main', options: {} }]).targets[0]!.id;
+    store.transition(uploading, 'uploading');
+    const backup = join(root, 'backup');
+    mkdirSync(backup);
+    store.backupTo(join(backup, 'fanout.db'));
+    writeFileSync(join(backup, 'secret.key'), key.toString('base64'));
+    store.close();
+    const r = restoreBackup({ home, backupDir: backup, now: NOW });
+    assert.equal(r.held, 2);
+    const back = new Store(join(home, 'fanout.db'), new SecretBox(key), () => NOW);
+    assert.deepEqual([back.getTarget(due)!.state, back.getTarget(due)!.errorCode], ['failed', 'restore.maybe_posted']);
+    assert.equal(back.getTarget(uploading)!.state, 'failed');
+    assert.equal(back.getTarget(later)!.state, 'queued', 'scheduled for later: nothing can have gone out');
+    assert.throws(() => retryTarget(back, due, 'test'), (e: Error & { code?: string }) => e.code === 'maybe_duplicate');
     back.close();
   });
 

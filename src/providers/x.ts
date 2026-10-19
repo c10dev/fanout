@@ -499,6 +499,11 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     const username = creds(account).username;
     if (resume.tweetId) return { state: 'published', remoteId: resume.tweetId, remoteUrl: `https://x.com/${username}/status/${resume.tweetId}`, warnings: resume.extraWarnings?.length ? resume.extraWarnings : undefined };
     const mediaId = resume.mediaId ?? target.remoteId;
+    // X has no idempotency key for posts: if a previous attempt may already have posted, stop before
+    // anything else, so no later error (a media status read failing, say) can wipe that fact.
+    if (resume.posting) {
+      throw new ProviderError('rejected', 'x.maybe_posted', msg('이전 시도에서 이미 게시됐을 수 있습니다. https://x.com/{username} 에서 확인한 뒤, 없으면 다시 시도하세요', { username }), undefined, { keepResume: true });
+    }
 
     const status = await api<{ data: MediaData }>(ctx, account, `/2/media/upload?${new URLSearchParams({ command: 'STATUS', media_id: mediaId })}`);
     const state = status.data.processing_info?.state;

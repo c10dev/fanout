@@ -7,6 +7,8 @@ import { msg } from './i18n.ts';
 export class RestoreError extends Error {}
 
 export interface RestoreResult {
+  /** Targets held as possibly posted since the backup (they need the user's check to go out). */
+  held: number;
   posts: number;
   accounts: number;
   /** Where the data that was there before went. */
@@ -133,5 +135,44 @@ export function restoreBackup(opts: { home: string; backupDir: string; now: Date
     copyFileSync(backupKey, homeKey);
     chmodSync(homeKey, 0o600);
   }
-  return { posts, accounts, savedTo, keyRestored };
+  const held = holdUnfinished(currentDb, now);
+  return { posts, accounts, savedTo, keyRestored, held };
+}
+
+/**
+ * A backup is a moment in the past: what was still on its way then may have gone out since. Hold
+ * every target that was mid-upload, or queued and already due, as possibly posted (the retry gate
+ * then asks the user to check the platform first) instead of letting the worker post it again.
+ * Targets scheduled for later stay queued. Returns how many were held.
+ */
+function holdUnfinished(dbPath: string, now: Date): number {
+  const db = new DatabaseSync(dbPath);
+  try {
+    const at = now.toISOString();
+    const rows = db
+      .prepare(
+        `SELECT id, state FROM targets
+         WHERE state IN ('transcoding', 'uploading', 'processing')
+            OR (state = 'queued' AND (attempts > 0 OR not_before IS NULL OR not_before <= ?))`,
+      )
+      .all(at) as Array<{ id: string; state: string }>;
+    if (!rows.length) return 0;
+    const message = msg('백업 뒤에 이미 게시됐을 수 있어 멈춰 두었습니다. 플랫폼에서 확인한 뒤 다시 시도하거나 취소하세요');
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      const update = db.prepare("UPDATE targets SET state = 'failed', error_code = 'restore.maybe_posted', error_message = ?, updated_at = ? WHERE id = ?");
+      const event = db.prepare("INSERT INTO events (target_id, at, from_state, to_state, detail) VALUES (?, ?, ?, 'failed', 'restored from a backup')");
+      for (const r of rows) {
+        update.run(message, at, r.id);
+        event.run(r.id, at, r.state);
+      }
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+    return rows.length;
+  } finally {
+    db.close();
+  }
 }

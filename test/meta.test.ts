@@ -140,7 +140,10 @@ describe('instagram reels', () => {
 
   it('keeps polling while IN_PROGRESS and fails on ERROR', async () => {
     let code = 'IN_PROGRESS';
-    const { fetch } = mockFetch([['GET', '/CONT2?', () => json({ status_code: code, status: 'Error: unsupported codec' })]]);
+    const { fetch } = mockFetch([
+      ['GET', '/CONT2?', () => json({ status_code: code, status: 'Error: unsupported codec' })],
+      ['GET', '/IG/media?', () => json({ data: [] })],
+    ]);
     const { ctx, store } = makeCtx(fetch);
     store.setApp('meta', { appId: 'a', appSecret: 's' });
     const { targets } = store.createPost(post, [{ platform: 'instagram', account: 'main', options: {} }]);

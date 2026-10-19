@@ -107,6 +107,24 @@ describe('worker guards', () => {
     assert.equal(sent.filter((s) => s.includes('SQLITE_IOERR')).length, 2);
   });
 
+  it('database errors under a run count too: reads can succeed while every write fails', async () => {
+    const env = makeCtx();
+    env.ctx.log = { ...env.ctx.log, warn: () => {} };
+    env.store.saveAccount({ platform: 'fake', name: 'main', credentials: {}, profile: {} });
+    env.store.createPost(POST, [{ platform: 'fake', account: 'main', options: {} }]);
+    const { provider } = twoRequestProvider();
+    const worker = new Worker({ ctx: env.ctx, providers: new Map([['fake', provider]]), probe: async () => fakeMedia() });
+    const full = Object.assign(new Error('database or disk is full'), { code: 'ERR_SQLITE_ERROR' });
+    env.store.claim = () => {
+      throw full;
+    };
+    for (let i = 0; i < 4; i++) {
+      worker.tick();
+      await worker.idle();
+    }
+    assert.equal(worker.health().ok, false);
+  });
+
   it('a loop whose ticks stop running for three intervals is unhealthy', () => {
     let now = Date.parse('2026-10-19T00:00:00Z');
     const env = makeCtx(undefined, () => new Date(now));

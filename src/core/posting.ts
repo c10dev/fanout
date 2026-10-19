@@ -418,9 +418,14 @@ export async function removeTarget(baseCtx: ProviderContext, providers: Map<stri
   let account = ctx.store.getAccount(t.platform, t.account);
   if (!account) throw new Error(msg('연결된 계정이 없습니다: {platform}/{account}', { platform: t.platform, account: t.account }));
   account = await provider.refresh(ctx, account);
+  // A first comment not yet tried is taken now, so the worker can't post it while (or after) the
+  // post is removed. If the worker got there first, its outcome is read back below.
+  if (!t.followup && ctx.store.getPost(t.postId)?.firstComment) {
+    ctx.store.claimFollowup(t.id, undefined, { state: 'failed', at: ctx.now().toISOString(), error: msg('게시물을 지우는 중이라 첫 댓글을 달지 않았습니다') });
+  }
   // Where the first comment is a post of its own (X), it goes first: a failure then leaves the post
   // up with its reply, never a reply with nothing to answer.
-  const f = t.followup;
+  const f = ctx.store.getTarget(t.id)?.followup;
   const notes: string[] = [];
   if (provider.firstCommentIsPost && f?.state === 'posted' && f.id) await provider.remove({ ctx, account, target: { ...t, remoteId: f.id } });
   else if (provider.firstCommentIsPost && (f?.state === 'sending' || f?.maybePosted)) {

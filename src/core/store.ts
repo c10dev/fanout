@@ -314,9 +314,15 @@ export class Store {
       committed = true;
       return out;
     } catch (err) {
-      this.#db.exec('ROLLBACK');
       // State changes that were rolled back never happened: nobody hears of them.
       this.#afterCommit = [];
+      // SQLite may have rolled back already (a COMMIT failing on a full disk or an I/O error):
+      // ROLLBACK then fails too, and that must not hide the real error.
+      try {
+        this.#db.exec('ROLLBACK');
+      } catch {
+        // nothing left to roll back
+      }
       throw err;
     } finally {
       this.#txDepth--;
