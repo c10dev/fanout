@@ -236,6 +236,7 @@ body.modal-open { overflow: hidden; }
 .app-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 14px; align-items: end; }
 .app-form .field { margin-top: 10px; }
 .actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
+#draft-banner .actions { margin-top: 0; }
 .actions .primary { width: auto; margin: 0; padding: 8px 18px; }
 .msg { font-size: 13px; }
 .msg.ok { color: var(--ok); }
@@ -414,7 +415,7 @@ details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1;
 .compose-title input:focus { outline: none; }
 .compose:focus-within { border-color: var(--accent); }
 .compose-panel.empty { color: var(--text); text-align: start; background: transparent; border: 0; padding: 0; width: 100%; max-width: 640px; margin: 0 auto; min-height: calc(100vh - 48px - 64px); display: flex; flex-direction: column; justify-content: center; }
-.compose-panel.empty #post-form > :not(.compose):not(#add-banner):not(#form-error) { display: none; }
+.compose-panel.empty #post-form > :not(.compose):not(#add-banner):not(#draft-banner):not(#form-error) { display: none; }
 .compose-panel.empty #form-error:empty { display: none; }
 .compose-panel.empty #post-form::before { content: none; }
 @media (max-width: 639px) {

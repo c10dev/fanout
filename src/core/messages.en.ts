@@ -774,4 +774,5 @@ export const MESSAGES_EN: Record<string, string> = {
   "앞으로 {days}일 안에 비어 있는 시간이 없습니다": "No free time in the next {days} days",
   "\n예약하려면 fanout post 에 위의 --at 을 붙이세요": "\nTo schedule, add one of the --at above to fanout post",
   "accounts 가 필요합니다 (예: youtube/main,tiktok/main)": "accounts is required (e.g. youtube/main,tiktok/main)",
+  "올린 영상이 서버에 없습니다. 다시 올려 주세요": "The uploaded video is no longer on the server. Upload it again",
 };

@@ -770,6 +770,9 @@ function uploadFile(file) {
     if (!$('#title').value) $('#title').value = file.name.replace(/\.[^.]+$/, '').slice(0, 100);
     renderMedia();
     renderTargets();
+    // A new video starts a new draft: the one offered from before gives way.
+    $('#draft-banner').hidden = true;
+    saveDraft();
   };
   xhr.onerror = () => {
     bar.hidden = true;
@@ -845,6 +848,92 @@ $('#best-times-btn').addEventListener('click', async () => {
     list.replaceChildren(h('p', { class: 'form-error' }, err.message));
   }
 });
+
+// ── Draft ────────────────────────────────────────────────────────
+// The form as it's typed, kept in this browser so a reload or a closed tab doesn't lose it. Files
+// other than the video (thumbnail, captions) can't be kept; the video is kept by its upload id.
+
+const DRAFT_KEY = 'fanout.draft';
+let draftTimer;
+
+function readDraft() {
+  try {
+    const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null');
+    return d && d.v === 1 ? d : null;
+  } catch {
+    return null;
+  }
+}
+
+function clearDraft() {
+  clearTimeout(draftTimer);
+  try {
+    localStorage.removeItem(DRAFT_KEY);
+  } catch {}
+  $('#draft-banner').hidden = true;
+}
+
+function saveDraft() {
+  // Adding to a post already made isn't a draft; nor is an offer to restore still waiting.
+  if (addingTo || !$('#draft-banner').hidden) return;
+  const title = $('#title').value;
+  const description = $('#description').value;
+  if (!media && !title.trim() && !description.trim()) return clearDraft();
+  const targets = [];
+  for (const block of document.querySelectorAll('.target')) {
+    if (!block.querySelector('[name="enabled"]')?.checked) continue;
+    const platform = block.dataset.platform;
+    const account = block.querySelector('select[name="account"]')?.value ?? block.querySelector('[data-account]')?.dataset.account;
+    targets.push({ platform, account, options: JSON.parse(JSON.stringify(readOptions(platform, block.querySelector('.target-body')))) });
+  }
+  const draft = { v: 1, savedAt: new Date().toISOString(), media, title, description, tags: $('#tags').value, scheduled: $('#scheduled').value, ai: $('#ai').checked, thumbnailAt: $('#thumbnail-at').value, targets };
+  try {
+    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
+  } catch {}
+}
+
+for (const type of ['input', 'change']) {
+  $('#post-form').addEventListener(type, () => {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(saveDraft, 400);
+  });
+}
+
+async function restoreDraft(d) {
+  $('#draft-banner').hidden = true;
+  let note = '';
+  if (d.media?.id) {
+    try {
+      await api(`/media/${encodeURIComponent(d.media.id)}`);
+      media = d.media;
+      $('#drop-label').textContent = tr('{name} · 다른 파일로 바꾸려면 다시 고르세요', { name: d.media.name });
+    } catch (err) {
+      note = err.message;
+    }
+  }
+  $('#title').value = d.title ?? '';
+  $('#description').value = d.description ?? '';
+  $('#tags').value = d.tags ?? '';
+  $('#scheduled').value = d.scheduled ?? '';
+  $('#ai').checked = Boolean(d.ai);
+  $('#thumbnail-at').value = d.thumbnailAt ?? '';
+  renderMedia();
+  applyPreset({ targets: d.targets ?? [] });
+  if (note) $('#form-error').textContent = note;
+  saveDraft();
+}
+
+/** On load: offer the draft left behind, if there is one. */
+function offerDraft() {
+  const d = readDraft();
+  if (!d || media || addingTo) return;
+  const box = $('#draft-banner');
+  box.replaceChildren(
+    h('span', {}, tr('저장하지 않은 게시물이 있습니다: {title} ({time})', { title: d.title?.trim() || d.media?.name || tr('제목 없음'), time: fmtTime(d.savedAt) })),
+    h('span', { class: 'actions' }, h('button', { type: 'button', class: 'small', onclick: () => restoreDraft(d) }, tr('이어서 쓰기')), h('button', { type: 'button', class: 'small', onclick: clearDraft }, tr('버리기'))),
+  );
+  box.hidden = false;
+}
 
 // ── Submit ───────────────────────────────────────────────────────
 
@@ -978,6 +1067,7 @@ async function post(form) {
       return;
     }
     await api('/posts', { method: 'POST', body: JSON.stringify(form.payload) });
+    clearDraft();
     $('#post-form').reset();
     $('#captions').replaceChildren();
     $('#drop-label').textContent = tr('영상 파일을 고르거나 여기에 끌어다 놓으세요');
@@ -2308,6 +2398,7 @@ async function init() {
   inboxPanel();
   insightsPanel();
   loadPresets();
+  offerDraft();
 
   // Coming back from an OAuth redirect.
   const params = new URLSearchParams(location.search);

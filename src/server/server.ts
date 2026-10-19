@@ -339,6 +339,12 @@ export class Dashboard {
     if (method === 'GET' && parts[0] === 'limits' && !parts[1]) return send(res, 200, { accounts: await readLimits(this.#opts.ctx, this.#opts.providers, url.searchParams.get('platform') ?? undefined) });
     if (parts[0] === 'presets') return send(res, 200, await this.#presets(method, parts[1] ? decode(parts[1]) : undefined, req));
     if (method === 'POST' && parts[0] === 'media' && parts.length === 1) return send(res, 201, await this.#upload(req));
+    // Whether an uploaded video is still here (a draft kept in the browser asks before using it).
+    if (method === 'GET' && parts[0] === 'media' && parts[1] && parts.length === 2) {
+      const id = decode(parts[1]);
+      if (!MEDIA_ID.test(id) || !existsSync(join(this.#mediaDir, id))) throw new HttpError(404, msg('올린 영상이 서버에 없습니다. 다시 올려 주세요'));
+      return send(res, 200, { id });
+    }
     if (method === 'POST' && parts[0] === 'assets' && (parts[1] === 'thumbnail' || parts[1] === 'caption')) return send(res, 201, await this.#uploadAsset(req, parts[1]));
     if (method === 'GET' && parts[0] === 'posts' && parts.length === 1) {
       return send(res, 200, this.#listPosts(Number(url.searchParams.get('limit') ?? 20), url.searchParams.get('q') ?? undefined, url.searchParams.get('scheduled') === '1'));
