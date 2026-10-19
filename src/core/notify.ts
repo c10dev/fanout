@@ -69,12 +69,27 @@ export function validWebhookUrl(url: string): boolean {
   }
 }
 
+/** The default before `alert` and `expiring` existed: the dashboard saved it as an explicit list. */
+const OLD_DEFAULT: readonly NotifyEvent[] = ['published', 'handed_off', 'failed', 'needs_reauth'];
+const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.length && a.every((e) => b.includes(e));
+
 /** The webhook to use: FANOUT_WEBHOOK_URL overrides what `fanout notify set` saved. Invalid ones are ignored. */
 export function notifyConfig(ctx: ProviderContext): NotifyConfig | undefined {
   const env = process.env.FANOUT_WEBHOOK_URL;
   if (env) return validWebhookUrl(env) ? { url: env } : undefined;
   const saved = ctx.store.getApp<NotifyConfig>('notify');
-  return saved?.url && validWebhookUrl(saved.url) ? saved : undefined;
+  if (!saved?.url || !validWebhookUrl(saved.url)) return undefined;
+  // A list that is just the old default means "the default", which now includes the new events.
+  if (saved.events && sameSet(saved.events, OLD_DEFAULT)) {
+    const { events: _, ...rest } = saved;
+    return rest;
+  }
+  return saved;
+}
+
+/** What to save for a picked list: nothing when it is the default, so later defaults reach it too. */
+export function eventsToSave(events: NotifyEvent[]): NotifyEvent[] | undefined {
+  return sameSet(events, DEFAULT_EVENTS) ? undefined : events;
 }
 
 export async function send(ctx: ProviderContext, config: NotifyConfig, body: unknown): Promise<void> {

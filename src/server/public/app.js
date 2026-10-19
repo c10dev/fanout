@@ -1804,7 +1804,10 @@ async function refreshAll() {
   renderAccounts();
   renderTargets();
   if (!$('#view-settings').hidden) await loadSettings();
+  reloadInsights?.();
 }
+
+let reloadInsights;
 
 /** "What performs" under the board: per platform and account, from the recorded reactions (no platform calls). */
 function insightsPanel() {
@@ -1841,6 +1844,7 @@ function insightsPanel() {
     }
   };
   days.addEventListener('change', load);
+  reloadInsights = load;
   box.replaceChildren(h('div', { class: 'panel-head' }, h('h2', {}, tr('성과 요약')), days), body);
   load();
 }

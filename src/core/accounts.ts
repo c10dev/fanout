@@ -147,7 +147,9 @@ export async function warnExpiringAccounts(ctx: ProviderContext, providers: Map<
   for (const { platform, name } of ctx.store.listAccounts()) {
     const expiry = signInExpiry(ctx, providers, platform, name);
     const account = ctx.store.getAccount(platform, name);
-    if (!expiry?.soon || !account || (account.credentials as { expiryWarnedFor?: number }).expiryWarnedFor === expiry.expiresAt) continue;
+    // The same expiry, give or take the drift of a refresh (it's recomputed from "expires in" each time).
+    const warnedFor = (account?.credentials as { expiryWarnedFor?: number } | undefined)?.expiryWarnedFor;
+    if (!expiry?.soon || !account || (warnedFor !== undefined && Math.abs(warnedFor - expiry.expiresAt) < DAY_MS)) continue;
     const when = new Date(expiry.expiresAt).toISOString().slice(0, 16).replace('T', ' ');
     const text = expiry.expiresAt <= ctx.now().getTime()
       ? msg('🔑 {platform}/{name} 로그인이 만료됐습니다 ({when} UTC) — fanout connect {platform} 로 다시 연결하세요', { platform, name, when })

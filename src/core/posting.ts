@@ -321,7 +321,7 @@ export async function refreshStats(
       const title = ctx.store.getPost(t.postId)?.title ?? t.postId;
       for (const a of fresh) {
         ctx.log.warn(`${t.platform}/${t.account}: ${a}`);
-        notifyEvent(ctx, 'alert', `⚠️ ${t.platform}/${t.account} "${title}": ${a}${t.remoteUrl ? `\n${t.remoteUrl}` : ''}`, { platform: t.platform, account: t.account, postId: t.postId, targetId: t.id, url: t.remoteUrl, alert: a });
+        notifyEvent(ctx, 'alert', `⚠️ ${t.platform}/${t.account} "${title}": ${a}${t.remoteUrl ? `\n${t.remoteUrl}` : ''}`, { platform: t.platform, account: t.account, postId: t.postId, targetId: t.id, title, url: t.remoteUrl, alert: a });
       }
     }
     out.push({ ...base, stats, trend: statsTrend(ctx.store, t.id, ctx.now()) });
