@@ -770,7 +770,7 @@ function uploadFile(file) {
     if (!$('#title').value) $('#title').value = file.name.replace(/\.[^.]+$/, '').slice(0, 100);
     renderMedia();
     renderTargets();
-    // A new video starts a new draft: the one offered from before gives way.
+    // A new video starts new work: the offer steps aside (that draft is offered again next time).
     $('#draft-banner').hidden = true;
     saveDraft();
   };
@@ -852,30 +852,59 @@ $('#best-times-btn').addEventListener('click', async () => {
 // ── Draft ────────────────────────────────────────────────────────
 // The form as it's typed, kept in this browser so a reload or a closed tab doesn't lose it. Files
 // other than the video (thumbnail, captions) can't be kept; the video is kept by its upload id.
+// Each tab keeps its own draft and says it's open with a heartbeat, so one tab never overwrites,
+// clears or offers another open tab's work; a draft is offered once its tab has gone.
 
-const DRAFT_KEY = 'fanout.draft';
+const DRAFT_PREFIX = 'fanout.draft.';
+const ALIVE_PREFIX = 'fanout.alive.';
+const DRAFT_TAB = Math.random().toString(36).slice(2);
+const DRAFT_KEY = DRAFT_PREFIX + DRAFT_TAB;
+const ALIVE_MS = 45_000;
+const DRAFT_DAYS = 30;
 let draftTimer;
 
-function readDraft() {
-  try {
-    const d = JSON.parse(localStorage.getItem(DRAFT_KEY) ?? 'null');
-    return d && d.v === 1 ? d : null;
-  } catch {
-    return null;
-  }
+const storage = {
+  get(key) {
+    try {
+      return JSON.parse(localStorage.getItem(key) ?? 'null');
+    } catch {
+      return null;
+    }
+  },
+  set(key, value) {
+    try {
+      localStorage.setItem(key, JSON.stringify(value));
+    } catch {}
+  },
+  remove(key) {
+    try {
+      localStorage.removeItem(key);
+    } catch {}
+  },
+  keys(prefix) {
+    try {
+      return Object.keys(localStorage).filter((k) => k.startsWith(prefix));
+    } catch {
+      return [];
+    }
+  },
+};
+
+function heartbeat() {
+  storage.set(ALIVE_PREFIX + DRAFT_TAB, Date.now());
 }
+heartbeat();
+setInterval(heartbeat, 15_000);
+window.addEventListener('pagehide', () => storage.remove(ALIVE_PREFIX + DRAFT_TAB));
 
 function clearDraft() {
   clearTimeout(draftTimer);
-  try {
-    localStorage.removeItem(DRAFT_KEY);
-  } catch {}
-  $('#draft-banner').hidden = true;
+  storage.remove(DRAFT_KEY);
 }
 
 function saveDraft() {
-  // Adding to a post already made isn't a draft; nor is an offer to restore still waiting.
-  if (addingTo || !$('#draft-banner').hidden) return;
+  // Adding to a post already made isn't a draft.
+  if (addingTo) return;
   const title = $('#title').value;
   const description = $('#description').value;
   if (!media && !title.trim() && !description.trim()) return clearDraft();
@@ -886,10 +915,7 @@ function saveDraft() {
     const account = block.querySelector('select[name="account"]')?.value ?? block.querySelector('[data-account]')?.dataset.account;
     targets.push({ platform, account, options: JSON.parse(JSON.stringify(readOptions(platform, block.querySelector('.target-body')))) });
   }
-  const draft = { v: 1, savedAt: new Date().toISOString(), media, title, description, tags: $('#tags').value, scheduled: $('#scheduled').value, ai: $('#ai').checked, thumbnailAt: $('#thumbnail-at').value, targets };
-  try {
-    localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
-  } catch {}
+  storage.set(DRAFT_KEY, { v: 1, savedAt: new Date().toISOString(), media, title, description, tags: $('#tags').value, scheduled: $('#scheduled').value, ai: $('#ai').checked, thumbnailAt: $('#thumbnail-at').value, targets });
 }
 
 for (const type of ['input', 'change']) {
@@ -899,7 +925,9 @@ for (const type of ['input', 'change']) {
   });
 }
 
-async function restoreDraft(d) {
+async function restoreDraft(key, d) {
+  // Something typed since the offer: replacing it is the user's call.
+  if ((media || $('#title').value.trim() || $('#description').value.trim()) && !confirm(tr('지금 쓰고 있는 내용 대신 저장된 초안을 불러올까요?'))) return;
   $('#draft-banner').hidden = true;
   let note = '';
   if (d.media?.id) {
@@ -919,18 +947,44 @@ async function restoreDraft(d) {
   $('#thumbnail-at').value = d.thumbnailAt ?? '';
   renderMedia();
   applyPreset({ targets: d.targets ?? [] });
-  if (note) $('#form-error').textContent = note;
+  // After the preset's own note (accounts no longer connected), not instead of it.
+  if (note) $('#form-error').textContent = [$('#form-error').textContent, note].filter(Boolean).join(' · ');
+  // It's this tab's draft now.
+  storage.remove(key);
   saveDraft();
 }
 
-/** On load: offer the draft left behind, if there is one. */
+/** On load: offer the newest draft whose tab has closed; drop drafts older than a month. */
 function offerDraft() {
-  const d = readDraft();
+  const now = Date.now();
+  const left = [];
+  for (const key of storage.keys(DRAFT_PREFIX)) {
+    if (key === DRAFT_KEY) continue;
+    const d = storage.get(key);
+    const tab = key.slice(DRAFT_PREFIX.length);
+    if (!d || d.v !== 1 || now - Date.parse(d.savedAt) > DRAFT_DAYS * 86_400_000) {
+      storage.remove(key);
+      continue;
+    }
+    if (now - (Number(storage.get(ALIVE_PREFIX + tab)) || 0) < ALIVE_MS) continue;
+    storage.remove(ALIVE_PREFIX + tab);
+    left.push([key, d]);
+  }
+  // The single draft of the first version of this, and heartbeats of tabs that closed without saying so.
+  storage.remove('fanout.draft');
+  for (const key of storage.keys(ALIVE_PREFIX)) if (now - (Number(storage.get(key)) || 0) > ALIVE_MS) storage.remove(key);
+  left.sort((a, b) => Date.parse(b[1].savedAt) - Date.parse(a[1].savedAt));
+  const [key, d] = left[0] ?? [];
   if (!d || media || addingTo) return;
   const box = $('#draft-banner');
   box.replaceChildren(
     h('span', {}, tr('저장하지 않은 게시물이 있습니다: {title} ({time})', { title: d.title?.trim() || d.media?.name || tr('제목 없음'), time: fmtTime(d.savedAt) })),
-    h('span', { class: 'actions' }, h('button', { type: 'button', class: 'small', onclick: () => restoreDraft(d) }, tr('이어서 쓰기')), h('button', { type: 'button', class: 'small', onclick: clearDraft }, tr('버리기'))),
+    h(
+      'span',
+      { class: 'actions' },
+      h('button', { type: 'button', class: 'small', onclick: () => restoreDraft(key, d) }, tr('이어서 쓰기')),
+      h('button', { type: 'button', class: 'small', onclick: () => { storage.remove(key); box.hidden = true; } }, tr('버리기')),
+    ),
   );
   box.hidden = false;
 }

@@ -42,8 +42,6 @@ export interface SuggestOptions {
 }
 
 const H = 3600_000;
-/** A post on its way or out counts as taking the slot; one that failed or was pulled doesn't. */
-const FREE: ReadonlySet<TargetState> = new Set(['failed', 'removed', 'canceled']);
 /** Without history: early evening, when short video is watched most. */
 const DEFAULT_HOURS = new Set([18, 19, 20]);
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -55,6 +53,38 @@ function inZone(timeZone: string): (at: Date) => { date: string; weekday: number
     const p = Object.fromEntries(f.formatToParts(at).map((x) => [x.type, x.value]));
     return { date: `${p.year}-${p.month}-${p.day}`, weekday: WEEKDAYS.indexOf(p.weekday!), hour: Number(p.hour), minute: Number(p.minute) };
   };
+}
+
+/** Still on its way: it goes out at its schedule, or now. */
+const PENDING: readonly TargetState[] = ['queued', 'transcoding', 'uploading', 'processing', 'needs_reauth'];
+
+/**
+ * When each of these accounts has something going out or just gone out: per target, not per post,
+ * since a platform added later or a retry goes out long after the post was made.
+ */
+function takenTimes(store: Store, now: Date, accounts: SuggestOptions['accounts'], gap: number, horizon: number): number[] {
+  const from = now.getTime() - gap;
+  const to = now.getTime() + horizon + gap;
+  // Posts scheduled in the window: a native schedule goes public then, long after its upload.
+  const ahead = new Map(
+    store
+      .postsBetween(new Date(from).toISOString(), new Date(to).toISOString())
+      .filter((p) => p.scheduledAt)
+      .map((p) => [p.id, Date.parse(p.scheduledAt!)]),
+  );
+  const scheduledAt = (postId: string) => (ahead.get(postId) ?? Date.parse(store.getPost(postId)?.scheduledAt ?? '')) || 0;
+  const out: number[] = [];
+  for (const { platform, account } of accounts) {
+    for (const state of PENDING) for (const t of store.targetsInState(platform, account, state)) out.push(Math.max(now.getTime(), scheduledAt(t.postId)));
+    for (const state of ['published', 'handed_off'] as const) {
+      for (const t of store.targetsInState(platform, account, state)) {
+        // It went out at or before its last update, unless it goes public at a schedule still ahead.
+        if (Date.parse(t.updatedAt) < from && !ahead.has(t.postId)) continue;
+        out.push(Math.max((store.stateSince(t.id, state) ?? new Date(t.updatedAt)).getTime(), scheduledAt(t.postId)));
+      }
+    }
+  }
+  return out.filter((at) => at >= from && at <= to);
 }
 
 export function suggestTimes(store: Store, now: Date, opts: SuggestOptions): TimeSuggestions {
@@ -71,18 +101,13 @@ export function suggestTimes(store: Store, now: Date, opts: SuggestOptions): Tim
   const blocks = groups.flatMap((g) => (g.bestHours ? [{ who: `${g.platform}/${g.account}`, value: g.bestHours.value, label: g.bestHours.label }] : []));
   const history = weekdays.length > 0 || blocks.length > 0;
 
-  // Times already taken on these accounts (scheduled, or posted lately).
-  const taken = wanted.size
-    ? store
-        .postsBetween(new Date(now.getTime() - gap).toISOString(), new Date(now.getTime() + horizon + gap).toISOString())
-        .filter((p) => store.targetsForPost(p.id).some((t) => wanted.has(`${t.platform}/${t.account}`) && !FREE.has(t.state)))
-        .map((p) => Date.parse(p.scheduledAt ?? p.createdAt))
-    : [];
+  const taken = takenTimes(store, now, opts.accounts, gap, horizon);
 
-  // Every whole local hour from an hour ahead (half-hour steps catch zones offset by :30).
+  // Every whole local hour from an hour ahead (quarter-hour steps catch zones offset by :30 and :45).
   const candidates: Array<{ at: number; score: number; reasons: string[]; basis: TimeSuggestion['basis'] }> = [];
-  const start = Math.ceil((now.getTime() + H) / (30 * 60_000)) * 30 * 60_000;
-  for (let at = start; at <= now.getTime() + horizon; at += 30 * 60_000) {
+  const STEP = 15 * 60_000;
+  const start = Math.ceil((now.getTime() + H) / STEP) * STEP;
+  for (let at = start; at <= now.getTime() + horizon; at += STEP) {
     const l = parts(new Date(at));
     if (l.minute !== 0) continue;
     if (taken.some((t) => Math.abs(t - at) < gap)) continue;

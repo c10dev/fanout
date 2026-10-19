@@ -68,6 +68,30 @@ describe('suggested posting times', () => {
     assert.match(friday!.reasons[0]!, /youtube\/main/);
   });
 
+  it('counts when each account actually posted, not when the post was made', () => {
+    let clock = Date.parse('2026-10-16T03:00:00Z'); // the post is made three days earlier
+    const env = makeCtx(undefined, () => new Date(clock));
+    const { post } = env.store.createPost(POST('old'), [{ platform: 'youtube', account: 'main', options: {} }]);
+    // TikTok added today and out at 17:00 KST.
+    clock = Date.parse('2026-10-19T08:00:00Z');
+    const [t] = env.store.addTargets(post.id, [{ platform: 'tiktok', account: 'main', options: {} }]);
+    env.store.transition(t!.id, 'uploading');
+    env.store.transition(t!.id, 'published', { remoteId: 'T' });
+    clock = Date.parse('2026-10-19T08:30:00Z');
+    const r = suggestTimes(env.store, new Date(clock), { accounts: [{ platform: 'tiktok', account: 'main' }], timeZone: 'Asia/Seoul' });
+    assert.ok(!r.suggestions.some((s) => s.local.startsWith('2026-10-19T')), 'not this evening, an hour after it went out');
+  });
+
+  it('suggests whole local hours in zones offset by :45 too', () => {
+    const now = new Date('2026-10-19T03:10:00Z');
+    const env = makeCtx(undefined, () => now);
+    for (const timeZone of ['Asia/Kathmandu', 'Australia/Eucla']) {
+      const r = suggestTimes(env.store, now, { accounts: MAIN, timeZone });
+      assert.equal(r.suggestions.length, 3, timeZone);
+      for (const s of r.suggestions) assert.match(s.local, /T(18|19|20):00$/);
+    }
+  });
+
   it('suggests whole local hours in zones offset by half an hour', () => {
     const now = new Date('2026-10-19T03:10:00Z');
     const env = makeCtx(undefined, () => now);
