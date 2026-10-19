@@ -788,4 +788,5 @@ export const MESSAGES_EN: Record<string, string> = {
   "첫 댓글은 글자여야 합니다": "The first comment must be text",
   "첫 댓글은 10000자까지입니다": "The first comment can be up to 10000 characters",
   "플랫폼의 게시물 id가 없어 댓글을 달 수 없습니다": "The platform gave no post id, so there is nothing to comment on",
+  "X: 첫 댓글은 답글 게시물로 올라가 게시물 하나만큼 요금이 더 듭니다": "X: the first comment goes up as a reply post and costs as much as one more post",
 };

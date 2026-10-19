@@ -332,6 +332,8 @@ export const facebook: Provider = {
     });
   },
 
+  commentRules: { max: 8_000 },
+
   // As the Page, on the reel (its video id); needs pages_manage_engagement like replies.
   async postComment({ ctx, account, target, text, sending }) {
     const c = pageCreds(account);

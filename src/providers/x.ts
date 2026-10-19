@@ -600,6 +600,20 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     return { views: m.impression_count, likes: m.like_count, comments: m.reply_count, shares: (m.retweet_count ?? 0) + (m.quote_count ?? 0) };
   },
 
+  // The first comment is a reply to the video post: one more paid write.
+  commentRules: { max: TEXT_MAX, length: weightedLength, cost: msg('X: 첫 댓글은 답글 게시물로 올라가 게시물 하나만큼 요금이 더 듭니다') },
+
+  async postComment({ ctx, account, target, text, sending }) {
+    const username = creds(account).username;
+    sending();
+    const res = await api<{ data: { id: string } }>(ctx, account, '/2/tweets', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text, reply: { in_reply_to_tweet_id: target.remoteId } }),
+    });
+    return { id: res.data.id, url: `https://x.com/${username}/status/${res.data.id}` };
+  },
+
   async remove({ ctx, account, target }) {
     try {
       await api(ctx, account, `/2/tweets/${target.remoteId}`, { method: 'DELETE' });
