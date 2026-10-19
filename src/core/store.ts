@@ -131,6 +131,8 @@ export class Store {
   readonly #box: SecretBox;
   readonly #now: () => Date;
   readonly #listeners: Array<(target: Target, from: TargetState) => void> = [];
+  /** Calls waiting for the outermost transaction to commit. */
+  #afterCommit: Array<() => void> = [];
 
   constructor(path: string, box: SecretBox, now: () => Date = () => new Date()) {
     // Other fanout processes (dashboard, CLI, watch, MCP) write to the same file: wait for their
@@ -305,15 +307,33 @@ export class Store {
     if (this.#txDepth > 0) return fn();
     this.#db.exec('BEGIN IMMEDIATE');
     this.#txDepth++;
+    let committed = false;
     try {
       const out = fn();
       this.#db.exec('COMMIT');
+      committed = true;
       return out;
     } catch (err) {
       this.#db.exec('ROLLBACK');
+      // State changes that were rolled back never happened: nobody hears of them.
+      this.#afterCommit = [];
       throw err;
     } finally {
       this.#txDepth--;
+      if (committed) this.#flushAfterCommit();
+    }
+  }
+
+  /** Run what waited for the outermost COMMIT (transition listeners), each on its own. */
+  #flushAfterCommit(): void {
+    const queued = this.#afterCommit;
+    this.#afterCommit = [];
+    for (const run of queued) {
+      try {
+        run();
+      } catch {
+        // A listener (e.g. notifications) must never break a state change.
+      }
     }
   }
 
@@ -442,31 +462,26 @@ export class Store {
     return this.getTarget(id)!;
   }
 
+  /**
+   * Move a target to `to`, with its event and `patch` (remote id, errors…) in one transaction: a
+   * patch that can't be written leaves state, event and fields as they were, so a target is never
+   * "published" with the id of the step before. Listeners hear of it after the outermost COMMIT
+   * (also when called inside transaction()), and not at all when it is rolled back.
+   */
   transition(id: string, to: TargetState, patch: TargetPatch = {}, detail?: string): Target {
-    const current = this.getTarget(id);
-    if (!current) throw new Error(`no target ${id}`);
-    assertTransition(current.state, to);
-    const now = this.#now().toISOString();
-    this.#db.exec('BEGIN IMMEDIATE');
-    try {
+    return this.transaction(() => {
+      const current = this.getTarget(id);
+      if (!current) throw new Error(`no target ${id}`);
+      assertTransition(current.state, to);
+      const now = this.#now().toISOString();
       this.#db.prepare('UPDATE targets SET state = ?, updated_at = ? WHERE id = ?').run(to, now, id);
       this.#db
         .prepare('INSERT INTO events (target_id, at, from_state, to_state, detail) VALUES (?, ?, ?, ?, ?)')
         .run(id, now, current.state, to, detail ?? null);
-      this.#db.exec('COMMIT');
-    } catch (err) {
-      this.#db.exec('ROLLBACK');
-      throw err;
-    }
-    const next = Object.keys(patch).length ? this.updateTarget(id, patch) : this.getTarget(id)!;
-    for (const listener of this.#listeners) {
-      try {
-        listener(next, current.state);
-      } catch {
-        // A listener (e.g. notifications) must never break a state change.
-      }
-    }
-    return next;
+      const next = Object.keys(patch).length ? this.updateTarget(id, patch) : this.getTarget(id)!;
+      for (const listener of this.#listeners) this.#afterCommit.push(() => listener(next, current.state));
+      return next;
+    });
   }
 
   /** Called after every state change with the updated target and the state it came from. */

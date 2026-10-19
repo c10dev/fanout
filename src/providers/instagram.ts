@@ -1,8 +1,8 @@
 import { ProviderError } from '../core/errors.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
-import type { Issue } from '../core/types.ts';
-import { connectPage, copyrightCheck, definedOnly, graph, META_APP_FIELDS, META_SETUP_GUIDE, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
+import type { Issue, Post, Target } from '../core/types.ts';
+import { connectPage, copyrightCheck, definedOnly, graph, META_APP_FIELDS, type MetaPageCredentials, META_SETUP_GUIDE, metaApp, metaCaption, missingScope, pageCreds, readInsights, rupload } from './meta.ts';
 import { msg } from '../core/i18n.ts';
 
 export interface InstagramOptions {
@@ -61,6 +61,29 @@ const HASHTAG_MAX = 30;
 interface ContainerStatus {
   status_code?: 'IN_PROGRESS' | 'FINISHED' | 'ERROR' | 'EXPIRED' | 'PUBLISHED';
   status?: string;
+}
+
+/** Clock difference allowed between this machine and Instagram's timestamps when matching. */
+const MATCH_SKEW_MS = 10 * 60_000;
+const squash = (s: string | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
+
+/**
+ * The post a published container became, when fanout missed media_publish's answer: among the
+ * account's latest posts, the one made since this target started uploading, with this post's
+ * caption, that no other target holds. Undefined unless exactly one matches.
+ */
+async function findPublishedMedia(ctx: ProviderContext, c: MetaPageCredentials, post: Post, target: Target): Promise<{ id: string; permalink?: string } | undefined> {
+  const since = (ctx.store.stateSince(target.id, 'uploading')?.getTime() ?? Date.parse(post.createdAt)) - MATCH_SKEW_MS;
+  const caption = squash(metaCaption(post, (target.options as InstagramOptions).caption));
+  const res = await graph<{ data?: Array<{ id: string; permalink?: string; timestamp?: string; caption?: string }> }>(ctx, 'GET', `/${c.igUserId}/media`, {
+    fields: 'id,permalink,timestamp,caption',
+    limit: 25,
+    access_token: c.pageToken,
+  });
+  const matches = (res.data ?? []).filter(
+    (m) => Date.parse(m.timestamp ?? '') >= since && squash(m.caption) === caption && !ctx.store.remoteIdInUse(target.platform, target.account, m.id, target.id),
+  );
+  return matches.length === 1 ? { id: matches[0]!.id, permalink: matches[0]!.permalink } : undefined;
 }
 
 export async function publishingLimit(ctx: ProviderContext, account: Account): Promise<{ used: number; total: number } | undefined> {
@@ -186,7 +209,7 @@ export const instagram: Provider = {
     return { state: 'processing', remoteId: container.id, warnings };
   },
 
-  async poll({ ctx, target, account }): Promise<PollOutcome> {
+  async poll({ ctx, post, target, account }): Promise<PollOutcome> {
     const c = pageCreds(account);
     const resume = (target.resume ?? {}) as { containerId?: string; mediaId?: string; permalink?: string };
     if (resume.mediaId) return { state: 'published', remoteId: resume.mediaId, remoteUrl: resume.permalink };
@@ -197,8 +220,26 @@ export const instagram: Provider = {
       throw new ProviderError('rejected', `instagram.container_${status.status_code.toLowerCase()}`, msg('Instagram 컨테이너 {status_code}: {status}', { status_code: status.status_code, status: status.status ?? '' }), status.status);
     }
     if (status.status_code === 'PUBLISHED') {
-      // Published earlier but the media id was never saved (e.g. crash right after media_publish).
-      return { state: 'published', remoteId: containerId, warnings: [msg('이미 게시된 컨테이너입니다. 게시물 링크는 Instagram 앱에서 확인하세요')] };
+      // Published earlier but the media id was never saved (a crash, or the poll's deadline, right
+      // after media_publish). The container doesn't say which post it became: look for it among
+      // the account's latest posts, and only take an unambiguous match.
+      const found = await findPublishedMedia(ctx, c, post, target).catch(() => undefined);
+      if (found) {
+        ctx.store.updateTarget(target.id, { resume: { ...resume, mediaId: found.id, permalink: found.permalink } });
+        return { state: 'published', remoteId: found.id, remoteUrl: found.permalink, warnings: [msg('게시 직후 응답을 놓쳤지만 계정의 최근 게시물에서 찾았습니다')] };
+      }
+      // Container and media ids look alike, so never guess by the id: mark it, and reads skip it.
+      ctx.store.updateTarget(target.id, { resume: { ...resume, mediaIdUnknown: true } });
+      const trial = Boolean((target.options as InstagramOptions).trialReel);
+      return {
+        state: 'published',
+        remoteId: containerId,
+        warnings: [
+          trial
+            ? msg('시험 릴스는 게시됐지만 계정 게시물 목록에 나오지 않아 id를 찾지 못했습니다. 반응·댓글·첫 댓글은 건너뜁니다. Instagram 앱에서 확인하세요')
+            : msg('게시됐지만 Instagram 게시물 id를 찾지 못했습니다. 반응·댓글·첫 댓글은 건너뜁니다. 게시물은 Instagram 앱에서 확인하세요'),
+        ],
+      };
     }
     if (status.status_code !== 'FINISHED') return { state: 'processing', remoteId: containerId };
 
