@@ -12,7 +12,7 @@ A **video-first, self-hosted uploader** that posts one video to YouTube, TikTok,
 - **No silent failures.** Every post shows a per-platform state (`queued → transcoding → uploading → processing → published / handed_off / failed / needs_reauth`, plus `canceled` and `removed`), the platform's error code, retry count, and a state history.
 - **Never posts twice.** Interrupted uploads resume. A lost response doesn't create a second post: fanout looks for the existing object first, uses idempotency keys where the platform has them, and stops to ask when it can't tell. Several fanout processes can share one database without picking up the same job, and posting the same video to the same account again is flagged before it happens.
 - **Light to run.** Zero runtime dependencies: Node 24's built-in SQLite, fetch and crypto, plus ffmpeg. No Postgres, Redis or Temporal.
-- **Bring your own app.** YouTube and TikTok policies forbid shipping API credentials in open source, so each user registers their own developer app. `fanout setup <platform>` and the dashboard's settings tab walk you through it.
+- **Bring your own app.** YouTube and TikTok policies forbid shipping API credentials in open source, so each user registers their own developer app. `fanout setup <platform>` and the dashboard's settings walk you through it, app by app.
 - **Apache-2.0.** Adapters that need browser automation (e.g. Naver Clip) are meant to live in separate opt-in packages so their terms-of-service risk stays out of the core.
 
 ## Install
@@ -31,7 +31,7 @@ npm 12 blocks installs from git by default, hence `--allow-git=all` (not needed 
 docker compose up -d
 ```
 
-The dashboard opens at http://127.0.0.1:8780/ and data lives in the `fanout-data` volume. The compose file publishes the port on the host's 127.0.0.1 only and sets `FANOUT_ASSUME_LOCAL=1`, which keeps the settings tab available inside the container. Don't set it if the port is reachable from other machines; use `FANOUT_DASHBOARD_TOKEN` instead. With it set, other containers on the same Docker network can also reach the dashboard without a token, so keep fanout on its own network as the compose file does.
+The dashboard opens at http://127.0.0.1:8780/ and data lives in the `fanout-data` volume. The compose file publishes the port on the host's 127.0.0.1 only and sets `FANOUT_ASSUME_LOCAL=1`, which keeps the dashboard settings available inside the container. Don't set it if the port is reachable from other machines; use `FANOUT_DASHBOARD_TOKEN` instead. With it set, other containers on the same Docker network can also reach the dashboard without a token, so keep fanout on its own network as the compose file does.
 
 **From source**
 
@@ -61,7 +61,7 @@ The CLI and its logs speak Korean by default; set `FANOUT_LANG=en` for English (
 
 ## Ways to use it
 
-- **Web dashboard** (`fanout serve`): drag-and-drop upload with per-platform verdicts, a preview of exactly which account and visibility each post will use before anything uploads, a live status board with retry, per-platform reactions (views, likes, comments), a combined comments panel with replies, editing and deletion, a remaining-limits card (uploads per day, posts per 24 hours, storage), and a settings tab for app registration, account connection and checks. Loopback-only by default, per-start API token, Host-header check against DNS rebinding. The dashboard follows your browser language (English or Korean) with a switch in the header, and the server's messages (platform errors, preview warnings, checks, setup guides) follow it too.
+- **Web dashboard** (`fanout serve`): a sidebar of screens with their own addresses and Back/Forward. Drag-and-drop upload with per-platform verdicts and a draft kept in the browser, suggested posting times, a preview of exactly which account and visibility each post will use before anything uploads, a live status board with retry, per-platform reactions (views, likes, comments), a week calendar, unanswered comments with replies, performance insights, editing and deletion, remaining limits (uploads per day, posts per 24 hours, storage), and a settings dialog for app registration, account connection and checks. Light and dark, phone-sized screens included. Loopback-only by default, per-start API token, Host-header check against DNS rebinding. The dashboard follows your browser language (English or Korean) with a switch in the sidebar, and the server's messages (platform errors, preview warnings, checks, setup guides) follow it too.
 - **Watch folder** (`fanout watch <dir>`): drop videos into a folder and they're posted according to `fanout.watch.json`, with per-video overrides in a sidecar JSON.
 - **AI agents over MCP** (`fanout mcp`): tools `list_accounts`, `check_video`, `preview_post`, `create_post`, `add_to_post`, `get_post_status`, `get_post_stats`, `get_limits`, `get_post_comments`, `reply_to_comment`, `hide_comment`, `update_post`, `set_visibility`, `cancel_target`, `retry_target`. Register with `claude mcp add fanout -- fanout mcp`, or install the Claude Code plugin: `/plugin marketplace add c10dev/fanout`, then `/plugin install fanout@fanout`. See [docs/mcp.en.md](docs/mcp.en.md).
 - **CLI**: everything above from the terminal (`fanout help`).

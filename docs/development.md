@@ -39,7 +39,7 @@ test/                     node:test + HTTP mock (실제 플랫폼 호출 없음)
 
 | 메서드 | 쓰는 곳 |
 |---|---|
-| `oauthBegin`, `oauthFinish` | 대시보드 설정 탭의 OAuth 연결 |
+| `oauthBegin`, `oauthFinish` | 대시보드 설정의 OAuth 연결 |
 | `connectFields` | 토큰·비밀번호로 연결하는 플랫폼의 입력 칸 |
 | `specFor` | 계정마다 다른 사양(예: TikTok 최대 길이) |
 | `stats`, `statsCost` | 반응 통계. 읽기에 요금이 들면 `statsCost`를 두어 명시적으로 요청할 때만 읽음 |
