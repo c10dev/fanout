@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readdirSync } from 'node:fs';
+import { mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it, mock } from 'node:test';
@@ -111,8 +111,11 @@ describe('youtube doctor --live cleans up', { skip: !hasFfmpeg && 'ffmpeg not in
     store.setApp('youtube', { clientId: 'cid', clientSecret: 'cs' });
     const account = { platform: 'youtube', name: 'main', credentials: { accessToken: 'AT', refreshToken: 'RT', expiresAt: Date.now() + 3_600_000 }, profile: {} };
     store.saveAccount(account);
-    const clips = () => readdirSync(tmpdir()).filter((f) => f.startsWith('fanout-doctor-'));
-    const before = clips().length;
+    // Its own temp folder: other test files make and remove doctor clips in the shared one meanwhile.
+    const ownTmp = mkdtempSync(join(tmpdir(), 'fanout-doctor-test-'));
+    const savedTmp = process.env.TMPDIR;
+    process.env.TMPDIR = ownTmp;
+    const clips = () => readdirSync(ownTmp).filter((f) => f.startsWith('fanout-doctor-'));
     try {
       const running = youtube.doctor!({ ctx, account, live: true } as never);
       let done = false;
@@ -133,7 +136,9 @@ describe('youtube doctor --live cleans up', { skip: !hasFfmpeg && 'ffmpeg not in
       assert.equal(calls.filter((c) => c.method === 'DELETE').length, 1);
     } finally {
       mock.timers.reset();
+      if (savedTmp === undefined) delete process.env.TMPDIR;
+      else process.env.TMPDIR = savedTmp;
     }
-    assert.equal(clips().length, before, 'the temp clip is gone');
+    assert.deepEqual(clips(), [], 'the temp clip is gone');
   });
 });
