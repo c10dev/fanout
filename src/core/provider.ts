@@ -218,3 +218,10 @@ export interface Provider {
    */
   setVisibility?(args: StatsArgs & { visibility: string; publishAt?: string }): Promise<{ visibility: string; publishAt?: string }>;
 }
+
+/** The media rules for one target: the platform's, plus a vertical fit when the target asks for one. */
+export function targetSpec(provider: Provider, post: Post, target: Target): MediaSpec {
+  const base = provider.specFor?.(post, target) ?? provider.spec;
+  const fit = (target.options as { fit?: unknown }).fit;
+  return fit === 'pad' || fit === 'crop' ? { ...base, fit } : base;
+}

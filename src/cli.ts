@@ -111,6 +111,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         publicStatsViewable: args.flags['yt-hide-stats'] ? false : undefined,
         localizations: localizationsFile(str(args, 'yt-localizations')),
         recordingDate: str(args, 'yt-recorded'),
+        fit: str(args, 'yt-vertical'),
       });
     case 'tiktok': {
       const privacy = str(args, 'tt-privacy');
@@ -124,6 +125,7 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         allowStitch: bool(args, 'tt-allow-stitch'),
         brandOrganic: bool(args, 'tt-brand-organic'),
         brandedContent: bool(args, 'tt-branded') ?? bool(args, 'paid-partnership'),
+        fit: str(args, 'vertical'),
         musicConsent: bool(args, 'tt-music-consent'),
         coverTimestampMs: num(args, 'tt-cover-ms'),
       });
@@ -136,13 +138,14 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         collaborators: str(args, 'ig-collab')?.split(',').map((u) => u.trim()).filter(Boolean),
         audioName: str(args, 'ig-audio'),
         trialReel: str(args, 'ig-trial'),
+        fit: str(args, 'vertical'),
         paidPartnership: bool(args, 'paid-partnership'),
         userTags: str(args, 'ig-tag')?.split(',').map((u) => u.trim()).filter(Boolean),
         locationId: str(args, 'ig-location'),
       });
     case 'facebook':
       if (bool(args, 'paid-partnership')) console.error('⚠ ' + local(msg('--paid-partnership은 {platform} API로 표시할 수 없습니다. 앱에서 직접 설정하세요', { platform: 'Facebook' })));
-      return drop({ caption: str(args, 'fb-caption'), title: str(args, 'fb-title'), draft: args.flags['fb-draft'] ? true : undefined, collaborators: str(args, 'fb-collab')?.split(',').map((p) => p.trim()).filter(Boolean), placeId: str(args, 'fb-place') });
+      return drop({ caption: str(args, 'fb-caption'), title: str(args, 'fb-title'), draft: args.flags['fb-draft'] ? true : undefined, fit: str(args, 'vertical'), collaborators: str(args, 'fb-collab')?.split(',').map((p) => p.trim()).filter(Boolean), placeId: str(args, 'fb-place') });
     case 'x':
       return drop({ text: str(args, 'x-text'), paidPartnership: bool(args, 'x-paid-partnership') ?? bool(args, 'paid-partnership'), replySettings: str(args, 'x-reply'), alt: str(args, 'x-alt'), tagUsers: str(args, 'x-tag')?.split(',').map((u) => u.trim()).filter(Boolean), communityId: str(args, 'x-community') });
     case 'mastodon':
@@ -333,6 +336,7 @@ post 공통 옵션
   --description 텍스트 | --description-file 파일   --tags a,b,c
   --thumbnail 이미지   --caption ko:subs.srt (여러 번)   --ai (AI 생성·합성 콘텐츠 표시: YouTube·TikTok·Instagram·X)
   --paid-partnership yes (유료 파트너십·광고 표시: X·TikTok(direct)·Instagram)
+  --vertical pad|crop (가로 영상을 세로 9:16으로: TikTok·Instagram·Facebook — pad는 흐린 배경, crop은 가운데)
   --at 2026-10-20T09:00:00+09:00 (예약)   --yes (확인 생략)   --no-wait
 
 플랫폼별 옵션
@@ -340,7 +344,7 @@ post 공통 옵션
              --yt-category 22  --yt-playlist ID  --yt-no-notify  --yt-lang ko
              --yt-license creativeCommon  --yt-embeddable no  --yt-hide-stats (확장 통계 숨김)
              --yt-localizations titles.json ({"en": {"title": "…", "description": "…"}})
-             --yt-recorded 2026-10-18 (촬영일)
+             --yt-recorded 2026-10-18 (촬영일)  --yt-vertical pad|crop (세로로 맞춰 Shorts로)
   TikTok     --tt-mode inbox|direct (기본 inbox)
              direct 전용: --tt-privacy public|friends|followers|private (필수)
              --tt-music-consent yes (필수)  --tt-allow-comment/--tt-allow-duet/--tt-allow-stitch yes

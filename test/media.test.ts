@@ -123,3 +123,56 @@ describe('probe', () => {
     });
   });
 });
+
+describe('vertical fit', () => {
+  const wide = () => fakeMedia({ durationSec: 20 }, { width: 1920, height: 1080 });
+  it('turns Facebook\'s 9:16-only rule from a block into a fixable fit, only when asked', () => {
+    assert.ok(checkMedia(wide(), facebook.spec).some((v) => v.code === 'aspect' && !v.fixable), 'landscape is refused as is');
+    const fitted = checkMedia(wide(), { ...facebook.spec, fit: 'pad' });
+    assert.ok(fitted.every((v) => v.fixable));
+    assert.ok(fitted.some((v) => v.code === 'fit'));
+    assert.deepEqual(checkMedia(fakeMedia({}, { width: 1080, height: 1920 }), { ...facebook.spec, fit: 'pad' }).filter((v) => v.code === 'fit'), [], 'already vertical: nothing to do');
+  });
+
+  it('builds a 1080x1920 pad (blurred fill) or centre crop, within the platform\'s long edge', () => {
+    const vf = (spec: Parameters<typeof transcodeArgs>[1]) => {
+      const args = transcodeArgs(wide(), spec, '/out.mp4');
+      return args[args.indexOf('-vf') + 1]!;
+    };
+    assert.match(vf({ fit: 'crop' }), /^scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1/);
+    assert.match(vf({ fit: 'pad' }), /boxblur=.*overlay=\(W-w\)\/2:\(H-h\)\/2/);
+    assert.match(vf({ fit: 'crop', maxLongEdge: 1280 }), /crop=720:1280/);
+  });
+});
+
+describe('vertical fit (ffmpeg)', { skip: !hasFfmpeg && 'ffmpeg not installed' }, () => {
+  it('makes a landscape clip a 1080x1920 one that Facebook Reels take', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fanout-fit-'));
+    const src = join(dir, 'wide.mp4');
+    execFileSync('ffmpeg', ['-y', '-loglevel', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=640x360:rate=30:duration=4', '-f', 'lavfi', '-i', 'sine=duration=4', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-shortest', src]);
+    const info = await probe(src);
+    for (const fit of ['pad', 'crop'] as const) {
+      const spec = { ...facebook.spec, fit };
+      const v = await ensureVariant(info, spec, join(dir, 'variants'));
+      const out = await probe(v.path);
+      assert.deepEqual([out.video.width, out.video.height], [1080, 1920], fit);
+      assert.deepEqual(checkMedia(out, facebook.spec).filter((x) => x.code === 'aspect'), [], fit);
+    }
+  });
+});
+
+describe('vertical fit in the preview', () => {
+  it('a landscape video to Facebook: blocked as is, transcoded with fit, refused with a bad fit', async () => {
+    const { previewPost } = await import('../src/core/posting.ts');
+    const { providerMap } = await import('../src/providers/index.ts');
+    const { makeCtx } = await import('./helpers.ts');
+    const { store } = makeCtx();
+    store.saveAccount({ platform: 'facebook', name: 'main', credentials: {}, profile: {} });
+    const input = { mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
+    const media = fakeMedia({ durationSec: 20 }, { width: 1920, height: 1080 });
+    const verdict = (options: Record<string, unknown>) => previewPost(store, providerMap(), input, [{ platform: 'facebook', account: 'main', options }], media)[0]!;
+    assert.equal(verdict({}).verdict, 'blocked');
+    assert.equal(verdict({ fit: 'pad' }).verdict, 'transcode');
+    assert.ok(verdict({ fit: 'stretch' }).errors.some((e) => /pad|crop/.test(e)));
+  });
+});
