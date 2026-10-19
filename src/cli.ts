@@ -1253,12 +1253,16 @@ async function cmdMcp(providers: Map<string, Provider>, args: Args): Promise<num
   // Agents are mostly prompted in English, so the MCP server (results and its worker's logs) speaks
   // English unless FANOUT_LANG asks otherwise; FANOUT_LANG=ko keeps Korean.
   process.env.FANOUT_LANG ||= 'en';
+  // fanout mcp takes no words of its own. One here is a value parseArgs didn't take for a flag
+  // (e.g. "--post-without-preview off"), so refuse it rather than guess what was meant.
+  const extra = args.positionals.slice(1);
+  if (extra.length) throw new UsageError(msg('fanout mcp 는 이 값을 모릅니다: {extra}', { extra: extra.join(' ') }));
   const roots = mcpRoots(args.flags.allow === true ? true : str(args, 'allow'));
   // Off by default: create_post and add_to_post need the id of a preview this server showed.
   const postWithoutPreview = bool(args, 'post-without-preview') ?? process.env.FANOUT_MCP_POST_WITHOUT_PREVIEW === '1';
   const ctx = openContext(undefined, stderrLogger);
   if (roots) ctx.log.info(msg('MCP: 이 폴더의 파일만 읽습니다: {roots}', { roots: roots.join(', ') }));
-  if (postWithoutPreview) ctx.log.warn(msg('MCP: 미리보기 없이도 create_post·add_to_post 를 받습니다 (--post-without-preview)'));
+  if (postWithoutPreview) ctx.log.warn(msg('MCP: 미리보기 없이도 create_post·add_to_post·update_post 를 받습니다 (--post-without-preview)'));
   const worker = new Worker({ ctx, providers });
   worker.start();
   try {

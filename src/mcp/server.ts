@@ -7,7 +7,7 @@ import { extractFrame, fileHash, probe as realProbe, withCoverMoment, type Media
 import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, editPost, fetchComments, hideComment, planAddTargets, previewPost, refreshStats, replyToComment, MaybeDuplicateError, MaybeLiveError, retryTarget, suggestCrossPosts, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
-import type { Capabilities, CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
+import type { Capabilities, CaptionFile, Post, PostInput, Target, TargetInput, TargetState } from '../core/types.ts';
 import type { Worker } from '../core/worker.ts';
 import { defaultAccountName } from '../core/inbox.ts';
 import { isShort } from '../providers/youtube.ts';
@@ -30,6 +30,8 @@ const SUPPORTED_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-0
 const PREVIEW_TTL_MS = 30 * 60_000;
 /** Previews the server keeps at once; the oldest go first. */
 const MAX_PREVIEWS = 100;
+/** Target states that will upload nothing more. Any other target reads the post record when it uploads (a failed one when retried). */
+const SENT_STATES: readonly TargetState[] = ['published', 'handed_off', 'removed', 'canceled'];
 
 function packageVersion(): string {
   for (const rel of ['../../package.json', '../package.json']) {
@@ -136,8 +138,7 @@ const TOOLS = [
     title: 'Upload a video to the chosen platforms',
     description:
       'Queue the post and start uploading in the background; returns the post id. This publishes to real accounts — ' +
-      'only call it after the user approved the preview_post result, with exactly the arguments of that preview and its previewId. ' +
-      'Refused without a matching previewId (from this server, at most 30 minutes old, used once); if anything changed, preview again and ask again. Track progress with get_post_status.',
+      'only call it after the user approved the preview_post result, with exactly the arguments of that preview and its previewId. Track progress with get_post_status.',
     inputSchema: POST_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
@@ -147,7 +148,7 @@ const TOOLS = [
     description:
       'Upload an existing post\'s video (same title, description, schedule and attachments) to more platform accounts. ' +
       'Call it first with dryRun: true and show the result to the user; this publishes to real accounts, so only call it without dryRun after they approve, ' +
-      'with the same postId and targets and the previewId of that dry run (refused without it). ' +
+      'with the same postId and targets and the previewId of that dry run. ' +
       'Refused when the original video was already cleaned up or the platform account is already on the post.',
     inputSchema: {
       type: 'object',
@@ -241,11 +242,19 @@ const TOOLS = [
     title: 'Edit a post\'s title, description or tags',
     description:
       'Change the title/description/tags and apply them to published posts where the platform allows editing (YouTube, Facebook, Mastodon, PeerTube). ' +
-      'This changes live posts — confirm the new text with the user first.',
+      'Targets that have not gone out yet (queued, scheduled, failed, needs_reauth) upload with the new text. ' +
+      'This changes live posts — call it with dryRun: true first, show the user what changes, and after they approve call it again with the same arguments and the previewId of that dry run.',
     inputSchema: {
       type: 'object',
       required: ['postId'],
-      properties: { postId: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } } },
+      properties: {
+        postId: { type: 'string' },
+        title: { type: 'string' },
+        description: { type: 'string' },
+        tags: { type: 'array', items: { type: 'string' } },
+        dryRun: { type: 'boolean', description: 'Show what would change, change nothing.' },
+        previewId: { type: 'string', description: 'From the dryRun: true result the user approved.' },
+      },
     },
     // It overwrites the live text, so the old text is gone.
     annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
@@ -323,6 +332,13 @@ const TOOLS = [
   },
 ];
 
+/** What the descriptions add while the server requires previews (not with --post-without-preview). */
+const GUARD_NOTES: Record<string, string> = {
+  create_post: ' Refused without a matching previewId (from this server, at most 30 minutes old, used once); if anything changed, preview again and ask again.',
+  add_to_post: ' Without dryRun, refused unless previewId comes from a dry run of the same targets with the post as it is now.',
+  update_post: ' While the post has targets that have not gone out, refused without the previewId of a dry run of the same change.',
+};
+
 /**
  * The tools as listed, with the post schema for the providers this server runs with. create_post
  * also takes the previewId, required unless the server runs with --post-without-preview.
@@ -334,7 +350,10 @@ function toolList(providers: readonly Provider[], previewRequired: boolean) {
     required: previewRequired ? [...schema.required, 'previewId'] : schema.required,
     properties: { ...schema.properties, previewId: { type: 'string', description: 'previewId of the preview_post result the user approved, for exactly these arguments.' } },
   };
-  return TOOLS.map((t) => (t.name === 'create_post' ? { ...t, inputSchema: create } : t.inputSchema === POST_SCHEMA ? { ...t, inputSchema: schema } : t));
+  return TOOLS.map((t) => {
+    const tool = t.name === 'create_post' ? { ...t, inputSchema: create } : t.inputSchema === POST_SCHEMA ? { ...t, inputSchema: schema } : t;
+    return previewRequired && GUARD_NOTES[t.name] ? { ...tool, description: tool.description + GUARD_NOTES[t.name] } : tool;
+  });
 }
 
 export interface McpDeps {
@@ -389,8 +408,8 @@ export class McpServer {
           serverInfo: { name: 'fanout', title: 'fanout video uploader', version: this.#version },
           instructions:
             'fanout uploads one local video to YouTube, TikTok, Instagram Reels, Facebook Reels, X, Bluesky, Mastodon and PeerTube through the user\'s own platform apps. ' +
-            'Use preview_post and get the user\'s approval before create_post: posts go to real, often public, accounts. ' +
-            'create_post takes the previewId of the preview the user approved, with the same arguments.',
+            'Use preview_post and get the user\'s approval before create_post: posts go to real, often public, accounts.' +
+            (this.#deps.postWithoutPreview ? '' : ' create_post needs the previewId of the preview the user approved, with the same arguments.'),
         };
       }
       case 'ping':
@@ -450,12 +469,12 @@ export class McpServer {
           // Shown so the user sees exactly which local files go out with the post.
           files: { video: input.mediaPath, thumbnail: input.thumbnailPath, captions: input.captions.map((c) => ({ language: c.language, path: c.path })) },
           // A preview with errors can't be posted, so it gets no id.
-          ...(previews.some((p) => p.errors.length) ? {} : this.#rememberPreview(postDigest(input, targets, args), 'create_post')),
+          ...(previews.some((p) => p.errors.length) ? {} : this.#rememberPreview(await postDigest(input, targets, args), 'create_post')),
         };
       }
       case 'create_post': {
         const { input, targets, media } = await this.#postArgs(args);
-        const giveBack = this.#takePreview(args.previewId, postDigest(input, targets, args), 'preview_post');
+        const giveBack = this.#takePreview(args.previewId, await postDigest(input, targets, args), 'preview_post');
         let made: ReturnType<typeof createScheduledPost>;
         try {
           made = await this.#createPost(args, input, targets, media);
@@ -473,7 +492,8 @@ export class McpServer {
         const targets = this.#targetArgs(args.targets);
         if (!existsSync(p.mediaPath)) throw new ToolError(msg('원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요'));
         const media = await this.#probe(p.mediaPath);
-        const digest = digestOf({ postId: p.id, targets });
+        // The post's content too: the new targets upload the post record as it is when they run.
+        const digest = digestOf({ postId: p.id, targets, post: postContent(p) });
         if (args.dryRun === true) {
           try {
             const { preview } = planAddTargets(store, providers, p.id, targets, media);
@@ -523,9 +543,26 @@ export class McpServer {
           ...(Array.isArray(args.tags) ? { tags: args.tags.map(String) } : {}),
         };
         if (!Object.keys(patch).length) throw new ToolError(msg('바꿀 것(title, description, tags)을 하나 이상 주세요'));
+        // Targets that haven't gone out upload the post record, so for them an edit is a new post: it
+        // needs a preview like create_post. Edits that only reach published posts don't.
+        const targets = store.targetsForPost(p.id);
+        const pending = targets.filter((t) => !SENT_STATES.includes(t.state));
+        const digest = digestOf({ postId: p.id, patch, post: postContent(p) });
+        if (args.dryRun === true) {
+          const brief = (t: Target) => ({ targetId: t.id, platform: t.platform, account: t.account, state: t.state });
+          return {
+            postId: p.id,
+            changes: Object.fromEntries(Object.entries(patch).map(([k, to]) => [k, { from: p[k as keyof typeof patch], to }])),
+            uploadsWithNewText: pending.map(brief),
+            editsPublished: targets.filter((t) => t.state === 'published').map(brief),
+            ...this.#rememberPreview(digest, 'update_post'),
+          };
+        }
+        const giveBack = pending.length ? this.#takePreview(args.previewId, digest, 'update_post dryRun: true') : () => {};
         try {
           return { postId: p.id, results: await editPost(this.#deps.ctx, providers, p.id, patch) };
         } catch (err) {
+          giveBack();
           throw new ToolError((err as Error).message);
         }
       }
@@ -759,10 +796,19 @@ export class McpServer {
 
 /**
  * What a preview and the post it approves must agree on: the post as fanout will make it, with the
- * video's hash. A frame from thumbnailAt counts by its time.
+ * hashes of its files. A frame from thumbnailAt counts by its time (the video's hash covers it).
  */
-function postDigest(input: PostInput, targets: TargetInput[], args: Record<string, unknown>): string {
-  return digestOf({ ...input, thumbnailPath: args.thumbnailAt !== undefined ? { at: args.thumbnailAt } : input.thumbnailPath, targets });
+async function postDigest(input: PostInput, targets: TargetInput[], args: Record<string, unknown>): Promise<string> {
+  // The thumbnail and caption files count by content as well, like the video (mediaHash).
+  const thumbnail = args.thumbnailAt !== undefined ? { at: args.thumbnailAt } : input.thumbnailPath ? { path: input.thumbnailPath, hash: await fileHash(input.thumbnailPath) } : undefined;
+  const captions = await Promise.all(input.captions.map(async (c) => ({ ...c, hash: await fileHash(c.path) })));
+  return digestOf({ ...input, thumbnailPath: thumbnail, captions, targets });
+}
+
+/** What a post's targets upload, from its record (the files in it are fanout's own copies). */
+function postContent(p: Post) {
+  const { title, description, tags, scheduledAt, firstComment, containsSyntheticMedia, thumbnailPath, captions, mediaHash } = p;
+  return { title, description, tags, scheduledAt, firstComment, containsSyntheticMedia, thumbnailPath, captions, mediaHash };
 }
 
 /** SHA-256 of the value as JSON with sorted keys, so the order fields came in doesn't matter. */

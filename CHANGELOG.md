@@ -29,7 +29,7 @@ v0.1.0 태그 뒤 `main`에 들어온 것입니다. PR마다 여기에 한 줄�
 
 ### 고친 것 (Claude Code 플러그인 검증)
 - 플러그인이 작은 실행 스크립트로 `fanout mcp`를 띄움. fanout이 PATH에 없으면 `/mcp`에 설치 명령을 보여 줌(전에는 `Executable not found in $PATH: "stdio"`만 나옴). README·docs/mcp에 fanout을 먼저 설치하는 단계, 한 번에 설치하는 `/plugin install fanout --marketplace c10dev/fanout`, 실패한 연결을 `/mcp`에서 다시 연결하는 법(안 하면 15분 기다림), 플러그인에 `FANOUT_MCP_ROOTS`를 쓰는 법을 적음. 스킬은 fanout 도구가 없으면 다른 길로 게시하지 않고 설치를 안내함(#273)
-- MCP `create_post`가 같은 서버에서 같은 인자로 만든 `preview_post`의 `previewId`를 요구함(30분 안, 한 번만). `add_to_post`는 `dryRun: true` 결과의 `previewId`를 요구함. `create_post`를 바로 부르던 자동화는 미리보기를 먼저 하거나 `fanout mcp --post-without-preview`(또는 `FANOUT_MCP_POST_WITHOUT_PREVIEW=1`)로 검사를 꺼야 함(#273)
+- MCP `create_post`가 같은 서버에서 같은 인자로 만든 `preview_post`의 `previewId`를 요구함(30분 안, 한 번만, 영상·썸네일·자막은 내용으로 비교). `add_to_post`는 `dryRun: true` 결과의 `previewId`를 요구하고, 그 뒤 게시물 글이 바뀌면 거절함. `update_post`는 아직 올라가지 않은 대상이 있으면 자기 `dryRun: true`의 `previewId`를 요구함. 플러그인은 이 검사가 없는 옛 fanout이면 서버를 띄우지 않고 업데이트를 안내함. `create_post`를 바로 부르던 자동화는 미리보기를 먼저 하거나 `fanout mcp --post-without-preview`(또는 `FANOUT_MCP_POST_WITHOUT_PREVIEW=1`)로 검사를 꺼야 함. `fanout mcp`는 모르는 낱말(예: `--post-without-preview off`)을 받으면 오류로 멈춤(#273)
 - MCP 도구 표시: `preview_post`는 플랫폼에 묻는 도구(`openWorldHint`), `update_post`·`cancel_target`은 되돌릴 수 없는 도구(`destructiveHint`)로 고침(#273)
 - GitHub에서 설치한 fanout(`npm install -g --allow-git=all github:c10dev/fanout`)도 `fanout version`에 커밋을 보여 줌(#273)
 

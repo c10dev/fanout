@@ -153,8 +153,16 @@ describe('MCP server', () => {
 
   it('takes posts without a preview only when the server runs with --post-without-preview', async () => {
     const { call, video, env, mcp } = server({ postWithoutPreview: true });
-    const list = (await mcp.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' })) as { result: { tools: Array<{ name: string; inputSchema: { required: string[] } }> } };
+    const list = (await mcp.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' })) as { result: { tools: Array<{ name: string; description: string; inputSchema: { required: string[] } }> } };
     assert.ok(!list.result.tools.find((t) => t.name === 'create_post')!.inputSchema.required.includes('previewId'));
+    // The agent isn't told about a check that is off.
+    for (const t of list.result.tools) assert.doesNotMatch(t.description, /refused (without|unless)/i, t.name);
+    const init = (await mcp.handle({ jsonrpc: '2.0', id: 2, method: 'initialize', params: {} })) as { result: { instructions: string } };
+    assert.doesNotMatch(init.result.instructions, /needs the previewId/);
+    const on = server().mcp;
+    const onList = (await on.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' })) as typeof list;
+    for (const name of ['create_post', 'add_to_post', 'update_post']) assert.match(onList.result.tools.find((t) => t.name === name)!.description, /refused (without|unless)/i, name);
+    assert.match(((await on.handle({ jsonrpc: '2.0', id: 2, method: 'initialize', params: {} })) as typeof init).result.instructions, /needs the previewId/);
     // Errors still block the post.
     const bad = await call('create_post', { path: video, title: 'T', targets: [{ platform: 'youtube' }] });
     assert.equal(bad.isError, true);
@@ -191,6 +199,78 @@ describe('MCP server', () => {
     assert.equal(env.store.targetsForPost(postId).length, 2);
     assert.equal(ticks(), 2);
     assert.equal((await call('add_to_post', { postId, targets: tiktok, previewId })).isError, true, 'used once');
+  });
+
+  it('refuses an add_to_post dry run once the post itself changed', async () => {
+    const { call, post, video, env } = server();
+    const postId = (await post({ path: video, title: 'T', targets: [YT] })).structuredContent.postId as string;
+    const tiktok = [{ platform: 'tiktok' }];
+    const previewId = (await call('add_to_post', { postId, targets: tiktok, dryRun: true })).structuredContent.previewId;
+    // The text the new target would upload changes after the dry run (as update_post would do).
+    env.store.updatePost(postId, { title: 'Changed' });
+    const r = await call('add_to_post', { postId, targets: tiktok, previewId });
+    assert.equal(r.isError, true);
+    assert.match(r.content[0]!.text, /미리보기와 다릅니다/);
+    assert.equal(env.store.targetsForPost(postId).length, 1);
+  });
+
+  it('edits a post whose targets have not gone out only after a dry run of that edit', async () => {
+    const { call, post, video, env } = server();
+    const postId = (await post({ path: video, title: 'Approved', scheduledAt: '2026-10-25T09:00:00Z', targets: [{ platform: 'youtube', options: { privacy: 'public', madeForKids: false } }] })).structuredContent.postId as string;
+    // The scheduled target would upload this text: no edit without a preview.
+    const unseen = await call('update_post', { postId, title: 'Unapproved' });
+    assert.equal(unseen.isError, true);
+    assert.match(unseen.content[0]!.text, /previewId/);
+    assert.equal(env.store.getPost(postId)!.title, 'Approved', 'the record is untouched');
+
+    const dry = await call('update_post', { postId, title: 'New', dryRun: true });
+    assert.deepEqual(dry.structuredContent.changes, { title: { from: 'Approved', to: 'New' } });
+    assert.deepEqual(dry.structuredContent.uploadsWithNewText.map((t: { platform: string; state: string }) => `${t.platform}:${t.state}`), ['youtube:queued']);
+    assert.equal(env.store.getPost(postId)!.title, 'Approved', 'a dry run changes nothing');
+    const previewId = dry.structuredContent.previewId as string;
+    assert.match((await call('update_post', { postId, title: 'Other', previewId })).content[0]!.text, /미리보기와 다릅니다/);
+    const ok = await call('update_post', { postId, title: 'New', previewId });
+    assert.equal(ok.isError, undefined, ok.content[0]!.text);
+    assert.equal(env.store.getPost(postId)!.title, 'New');
+    assert.equal((await call('update_post', { postId, title: 'New', previewId })).isError, true, 'used once');
+  });
+
+  it('counts a failed target as not gone out, so an edit before retry_target needs a preview', async () => {
+    const { call, post, video, env } = server();
+    const postId = (await post({ path: video, title: 'Approved', targets: [YT] })).structuredContent.postId as string;
+    const target = env.store.targetsForPost(postId)[0]!;
+    env.store.transition(target.id, 'failed', { errorCode: 'x' });
+    assert.equal((await call('update_post', { postId, title: 'After failure' })).isError, true);
+    assert.equal(env.store.getPost(postId)!.title, 'Approved');
+  });
+
+  it('edits a post that is only live without a preview (the description asks the user)', async () => {
+    const { call, env } = server();
+    const { post: made, targets } = env.store.createPost({ mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false }, [{ platform: 'youtube', account: 'main', options: {} }]);
+    env.store.transition(targets[0]!.id, 'uploading');
+    env.store.transition(targets[0]!.id, 'published', { remoteId: 'VID' });
+    const r = await call('update_post', { postId: made.id, title: 'Live edit' });
+    assert.equal(r.isError, undefined, r.content[0]!.text);
+    assert.equal(env.store.getPost(made.id)!.title, 'Live edit');
+  });
+
+  it('binds a preview to the thumbnail and caption contents, not only their paths', async () => {
+    const { call, env } = server();
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), 'fanout-mcp-files-')));
+    const video = join(dir, 'clip.mp4');
+    const thumb = join(dir, 'cover.jpg');
+    const subs = join(dir, 'ko.srt');
+    writeFileSync(video, 'x');
+    writeFileSync(thumb, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]));
+    writeFileSync(subs, '1\n00:00:00,000 --> 00:00:01,000\napproved line\n');
+    const args = { path: video, title: 'T', thumbnailPath: thumb, captions: [{ language: 'ko', path: subs }], targets: [YT] };
+    let previewId = (await call('preview_post', args)).structuredContent.previewId;
+    writeFileSync(subs, '1\n00:00:00,000 --> 00:00:01,000\nUNAPPROVED line\n');
+    assert.match((await call('create_post', { ...args, previewId })).content[0]!.text, /미리보기와 다릅니다/);
+    previewId = (await call('preview_post', args)).structuredContent.previewId;
+    writeFileSync(thumb, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 1, 1, 1]));
+    assert.match((await call('create_post', { ...args, previewId })).content[0]!.text, /미리보기와 다릅니다/);
+    assert.equal(env.store.listPosts().length, 0);
   });
 
   it('retries only failed targets', async () => {
@@ -255,6 +335,20 @@ describe('MCP server', () => {
     assert.equal(await required(['--post-without-preview']), false);
     assert.equal(await required([], { FANOUT_MCP_POST_WITHOUT_PREVIEW: '1' }), false);
     assert.equal(await required(['--post-without-preview', 'no'], { FANOUT_MCP_POST_WITHOUT_PREVIEW: '1' }), true, 'the flag wins');
+    // A word the flag doesn't take is refused, not read as "on" with a stray word.
+    for (const word of ['off', 'maybe']) {
+      const home = mkdtempSync(join(tmpdir(), 'fanout-mcp-home-'));
+      const child = spawn(process.execPath, ['src/cli.ts', 'mcp', '--post-without-preview', word], { env: { ...env, FANOUT_HOME: home }, stdio: ['pipe', 'pipe', 'pipe'] });
+      let out = '';
+      let err = '';
+      child.stdout.on('data', (d) => (out += d));
+      child.stderr.on('data', (d) => (err += d));
+      child.stdin.end('{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n');
+      const code = await new Promise((r) => child.on('close', r));
+      assert.notEqual(code, 0, word);
+      assert.equal(out, '', 'serves nothing');
+      assert.ok(err.includes(word), err);
+    }
   });
 
   it('answers in English unless FANOUT_LANG asks for Korean', async () => {

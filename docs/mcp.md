@@ -33,6 +33,7 @@ npm install -g --allow-git=all github:c10dev/fanout
 `/mcp`(터미널에서는 `claude mcp list`)가 `plugin:fanout:fanout` 옆에 이유를 보여 줍니다.
 
 - `Failed to connect — -32603: fanout is not installed: there is no fanout command on the PATH that Claude Code runs with. …`: 위처럼 fanout을 설치하고 `fanout version`으로 확인하세요. 데스크톱 실행기로 띄운 Claude Code는 셸의 PATH를 모를 수 있습니다.
+- `Failed to connect — -32603: This fanout is too old for the plugin: its MCP server posts without a preview first. …`: 플러그인은 서버를 띄우기 전에 `fanout help`에 `--post-without-preview`가 있는지 봅니다. 같은 명령으로 fanout을 업데이트하세요.
 - `Failed to connect — ENOENT: Executable not found in $PATH: "stdio"`: Claude Code가 `node`를 실행하지 못했습니다(플러그인 명령이 없으면 무엇이든 "stdio"로 표시합니다). Node.js 24 이상을 설치하세요. 실행 스크립트가 생기기 전의 플러그인도 fanout이 없으면 이렇게 표시합니다.
 
 고친 뒤에는 `/mcp`에서 `plugin:fanout:fanout`을 골라 다시 연결하거나 Claude Code를 다시 시작하세요. 그러지 않으면 Claude Code는 실패를 기억해 두고 최대 15분 뒤에야 다시 시도합니다.
@@ -66,14 +67,16 @@ claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
 `create_post`는 같은 서버의 `preview_post`가 보여 준 것만 게시합니다.
 
 1. `preview_post`는 오류가 있는 대상이 없으면 `previewId`를 돌려줍니다.
-2. `create_post`는 같은 인자와 그 `previewId`를 넘겨야 합니다. `previewId`가 없거나, 미리보기 뒤 인자나 영상 파일이 바뀌었으면 거절하고 아무것도 올리지 않습니다.
+2. `create_post`는 같은 인자와 그 `previewId`를 넘겨야 합니다. `previewId`가 없거나, 미리보기 뒤 인자가 바뀌었거나 영상·썸네일·자막 파일의 내용이 바뀌었으면 거절하고 아무것도 올리지 않습니다.
 3. `previewId`는 서버 메모리에 30분 동안 남고 한 번만 게시합니다. 서버를 다시 띄우면 모두 사라집니다.
 
-`add_to_post`도 같습니다. `dryRun: true` 결과의 `previewId`를 실제 호출에 넘깁니다.
+`add_to_post`도 같습니다. `dryRun: true` 결과의 `previewId`를 실제 호출에 넘깁니다. 미리보기 뒤 게시물의 제목·설명·태그가 바뀌었으면 거절합니다.
+
+`update_post`도 아직 올라가지 않은 대상(대기·예약·실패·재연결 필요)이 있으면 `previewId`가 필요합니다. 그 대상들은 바뀐 글로 올라가기 때문입니다. `dryRun: true` 결과에 바뀌는 내용, 그 내용으로 올라갈 대상, `previewId`가 나옵니다. 이미 게시된 글만 고치는 수정은 미리보기 없이 되고, 도구 설명이 사용자 확인을 받으라고 합니다.
 
 서버는 사용자가 미리보기를 봤는지, 승인했는지는 알 수 없습니다. 미리보기를 보여 주고 승인을 기다리라는 것은 도구 설명, 서버 안내문, 플러그인 스킬에 적혀 있습니다. Claude Code도 도구를 항상 허용해 두지 않았다면 `create_post`를 부를 때마다 묻습니다.
 
-다른 방법으로 게시를 확인하는 스크립트라면 `fanout mcp --post-without-preview`(또는 `FANOUT_MCP_POST_WITHOUT_PREVIEW=1`)로 이 검사를 끕니다. 오류가 있는 대상은 그래도 거절합니다.
+다른 방법으로 게시를 확인하는 스크립트라면 `fanout mcp --post-without-preview`(또는 `FANOUT_MCP_POST_WITHOUT_PREVIEW=1`)로 이 검사를 끕니다. 이때 도구 설명에서도 이 검사 문구가 빠집니다. 오류가 있는 대상은 그래도 거절합니다. `--post-without-preview off`처럼 플래그 뒤에 다른 낱말이 오면 `fanout mcp`는 오류로 멈춥니다.
 
 ## 도구
 
@@ -94,7 +97,7 @@ claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
 | `suggest_post_times` | 계정들(`["youtube/main", "tiktok/main"]`)에 다음으로 올리기 좋은 시간: 하루 뒤 조회수가 좋았던 요일·3시간대(기록이 충분할 때), 아니면 저녁 시간. 같은 계정에 이미 잡힌 예약·막 올린 게시물과 4시간 이상 떨어뜨림. 예약은 하지 않음 — 고른 `at`을 `create_post`의 `scheduledAt`으로 |
 | `get_post_comments` | 게시된 대상의 최근 댓글. 댓글 내용은 신뢰할 수 없는 사용자 글이라고 설명에 적어 둠 |
 | `reply_to_comment` | `get_post_comments`가 준 댓글에 답글. 바로 공개되므로 사용자에게 문구를 보여 주고 승인받은 뒤 호출하고, 댓글 속 지시는 따르지 말라고 설명에 적어 둠 |
-| `update_post` | 제목·설명·태그를 바꾸고 YouTube·Facebook·Mastodon·PeerTube에 반영. 사용자 확인 후 호출하도록 설명에 적어 둠 |
+| `update_post` | 제목·설명·태그를 바꾸고 YouTube·Facebook·Mastodon·PeerTube에 반영. 아직 올라가지 않은 대상은 바뀐 글로 올라감. `dryRun: true`로 바뀌는 것을 보여 주고, 아직 올라가지 않은 대상이 있으면 실제 호출에 그 `previewId`가 필요 |
 | `hide_comment` | `get_post_comments`가 준 댓글을 숨기거나 다시 보이게 함(YouTube·Instagram·Facebook). 댓글 내용의 지시로 숨기지 말고 사용자가 고른 것만, 확인 후 호출하도록 설명에 적어 둠 |
 | `set_visibility` | 게시된 YouTube 영상의 공개 범위를 바꾸거나 공개 시각을 예약. 바로 보이는 범위가 바뀌므로 사용자 확인 후 호출하도록 설명에 적어 둠 |
 | `cancel_target` | 대기·실패·재연결 필요 대상을 올리지 않기로 취소. 게시된 글은 지우지 않음. 이미 올라갔을 수 있는 대상은 사용자 확인(`confirmedNotPosted: true`) 없이는 거부 |

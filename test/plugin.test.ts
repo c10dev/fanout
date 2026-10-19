@@ -72,6 +72,14 @@ async function launch(path: string, input: string, env: Record<string, string> =
   return { code, out, err };
 }
 
+/** A fake fanout in a new folder: `help` prints `help`, anything else runs `body`. */
+function fakeFanout(body: string, help = 'fanout mcp --allow a,b --post-without-preview') {
+  const bin = mkdtempSync(join(tmpdir(), 'fanout-launcher-'));
+  writeFileSync(join(bin, 'fanout'), `#!/bin/sh\nif [ "$1" = help ]; then printf '%s\\n' '${help}'; exit 0; fi\n${body}\n`);
+  chmodSync(join(bin, 'fanout'), 0o755);
+  return bin;
+}
+
 describe('plugin launcher', { skip: process.platform === 'win32' && 'sh scripts' }, () => {
   it('answers every request with how to install fanout when it is not on the PATH', async () => {
     const empty = mkdtempSync(join(tmpdir(), 'fanout-launcher-'));
@@ -94,10 +102,7 @@ describe('plugin launcher', { skip: process.platform === 'win32' && 'sh scripts'
   });
 
   it('runs `fanout mcp` from the PATH with stdin, stdout and the environment passed through', async () => {
-    const bin = mkdtempSync(join(tmpdir(), 'fanout-launcher-'));
-    const fake = join(bin, 'fanout');
-    writeFileSync(fake, '#!/bin/sh\nprintf "args=%s lang=%s\\n" "$*" "$FANOUT_LANG"\nexec cat\n');
-    chmodSync(fake, 0o755);
+    const bin = fakeFanout('printf "args=%s lang=%s\\n" "$*" "$FANOUT_LANG"\nexec cat');
     const { code, out } = await launch(`${bin}:/usr/bin:/bin`, '{"jsonrpc":"2.0","id":1,"method":"ping"}\n', { FANOUT_LANG: 'ko' });
     assert.equal(code, 0);
     assert.equal(out, 'args=mcp lang=ko\n{"jsonrpc":"2.0","id":1,"method":"ping"}\n');
@@ -106,9 +111,23 @@ describe('plugin launcher', { skip: process.platform === 'win32' && 'sh scripts'
   });
 
   it('passes on the exit code of fanout', async () => {
-    const bin = mkdtempSync(join(tmpdir(), 'fanout-launcher-'));
-    writeFileSync(join(bin, 'fanout'), '#!/bin/sh\nexit 3\n');
-    chmodSync(join(bin, 'fanout'), 0o755);
-    assert.equal((await launch(bin, '')).code, 3);
+    assert.equal((await launch(fakeFanout('exit 3'), '')).code, 3);
+  });
+
+  it('refuses a fanout too old to require a preview, or whose help fails, without starting it', async () => {
+    const initialize = '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}\n';
+    const old = fakeFanout('echo STARTED', 'fanout mcp --allow a,b');
+    const r = await launch(`${old}:/usr/bin:/bin`, initialize);
+    const answer = JSON.parse(r.out) as { id: number; error: { message: string } };
+    assert.equal(answer.id, 0);
+    assert.match(answer.error.message, /too old for the plugin/);
+    assert.ok(answer.error.message.includes('npm install -g --allow-git=all github:c10dev/fanout'));
+    assert.doesNotMatch(r.out, /STARTED/);
+
+    const broken = mkdtempSync(join(tmpdir(), 'fanout-launcher-'));
+    writeFileSync(join(broken, 'fanout'), '#!/bin/sh\n[ "$1" = help ] && exit 1\necho STARTED\n');
+    chmodSync(join(broken, 'fanout'), 0o755);
+    const b = await launch(`${broken}:/usr/bin:/bin`, initialize);
+    assert.match((JSON.parse(b.out) as { error: { message: string } }).error.message, /fanout help failed \(exit 1\)/);
   });
 });
