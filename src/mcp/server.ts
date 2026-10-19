@@ -13,6 +13,7 @@ import { isShort } from '../providers/youtube.ts';
 import { signInExpiry } from '../core/accounts.ts';
 import { computeCalendar } from '../core/calendar.ts';
 import { computeInsights, validTimeZone } from '../core/insights.ts';
+import { suggestTimes } from '../core/slots.ts';
 import { currentLang, local, msg, translateDeep } from '../core/i18n.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
@@ -170,6 +171,23 @@ const TOOLS = [
       'What performs, from the reactions fanout already recorded (no platform calls): per platform and account over the last N days, posts, total/median views, likes per 100 views, top posts, ' +
       'and the weekday and 3-hour block whose posts had the most views a day later (only with enough posts). With suggestions: true, `suggestions`: top posts that could also go to connected accounts they haven\'t gone to (rules met), with the add command; suggest them, never add without the user.',
     inputSchema: { type: 'object', properties: { days: { type: 'number', description: 'default 30' }, platform: { type: 'string' }, suggestions: { type: 'boolean', description: 'also list top posts that could go to connected accounts they have not gone to (reads the originals)' }, timeZone: { type: 'string', description: 'IANA zone for weekdays and hours, e.g. Asia/Seoul (default: FANOUT_TZ or the server\'s)' } } },
+    annotations: { readOnlyHint: true, openWorldHint: false },
+  },
+  {
+    name: 'suggest_post_times',
+    title: 'Suggest posting times',
+    description:
+      'Good next times to schedule a post for some accounts: hours matching the weekday and 3-hour block whose posts did best a day later (from recorded reactions, once there are enough), else early evening, ' +
+      'kept clear of posts already scheduled or just posted on the same accounts. Read-only: nothing is scheduled; pass a chosen `at` as scheduledAt when posting.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        accounts: { type: 'array', items: { type: 'string' }, description: 'platform/account, e.g. ["youtube/main", "tiktok/main"]' },
+        count: { type: 'number', description: '1–10, default 3' },
+        timeZone: { type: 'string', description: 'IANA zone, e.g. Asia/Seoul (default: FANOUT_TZ or the server\'s)' },
+      },
+      required: ['accounts'],
+    },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
   {
@@ -461,6 +479,16 @@ export class McpServer {
         if (typeof args.timeZone === 'string' && args.timeZone && !validTimeZone(args.timeZone)) throw new ToolError(msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz: args.timeZone }));
         const suggestions = args.suggestions === true ? await suggestCrossPosts(this.#deps.ctx, providers, { days }) : undefined;
         return { suggestions, ...computeInsights(store, this.#deps.ctx.now(), { days, platform: typeof args.platform === 'string' ? args.platform : undefined, locale: currentLang() === 'en' ? 'en-US' : 'ko-KR', timeZone: typeof args.timeZone === 'string' ? args.timeZone : undefined }) };
+      }
+      case 'suggest_post_times': {
+        const list = Array.isArray(args.accounts) ? args.accounts.filter((a): a is string => typeof a === 'string' && a.length > 0) : [];
+        if (!list.length) throw new ToolError(msg('accounts 가 필요합니다 (예: youtube/main,tiktok/main)'));
+        if (typeof args.timeZone === 'string' && args.timeZone && !validTimeZone(args.timeZone)) throw new ToolError(msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz: args.timeZone }));
+        const accounts = list.slice(0, 20).map((s) => {
+          const i = s.indexOf('/');
+          return { platform: i > 0 ? s.slice(0, i) : s, account: i > 0 ? s.slice(i + 1) : 'main' };
+        });
+        return { ...suggestTimes(store, this.#deps.ctx.now(), { accounts, count: typeof args.count === 'number' ? args.count : 3, timeZone: typeof args.timeZone === 'string' && args.timeZone ? args.timeZone : undefined, locale: currentLang() === 'en' ? 'en-US' : 'ko-KR' }) };
       }
       case 'get_limits':
         return { accounts: await readLimits(this.#deps.ctx, providers, typeof args.platform === 'string' ? args.platform : undefined) };

@@ -80,6 +80,13 @@ body {
   border: 1px solid var(--line); color: var(--muted);
 }
 .chip.on { color: var(--ok); background: var(--ok-bg); border-color: transparent; }
+button.chip { background: var(--panel); cursor: pointer; font: inherit; font-size: 13px; }
+button.chip:hover { color: var(--text); background: var(--hover); }
+button.chip[aria-pressed="true"] { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+.best-times { margin-top: 8px; }
+.best-times-list .chips { margin-top: 8px; }
+.best-times-list p { margin: 6px 0 0; }
+.best-times-why:empty { display: none; }
 
 
 .panel {

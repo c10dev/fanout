@@ -21,6 +21,7 @@ import { ACCOUNT_NAME } from '../core/store.ts';
 import { disconnectAccount, signInExpiry } from '../core/accounts.ts';
 import { computeCalendar } from '../core/calendar.ts';
 import { computeInsights, validTimeZone } from '../core/insights.ts';
+import { suggestTimes } from '../core/slots.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
 import { ASSET_RULES, type AssetKind } from '../core/assets.ts';
@@ -307,6 +308,23 @@ export class Dashboard {
       if (tz && !validTimeZone(tz)) throw new HttpError(400, msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz }));
       const locale = url.searchParams.get('lang') === 'en' ? 'en-US' : 'ko-KR';
       return send(res, 200, computeCalendar(this.#opts.ctx.store, this.#opts.ctx.now(), { weeks: Number(url.searchParams.get('weeks') ?? 1) || 1, offset: Number(url.searchParams.get('offset') ?? 0) || 0, timeZone: tz, locale }));
+    }
+    if (method === 'GET' && parts[0] === 'best-times' && !parts[1]) {
+      // ?accounts=youtube/main,tiktok/brand — read-only: suggests, schedules nothing.
+      const accounts = (url.searchParams.get('accounts') ?? '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)
+        .slice(0, 20)
+        .map((s) => {
+          const i = s.indexOf('/');
+          return { platform: i > 0 ? s.slice(0, i) : s, account: i > 0 ? s.slice(i + 1) : 'main' };
+        });
+      if (!accounts.length) throw new HttpError(400, msg('accounts 가 필요합니다 (예: youtube/main,tiktok/main)'));
+      const tz = url.searchParams.get('tz') || undefined;
+      if (tz && !validTimeZone(tz)) throw new HttpError(400, msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz }));
+      const locale = url.searchParams.get('lang') === 'en' ? 'en-US' : 'ko-KR';
+      return send(res, 200, suggestTimes(this.#opts.ctx.store, this.#opts.ctx.now(), { accounts, timeZone: tz, locale, count: Number(url.searchParams.get('count') ?? 3) || 3 }));
     }
     if (method === 'GET' && parts[0] === 'insights' && !parts[1]) {
       const days = Number(url.searchParams.get('days') ?? 30);
