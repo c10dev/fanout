@@ -180,16 +180,14 @@ describe('vertical fit in the preview', () => {
 describe('thumbnail from a frame', () => {
   it('uses the same moment as the Instagram and TikTok (direct) covers, unless already set', async () => {
     const { withCoverMoment } = await import('../src/core/media.ts');
-    const out = withCoverMoment(
-      [
+    const targets: Array<{ platform: string; options: Record<string, unknown> }> = [
         { platform: 'instagram', options: {} },
         { platform: 'instagram', options: { thumbOffsetMs: 500 } },
         { platform: 'tiktok', options: { mode: 'direct' } },
         { platform: 'tiktok', options: { mode: 'inbox' } },
         { platform: 'youtube', options: {} },
-      ],
-      12.5,
-    );
+    ];
+    const out = withCoverMoment(targets, 12.5);
     assert.deepEqual(out.map((t) => t.options.thumbOffsetMs ?? t.options.coverTimestampMs), [12500, 500, 12500, undefined, undefined]);
   });
 });
