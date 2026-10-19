@@ -524,6 +524,7 @@ async function startAddMode(postId) {
   hideConfirm();
   // Start from nothing picked: a platform checked for some other post must not carry over.
   for (const t of document.querySelectorAll('#targets [name="enabled"]')) t.checked = false;
+  showView('new');
   addingTo = { postId, title: m.post.title, covered: new Set(m.onPost.filter((t) => COVERING.has(t.state)).map((t) => `${t.platform}/${t.account}`)) };
   media = { id: null, name: m.name, media: m.media, isShort: m.isShort, assessments: m.assessments };
   $('#title').value = m.post.title;
@@ -702,8 +703,17 @@ function wireTikTokMode(body) {
   sync();
 }
 
+/**
+ * Until a video is picked, the new-post screen is just the compose box (video + title), centred;
+ * picking one (or adding platforms to a post) opens the rest of the form at the column's width.
+ */
+function updateCompose() {
+  $('#compose-panel').classList.toggle('empty', !media && !addingTo);
+}
+
 function renderMedia() {
   const box = $('#media-info');
+  updateCompose();
   if (!media) {
     box.hidden = true;
     return;
