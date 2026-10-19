@@ -1662,6 +1662,7 @@ const NOTIFY_EVENTS = [
   ['removed', tr('삭제됨')],
   ['alert', tr('게시물 경고 (저작권 차단 등)')],
   ['expiring', tr('로그인 만료 예정')],
+  ['digest', tr('주간 요약')],
 ];
 
 /** Links from platform responses are only followed when they are web links (never javascript:). */

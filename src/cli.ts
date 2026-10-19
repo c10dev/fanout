@@ -322,7 +322,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout limits [platform]               계정별 남은 게시 한도 (YouTube 하루 업로드, Instagram 24시간 게시, Bluesky·PeerTube 용량)
   fanout insights [platform] [--days 30] [--tz Asia/Seoul]   잘 되는 게시물·요일·시간 (기록된 반응 기준, API 호출 없음)
   fanout calendar [--weeks 2] [--offset 0] [--tz Asia/Seoul]   주별 달력: 예약된 것과 올라간 것
-  fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off,alert,expiring] [--format slack|discord|json]
+  fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off,alert,expiring,digest] [--format slack|discord|json]
   fanout notify test | off               상태 알림 (Slack·Discord·JSON webhook)
   fanout backup <폴더> [--without-key]    DB 스냅샷(+복호화 키) 백업 — 실행 중에도 안전
   fanout restore <백업 폴더> [--yes]      백업으로 되돌리기 (먼저 검사, 지금 데이터는 따로 보관)

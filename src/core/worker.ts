@@ -2,6 +2,7 @@ import { refreshStats } from './posting.ts';
 import { settle, type RunnerDeps } from './runner.ts';
 import { refreshDueStats } from './stats.ts';
 import { verifyDueAccounts, warnExpiringAccounts } from './accounts.ts';
+import { sendWeeklyDigest } from './digest.ts';
 
 export const DEFAULT_STATS_EVERY_MS = 6 * 3600_000;
 const STATS_CHECK_MS = 30 * 60_000;
@@ -88,6 +89,7 @@ export class Worker {
     this.#upkeepRun = verifyDueAccounts(ctx, providers)
       .then(async (n) => {
         await warnExpiringAccounts(ctx, providers);
+        sendWeeklyDigest(ctx, providers);
         return n;
       })
       .catch((err: unknown) => {

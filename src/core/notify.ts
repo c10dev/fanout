@@ -7,8 +7,11 @@ import { msg } from './i18n.ts';
  * silently. Slack and Discord incoming webhooks get their own payload shape; anything else gets
  * plain JSON.
  */
-/** A target's new state, or: `alert` (something wrong with a published post, e.g. a copyright block), `expiring` (a sign-in about to end). */
-export type NotifyEvent = TargetState | 'alert' | 'expiring';
+/**
+ * A target's new state, or: `alert` (something wrong with a published post, e.g. a copyright block),
+ * `expiring` (a sign-in about to end), `digest` (the weekly summary; only when picked).
+ */
+export type NotifyEvent = TargetState | 'alert' | 'expiring' | 'digest';
 
 export interface NotifyConfig {
   url: string;
@@ -17,7 +20,7 @@ export interface NotifyConfig {
 }
 
 export const DEFAULT_EVENTS: readonly NotifyEvent[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'alert', 'expiring'];
-export const KNOWN_EVENTS: readonly NotifyEvent[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed', 'alert', 'expiring'];
+export const KNOWN_EVENTS: readonly NotifyEvent[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed', 'alert', 'expiring', 'digest'];
 const TIMEOUT_MS = 5_000;
 const pending = new Set<Promise<unknown>>();
 
@@ -118,7 +121,7 @@ export function attachNotifier(ctx: ProviderContext): void {
 }
 
 /** One notification about something other than a state change (an alert, an expiring sign-in), if enabled. */
-export function notifyEvent(ctx: ProviderContext, event: 'alert' | 'expiring', text: string, data: Record<string, unknown>): void {
+export function notifyEvent(ctx: ProviderContext, event: 'alert' | 'expiring' | 'digest', text: string, data: Record<string, unknown>): void {
   const config = notifyConfig(ctx);
   if (!config || !(config.events ?? DEFAULT_EVENTS).includes(event)) return;
   const format = config.format ?? detectFormat(config.url);
