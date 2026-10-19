@@ -338,3 +338,23 @@ details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1;
 .column > [data-section] > h2:first-child, .column > [data-section] > .panel-head > h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .column .panel-head { justify-content: flex-start; flex-wrap: wrap; align-items: center; }
 .column .panel-head > :last-child:not(:first-child) { margin-left: auto; }
+
+/* New post: an empty screen is just the compose box (video + title), at most 640 wide and centred
+   in the window; once a video is picked the whole form opens at the column's width. */
+.compose {
+  display: flex; flex-direction: column; gap: 8px; padding: 8px;
+  background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius-input); box-shadow: var(--shadow-input);
+}
+.compose .drop { border-width: 1px; border-radius: 10px; padding: 18px 12px; }
+.compose-title { margin-top: 0; }
+.compose-title > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.compose-title input { border: 0; background: transparent; font-size: 15px; padding: 8px 10px; }
+.compose-title input:focus { outline: none; }
+.compose:focus-within { border-color: var(--accent); }
+.compose-panel.empty { background: transparent; border: 0; padding: 0; width: 100%; max-width: 640px; margin: 0 auto; min-height: calc(100vh - 48px - 64px); display: flex; flex-direction: column; justify-content: center; }
+.compose-panel.empty #post-form > :not(.compose):not(#add-banner) { display: none; }
+.compose-panel.empty #post-form::before { content: none; }
+@media (max-width: 639px) {
+  .compose-panel.empty { justify-content: flex-end; padding-bottom: 16px; }
+}
+@media (max-width: 767px) { input, textarea, select { font-size: 16px; } }

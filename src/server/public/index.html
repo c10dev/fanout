@@ -41,20 +41,22 @@
   <div id="banner" class="banner" role="status" hidden></div>
 
   <main class="column" id="view-post">
-    <section class="panel" aria-labelledby="new-h" data-section="new">
+    <section class="panel compose-panel empty" aria-labelledby="new-h" data-section="new" id="compose-panel">
       <h2 id="new-h" data-i18n="새 게시물">새 게시물</h2>
       <form id="post-form" novalidate>
         <div id="add-banner" class="add-banner" role="status" hidden></div>
-        <div class="drop" id="drop">
-          <input type="file" id="file" accept="video/*,.mkv">
-          <label for="file" id="drop-label" data-i18n="영상 파일을 고르거나 여기에 끌어다 놓으세요">영상 파일을 고르거나 여기에 끌어다 놓으세요</label>
-          <progress id="upload-progress" max="1" value="0" hidden></progress>
+        <div class="compose" id="compose">
+          <div class="drop" id="drop">
+            <input type="file" id="file" accept="video/*,.mkv">
+            <label for="file" id="drop-label" data-i18n="영상 파일을 고르거나 여기에 끌어다 놓으세요">영상 파일을 고르거나 여기에 끌어다 놓으세요</label>
+            <progress id="upload-progress" max="1" value="0" hidden></progress>
+          </div>
+          <label class="field compose-title"><span data-i18n="제목">제목</span>
+            <input id="title" maxlength="100" autocomplete="off" placeholder="제목" data-i18n-placeholder="제목">
+          </label>
         </div>
         <div id="media-info" class="media-info" hidden></div>
 
-        <label class="field"><span data-i18n="제목">제목</span>
-          <input id="title" maxlength="100" autocomplete="off">
-        </label>
         <label class="field"><span data-i18n="설명">설명</span>
           <textarea id="description" rows="4"></textarea>
         </label>
