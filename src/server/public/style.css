@@ -72,16 +72,6 @@ body {
   font: 14px/1.5 var(--font);
 }
 
-.top {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 20px;
-  padding: 14px 20px;
-  border-bottom: 1px solid var(--line);
-  background: var(--panel);
-}
-.top h1 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
 
 .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; padding: 0; list-style: none; }
 .chip {
@@ -91,16 +81,6 @@ body {
 }
 .chip.on { color: var(--ok); background: var(--ok-bg); border-color: transparent; }
 
-.layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-  gap: 20px;
-  padding: 20px;
-  align-items: start;
-  max-width: 1400px;
-  margin: 0 auto;
-}
-@media (max-width: 960px) { .layout { grid-template-columns: minmax(0, 1fr); padding: 16px; } }
 
 .panel {
   background: var(--panel);
@@ -194,11 +174,8 @@ button { font: inherit; cursor: pointer; border-radius: var(--radius-control); }
 details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 
 /* ── Tabs, banner, settings ───────────────────────────────────── */
-.tabs { display: flex; gap: 4px; }
-.tab { border: 1px solid var(--line); background: transparent; color: var(--muted); padding: 4px 14px; font-size: 14px; }
-.tab[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: var(--accent-text); font-weight: 500; }
 
-.banner { max-width: 1400px; margin: 16px auto 0; padding: 10px 14px; border-radius: var(--radius-control); font-size: 14px; width: calc(100% - 40px); }
+.banner { max-width: 768px; margin: 8px auto 0; padding: 10px 14px; border-radius: var(--radius-control); font-size: 14px; width: calc(100% - 40px); }
 .banner.ok { color: var(--ok); background: var(--ok-bg); }
 .banner.bad { color: var(--bad); background: var(--bad-bg); }
 
@@ -286,7 +263,6 @@ details summary { cursor: pointer; color: var(--muted); font-size: 12px; }
 .small-check { font-size: 13px; white-space: nowrap; }
 /* Language switch: end of the first header row; the account chips wrap below. */
 #lang-toggle { margin-left: auto; }
-.top .chips { flex-basis: 100%; }
 details.unconnected { margin-top: 8px; }
 details.unconnected > summary { cursor: pointer; color: var(--muted); padding: 6px 0; }
 details.unconnected > .target { margin-top: 8px; }
@@ -307,3 +283,58 @@ details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1;
 .cal-item { margin: 2px 0; overflow-wrap: anywhere; }
 .cal-targets { font-size: 12px; }
 @media (max-width: 720px) { .calendar { grid-template-columns: 1fr; } }
+
+/* App frame: sidebar 288, top bar 48, a centred column 808 (768 + 20 each side). */
+.app { display: flex; min-height: 100vh; }
+.sidebar {
+  width: 288px; flex: none; position: sticky; top: 0; height: 100vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 2px; padding: 8px;
+  background: var(--sidebar); border-right: 0.5px solid var(--line);
+}
+.side-head { display: flex; align-items: center; justify-content: space-between; height: 40px; padding: 0 8px; }
+.brand { font-size: 15px; font-weight: 500; }
+.side-nav { display: flex; flex-direction: column; gap: 2px; }
+.nav-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 32px; padding: 0 8px;
+  border: 0; border-radius: var(--radius-control); background: transparent; color: var(--text);
+  font-size: 14px; text-align: left;
+}
+.nav-item:hover { background: var(--hover); }
+.nav-item[aria-current="page"] { background: var(--selected); font-weight: 500; }
+.nav-item:focus-visible, .recent-item:focus-visible, .icon-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.new-post { margin-bottom: 8px; }
+.side-label { font-size: 12px; color: var(--faint); padding: 16px 8px 4px; }
+.recent { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.recent-item {
+  display: flex; align-items: center; gap: 8px; width: 100%; height: 24px; padding: 0 8px;
+  border: 0; border-radius: 6px; background: transparent; color: var(--muted); font-size: 13px;
+  text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.recent-item:hover { background: var(--hover); color: var(--text); }
+.dot { width: 6px; height: 6px; border-radius: 50%; flex: none; background: var(--faint); }
+.dot.ok { background: var(--ok); } .dot.bad { background: var(--bad); } .dot.warn { background: var(--warn); } .dot.busy { background: var(--accent); }
+.side-foot { display: flex; flex-direction: column; gap: 8px; padding: 8px; border-top: 0.5px solid var(--line); margin-top: 8px; }
+.icon-btn { width: 32px; height: 32px; flex: none; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--muted); font-size: 18px; line-height: 1; }
+.icon-btn:hover { background: var(--hover); color: var(--text); }
+#sidebar-close, #sidebar-toggle { display: none; }
+
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.topbar { height: 48px; flex: none; display: flex; align-items: center; gap: 8px; padding: 0 16px; }
+.topbar h1 { margin: 0; font-size: 15px; font-weight: 500; }
+.column { width: 100%; max-width: 808px; margin: 0 auto; padding: 8px 20px 48px; display: flex; flex-direction: column; gap: 16px; }
+.column.wide { max-width: 1100px; }
+
+/* Narrow windows: the sidebar becomes a drawer over the page, opened from the top bar. */
+.scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 19; }
+@media (max-width: 703px) {
+  .sidebar { position: fixed; inset: 0 auto 0 0; z-index: 20; transform: translateX(-100%); transition: transform 0.2s ease; box-shadow: none; }
+  .sidebar.open { transform: none; }
+  #sidebar-close, #sidebar-toggle { display: inline-flex; align-items: center; justify-content: center; }
+}
+@media (min-width: 704px) { .scrim { display: none; } }
+@media (max-width: 767px) { .column { padding: 8px 12px 40px; } }
+@media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
+/* The top bar names the screen; a section's own heading would repeat it. */
+.column > [data-section] > h2:first-child, .column > [data-section] > .panel-head > h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.column .panel-head { justify-content: flex-start; flex-wrap: wrap; align-items: center; }
+.column .panel-head > :last-child:not(:first-child) { margin-left: auto; }

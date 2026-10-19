@@ -941,6 +941,7 @@ async function post(form) {
     renderTargets();
     refreshBoard();
     reloadCalendar?.();
+    showView('board');
   } catch (err) {
     $('#form-error').textContent = err.message;
     button.disabled = false;
@@ -1422,6 +1423,8 @@ async function refreshBoard() {
   try {
     const limit = boardLimit;
     const posts = await api(`/posts?limit=${limit}${boardScheduled ? '&scheduled=1' : boardQuery ? `&q=${encodeURIComponent(boardQuery)}` : ''}`);
+    // The sidebar's recent list: the newest posts whatever the board's filter.
+    if (!boardScheduled && !boardQuery) renderRecent(posts);
     // A newer refresh (another search, a click) started meanwhile: its answer wins.
     if (seq !== boardSeq) return;
     // A full page means there may be more; set only where the board is actually redrawn.
@@ -1453,17 +1456,76 @@ async function refreshBoard() {
 
 // ── Views and banner ─────────────────────────────────────────────
 
+/** The screens behind the sidebar menu; the board, calendar and performance get a wider column. */
+const SECTIONS = ['new', 'board', 'calendar', 'inbox', 'insights', 'settings'];
+const WIDE_SECTIONS = new Set(['board', 'calendar', 'insights']);
+const sectionTitle = (section) => ({ new: tr('새 게시물'), board: tr('게시 현황'), calendar: tr('달력'), inbox: tr('답을 기다리는 댓글'), insights: tr('성과 요약'), settings: tr('설정') })[section];
+
+/** Show one screen (from the sidebar or the address's #hash). `post` is the old name for the new-post screen. */
 function showView(view) {
-  for (const tab of document.querySelectorAll('.tab')) {
-    if (tab.dataset.view === view) tab.setAttribute('aria-current', 'page');
-    else tab.removeAttribute('aria-current');
+  const section = SECTIONS.includes(view) ? view : view === 'post' ? 'new' : 'new';
+  for (const item of document.querySelectorAll('.nav-item[data-section]')) {
+    if (item.dataset.section === section) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
   }
-  $('#view-post').hidden = view !== 'post';
-  $('#view-settings').hidden = view !== 'settings';
-  if (view === 'settings') loadSettings();
+  for (const panel of document.querySelectorAll('#view-post [data-section]')) panel.hidden = panel.dataset.section !== section;
+  $('#view-post').hidden = section === 'settings';
+  $('#view-post').classList.toggle('wide', WIDE_SECTIONS.has(section));
+  $('#view-settings').hidden = section !== 'settings';
+  $('#view-title').textContent = sectionTitle(section);
+  if (location.hash.slice(1) !== section) history.replaceState(null, '', `#${section}`);
+  if (section === 'settings') loadSettings();
+  closeSidebar();
 }
 
-for (const tab of document.querySelectorAll('.tab')) tab.addEventListener('click', () => showView(tab.dataset.view));
+for (const item of document.querySelectorAll('.nav-item[data-section]')) item.addEventListener('click', () => showView(item.dataset.section));
+window.addEventListener('hashchange', () => showView(location.hash.slice(1)));
+
+// On narrow windows the sidebar is a drawer over the page.
+function openSidebar() {
+  $('#sidebar').classList.add('open');
+  $('#scrim').hidden = false;
+  $('#sidebar-toggle').setAttribute('aria-expanded', 'true');
+  $('#sidebar .nav-item[aria-current]')?.focus();
+}
+function closeSidebar() {
+  if (!$('#sidebar').classList.contains('open')) return;
+  $('#sidebar').classList.remove('open');
+  $('#scrim').hidden = true;
+  $('#sidebar-toggle').setAttribute('aria-expanded', 'false');
+}
+$('#sidebar-toggle').addEventListener('click', openSidebar);
+$('#sidebar-close').addEventListener('click', closeSidebar);
+$('#scrim').addEventListener('click', closeSidebar);
+document.addEventListener('keydown', (e) => e.key === 'Escape' && closeSidebar());
+
+/** The newest posts in the sidebar; each opens the board at its card. */
+function renderRecent(posts) {
+  const DOT = { published: 'ok', failed: 'bad', needs_reauth: 'bad', handed_off: 'warn' };
+  $('#recent').replaceChildren(
+    ...posts.slice(0, 12).map((p) => {
+      const worst = p.targets.find((t) => t.state === 'failed' || t.state === 'needs_reauth') ?? p.targets.find((t) => !t.terminal) ?? p.targets[0];
+      return h(
+        'li',
+        {},
+        h(
+          'button',
+          {
+            type: 'button',
+            class: 'recent-item',
+            title: p.post.title,
+            onclick: () => {
+              showView('board');
+              document.querySelector(`#board [data-post="${CSS.escape(p.post.id)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            },
+          },
+          h('span', { class: `dot ${DOT[worst?.state] ?? (worst && !worst.terminal ? 'busy' : '')}`, 'aria-hidden': 'true' }),
+          p.post.title,
+        ),
+      );
+    }),
+  );
+}
 
 function banner(text, kind) {
   const el = $('#banner');
@@ -2060,7 +2122,7 @@ async function init() {
   if (params.get('connected')) banner(tr('연결했습니다: {account}', { account: params.get('connected') }), 'ok');
   if (params.get('oauthError')) banner(tr('연결 실패: {error}', { error: params.get('oauthError') }), 'bad');
   if (params.has('view')) history.replaceState(null, '', '/');
-  showView(params.get('view') === 'settings' ? 'settings' : 'post');
+  showView(params.get('view') === 'settings' ? 'settings' : location.hash.slice(1) || 'new');
 }
 
 init();

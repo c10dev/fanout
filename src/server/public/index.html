@@ -11,19 +11,37 @@
   <script src="/app.js" defer></script>
 </head>
 <body>
-  <header class="top">
-    <h1>fanout</h1>
-    <nav class="tabs" aria-label="화면" data-i18n-aria-label="화면">
-      <button type="button" class="tab" data-view="post" aria-current="page" data-i18n="게시">게시</button>
-      <button type="button" class="tab" data-view="settings" data-i18n="설정">설정</button>
+<div class="app">
+  <aside class="sidebar" id="sidebar" aria-label="메뉴" data-i18n-aria-label="메뉴">
+    <div class="side-head">
+      <span class="brand">fanout</span>
+      <button type="button" class="icon-btn" id="sidebar-close" aria-label="메뉴 닫기" data-i18n-aria-label="메뉴 닫기">×</button>
+    </div>
+    <button type="button" class="nav-item new-post" data-section="new"><span aria-hidden="true">＋</span> <span data-i18n="새 게시물">새 게시물</span></button>
+    <nav class="side-nav" aria-label="화면" data-i18n-aria-label="화면">
+      <button type="button" class="nav-item" data-section="board" data-i18n="게시 현황">게시 현황</button>
+      <button type="button" class="nav-item" data-section="calendar" data-i18n="달력">달력</button>
+      <button type="button" class="nav-item" data-section="inbox" data-i18n="댓글">댓글</button>
+      <button type="button" class="nav-item" data-section="insights" data-i18n="성과">성과</button>
+      <button type="button" class="nav-item" data-section="settings" data-i18n="설정">설정</button>
     </nav>
-    <button type="button" class="small" id="lang-toggle"></button>
-    <ul id="accounts" class="chips" aria-label="연결된 계정" data-i18n-aria-label="연결된 계정"></ul>
+    <div class="side-label" data-i18n="최근 게시물">최근 게시물</div>
+    <ul id="recent" class="recent"></ul>
+    <div class="side-foot">
+      <ul id="accounts" class="chips" aria-label="연결된 계정" data-i18n-aria-label="연결된 계정"></ul>
+      <button type="button" class="small" id="lang-toggle"></button>
+    </div>
+  </aside>
+  <div class="scrim" id="scrim" hidden></div>
+  <div class="main">
+  <header class="topbar">
+    <button type="button" class="icon-btn" id="sidebar-toggle" aria-label="메뉴 열기" data-i18n-aria-label="메뉴 열기" aria-controls="sidebar" aria-expanded="false">☰</button>
+    <h1 id="view-title">fanout</h1>
   </header>
   <div id="banner" class="banner" role="status" hidden></div>
 
-  <main class="layout" id="view-post">
-    <section class="panel" aria-labelledby="new-h">
+  <main class="column" id="view-post">
+    <section class="panel" aria-labelledby="new-h" data-section="new">
       <h2 id="new-h" data-i18n="새 게시물">새 게시물</h2>
       <form id="post-form" novalidate>
         <div id="add-banner" class="add-banner" role="status" hidden></div>
@@ -77,7 +95,7 @@
       </form>
     </section>
 
-    <section class="panel" aria-labelledby="board-h">
+    <section class="panel" aria-labelledby="board-h" data-section="board" hidden>
       <div class="panel-head">
         <h2 id="board-h" data-i18n="게시 현황">게시 현황</h2>
         <input type="search" id="board-search" placeholder="제목·설명으로 찾기" data-i18n-placeholder="제목·설명으로 찾기" aria-label="게시물 찾기" data-i18n-aria-label="게시물 찾기" autocomplete="off">
@@ -87,13 +105,15 @@
       <div id="board" class="board" aria-live="polite"></div>
       <button type="button" class="small" id="board-more" hidden data-i18n="더 보기">더 보기</button>
     </section>
-    <section class="panel" id="calendar"></section>
-    <section class="panel" id="inbox"></section>
-    <section class="panel" id="insights"></section>
+    <section class="panel" id="calendar" data-section="calendar" hidden></section>
+    <section class="panel" id="inbox" data-section="inbox" hidden></section>
+    <section class="panel" id="insights" data-section="insights" hidden></section>
   </main>
 
-  <main class="settings" id="view-settings" hidden>
+  <main class="column settings" id="view-settings" hidden>
     <div id="settings"></div>
   </main>
+  </div>
+</div>
 </body>
 </html>
