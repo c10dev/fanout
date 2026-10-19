@@ -5,26 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { extractFrame, fileHash, probe as realProbe, withCoverMoment, type MediaInfo } from '../core/media.ts';
-import {
-  accountLabel,
-  addTargets,
-  appReady,
-  assessMedia,
-  cancelTarget,
-  changeVisibility,
-  createScheduledPost,
-  editPost,
-  fetchComments,
-  hideComment,
-  MaybeLiveError,
-  planAddTargets,
-  previewPost,
-  refreshStats,
-  removeTarget,
-  replyToComment,
-  retryTarget,
-  withTimeout,
-} from '../core/posting.ts';
+import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, editPost, fetchComments, hideComment, MaybeLiveError, planAddTargets, previewPost, refreshStats, removeTarget, replyToComment, retryTarget, withTimeout } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import { msg, translate, translateDeep, type Lang } from '../core/i18n.ts';
@@ -316,6 +297,10 @@ export class Dashboard {
 
     const parts = url.pathname.split('/').filter(Boolean).slice(1);
     if (method === 'GET' && parts[0] === 'overview') return send(res, 200, this.#overview());
+    if (method === 'GET' && parts[0] === 'comment-inbox' && !parts[1]) {
+      const days = Number(url.searchParams.get('days') ?? 7);
+      return send(res, 200, await commentInbox(this.#opts.ctx, this.#opts.providers, { days: days > 0 ? Math.min(days, 90) : 7 }));
+    }
     if (method === 'GET' && parts[0] === 'insights' && !parts[1]) {
       const days = Number(url.searchParams.get('days') ?? 30);
       const locale = url.searchParams.get('lang') === 'en' ? 'en-US' : 'ko-KR';

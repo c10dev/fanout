@@ -1828,6 +1828,63 @@ async function refreshAll() {
 
 let reloadInsights;
 
+/**
+ * Comments still waiting for a reply across recent posts. Loaded on request: each post read is a
+ * platform call (and YouTube quota).
+ */
+function inboxPanel() {
+  const box = $('#inbox');
+  if (!box) return;
+  const body = h('div', {}, h('p', { class: 'muted' }, tr('최근 게시물에서 아직 답하지 않은 댓글을 모아 봅니다 (YouTube·Facebook·Instagram).')));
+  const days = h('select', { 'aria-label': tr('기간') }, [3, 7, 30].map((d) => h('option', { value: d, selected: d === 7 }, tr('최근 {days}일', { days: d }))));
+  const button = h('button', { class: 'small', type: 'button' }, tr('불러오기'));
+  const load = async () => {
+    button.disabled = true;
+    body.replaceChildren(h('p', { class: 'muted' }, tr('불러오는 중…')));
+    try {
+      const r = await api(`/comment-inbox?days=${days.value}`);
+      const head = h('p', { class: 'muted' }, tr('게시물 {posts}개에서 {n}개', { posts: r.posts, n: r.items.length }), r.unknown ? ` · ${tr('답했는지 알 수 없는 {n}개는 빠짐', { n: r.unknown })}` : '');
+      body.replaceChildren(
+        head,
+        ...r.errors.map((e) => h('p', { class: 'err' }, e)),
+        ...r.items.map((i) =>
+          h(
+            'div',
+            { class: 'comment' },
+            h(
+              'div',
+              { class: 'comment-meta' },
+              h('strong', {}, i.comment.author || tr('(이름 없음)')),
+              h('span', { class: 'muted' }, ` · ${i.platform}/${i.account} · ${fmtTime(i.comment.at)} · "${i.title}"`),
+              webUrl(i.comment.url) ? h('a', { href: i.comment.url, target: '_blank', rel: 'noopener noreferrer', class: 'comment-link' }, tr('열기')) : null,
+            ),
+            h('div', { class: 'comment-text' }, i.comment.text),
+            h(
+              'button',
+              {
+                class: 'small link',
+                type: 'button',
+                onclick: () => {
+                  // Answer it on the post's own card, with its reply box.
+                  loadComments(i.postId);
+                  document.querySelector(`#board [data-post="${CSS.escape(i.postId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                },
+              },
+              tr('게시물에서 답하기'),
+            ),
+          ),
+        ),
+      );
+    } catch (err) {
+      body.replaceChildren(h('p', { class: 'form-error' }, err.message));
+    } finally {
+      button.disabled = false;
+    }
+  };
+  button.addEventListener('click', load);
+  box.replaceChildren(h('div', { class: 'panel-head' }, h('h2', {}, tr('답을 기다리는 댓글')), days, button), body);
+}
+
 /** "What performs" under the board: per platform and account, from the recorded reactions (no platform calls). */
 function insightsPanel() {
   const box = $('#insights');
@@ -1884,6 +1941,7 @@ async function init() {
   renderAccounts();
   renderTargets();
   refreshBoard();
+  inboxPanel();
   insightsPanel();
   loadPresets();
 

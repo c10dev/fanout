@@ -214,3 +214,43 @@ describe('hiding comments', () => {
     }
   });
 });
+
+describe('comment inbox', () => {
+  const NOW = new Date('2026-10-17T03:00:00Z');
+  it('lists what the account has not answered, across recent posts, platform by platform', async () => {
+    const { commentInbox } = await import('../src/core/posting.ts');
+    const { fetch } = mockFetch([
+      ['GET', '/commentThreads', () =>
+        json({
+          items: [
+            { id: 'Y1', snippet: { totalReplyCount: 0, topLevelComment: { id: 'Y1', snippet: { authorDisplayName: 'fan', authorChannelId: { value: 'UCfan' }, textDisplay: 'when part 2?', publishedAt: '2026-10-17T01:00:00Z' } } } },
+            { id: 'Y2', snippet: { totalReplyCount: 1, topLevelComment: { id: 'Y2', snippet: { authorDisplayName: 'b', textDisplay: 'nice', publishedAt: '2026-10-17T00:30:00Z' } } }, replies: { comments: [{ snippet: { authorChannelId: { value: 'UCme' } } }] } },
+            { id: 'Y3', snippet: { totalReplyCount: 9, topLevelComment: { id: 'Y3', snippet: { authorDisplayName: 'c', textDisplay: 'busy thread', publishedAt: '2026-10-17T00:20:00Z' } } }, replies: { comments: [{ snippet: { authorChannelId: { value: 'UCx' } } }] } },
+            { id: 'Y4', snippet: { totalReplyCount: 0, topLevelComment: { id: 'Y4', snippet: { authorDisplayName: 'me', authorChannelId: { value: 'UCme' }, textDisplay: 'pinned note', publishedAt: '2026-10-17T00:10:00Z' } } } },
+          ],
+        })],
+      ['GET', '/F/comments', () =>
+        json({
+          data: [
+            { id: 'F1', message: 'price?', created_time: '2026-10-17T02:00:00+0000', comment_count: 0, from: { id: 'u1', name: 'Kim' } },
+            { id: 'F2', message: 'thanks', created_time: '2026-10-17T01:30:00+0000', comment_count: 1, from: { id: 'u2', name: 'Lee' }, comments: { data: [{ from: { id: 'PAGE' } }] } },
+          ],
+        })],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('youtube', { clientId: 'c', clientSecret: 's' });
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    store.saveAccount({ platform: 'youtube', name: 'main', credentials: { accessToken: 'A', refreshToken: 'R', expiresAt: NOW.getTime() + 3600_000 }, profile: { channelId: 'UCme' } });
+    store.saveAccount({ platform: 'facebook', name: 'main', credentials: { pageId: 'PAGE', pageToken: 'PT' }, profile: {} });
+    const input: PostInput = { mediaPath: '/v.mp4', title: 'Clip', description: '', tags: [], captions: [], containsSyntheticMedia: false };
+    const { targets } = store.createPost(input, [{ platform: 'youtube', account: 'main', options: {} }, { platform: 'facebook', account: 'main', options: {} }]);
+    for (const [t, id] of [[targets[0]!, 'V'], [targets[1]!, 'F']] as const) {
+      store.transition(t.id, 'uploading');
+      store.transition(t.id, 'published', { remoteId: id });
+    }
+    const r = await commentInbox(ctx, providerMap(), { days: 7 });
+    assert.deepEqual(r.items.map((i) => `${i.platform}:${i.comment.id}`), ['facebook:F1', 'youtube:Y1']);
+    assert.equal(r.unknown, 1, 'the busy thread whose replies are not all in view');
+    assert.equal(r.posts, 1);
+  });
+});

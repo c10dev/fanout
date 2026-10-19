@@ -281,17 +281,28 @@ export const instagram: Provider = {
   // Needs the instagram_manage_comments permission on the token (see the Meta setup guide).
   async comments({ ctx, account, target, limit }) {
     const c = pageCreds(account);
-    const res = await graph<{ data?: Array<{ id: string; text?: string; username?: string; timestamp: string; like_count?: number; hidden?: boolean; user?: { id?: string } }> }>(
+    const res = await graph<{ data?: Array<{ id: string; text?: string; username?: string; timestamp: string; like_count?: number; hidden?: boolean; user?: { id?: string }; replies?: { data?: Array<{ username?: string }> } }> }>(
       ctx,
       'GET',
       `/${target.remoteId}/comments`,
-      { fields: 'id,text,username,timestamp,like_count,hidden,user', limit: Math.min(limit, 50), access_token: c.pageToken },
+      { fields: 'id,text,username,timestamp,like_count,hidden,user,replies{username}', limit: Math.min(limit, 50), access_token: c.pageToken },
     );
     // The account's own comments: `user` comes back only for those (an IG user id, unlike `from`,
     // which is app-scoped), and the username is the fallback.
     const me = String(account.profile.username ?? '').toLowerCase();
     const own = (m: { username?: string; user?: { id?: string } }) => (m.user?.id !== undefined && m.user.id === c.igUserId) || (me !== '' && m.username?.toLowerCase() === me);
-    return (res.data ?? []).map((m) => ({ id: m.id, author: m.username ? `@${m.username}` : '', text: m.text ?? '', at: m.timestamp, likes: m.like_count, hidden: m.hidden === true, hideable: !own(m) }));
+    return (res.data ?? []).map((m) => ({
+      id: m.id,
+      author: m.username ? `@${m.username}` : '',
+      text: m.text ?? '',
+      at: m.timestamp,
+      likes: m.like_count,
+      hidden: m.hidden === true,
+      hideable: !own(m),
+      mine: own(m),
+      // Replies come with the comment (first page): one from the account answers it.
+      ...(me ? { answered: (m.replies?.data ?? []).some((r) => r.username?.toLowerCase() === me) } : {}),
+    }));
   },
 
   async reply({ ctx, account, comment, text, sending }) {

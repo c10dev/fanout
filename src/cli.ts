@@ -10,7 +10,7 @@ import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, watchAccount, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
 import { extractFrame, fileHash, probe, withCoverMoment } from './core/media.ts';
-import { MaybeLiveError, accountLabel, addTargets, assessMedia, cancelTarget, changeVisibility, hideComment, planAddTargets, createScheduledPost, describePrior, editPost, fetchComments, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
+import { accountLabel, addTargets, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, describePrior, editPost, fetchComments, hideComment, MaybeLiveError, planAddTargets, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Limit, Provider, ProviderContext } from './core/provider.ts';
 import { readLimits } from './core/limits.ts';
@@ -314,6 +314,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout visibility <postId> youtube public|unlisted|private [--at 시각]   게시된 영상의 공개 범위 변경 (--at: 그 시각에 공개)
   fanout remove <postId> <platform> [--account main] [--yes]   게시물을 플랫폼에서 삭제 (되돌릴 수 없음)
   fanout comments <postId> [--limit 20]  게시된 대상의 최근 댓글 (YouTube·Facebook·Instagram·Bluesky·Mastodon·PeerTube)
+  fanout comments --unanswered [--days 7]   최근 게시물에서 아직 답하지 않은 댓글 (YouTube·Facebook·Instagram)
   fanout reply <postId> <platform> <commentId> <내용…> [--account main] [--yes]   댓글에 답글 (comments 의 [id])
   fanout hide-comment <postId> <platform> <commentId> [--show] [--account main]   댓글 숨기기 (YouTube·Instagram·Facebook, --show로 되돌림)
   fanout stats [postId] [--include-paid] [--history]  게시된 영상의 조회·좋아요·댓글과 24시간 변화 (X는 --include-paid일 때만)
@@ -753,9 +754,26 @@ export function printable(text: string): string {
   return text.replace(/\s+/g, ' ').replace(/[\p{Cc}\p{Cf}]/gu, '');
 }
 
+/** Comments still waiting for a reply, across recent posts. */
+async function cmdInbox(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const days = num(args, 'days') ?? 7;
+  if (!(days > 0 && days <= 90)) throw new UsageError(msg('--days 는 1~90'));
+  const r = await commentInbox(ctx, deps.providers, { days });
+  for (const e of r.errors) sayErr('✗ ' + e);
+  say(msg('최근 {days}일 게시물 {posts}개에서 답을 기다리는 댓글 {n}개', { days, posts: r.posts, n: r.items.length }) + (r.unknown ? local(msg(' (답했는지 알 수 없는 {n}개는 빠짐)', { n: r.unknown })) : ''));
+  for (const i of r.items) {
+    const author = printable(i.comment.author) || local(msg('(이름 없음)'));
+    console.log(`\n  ${i.comment.at.slice(0, 16).replace('T', ' ')}  ${i.platform}/${i.account}  "${printable(i.title).slice(0, 40)}"  ${author}  [${i.postId.slice(0, 8)} ${i.comment.id}]`);
+    console.log(`    ${printable(i.comment.text).slice(0, 200)}`);
+  }
+  if (r.items.length) say(msg('\n답글: fanout reply <postId> <platform> <commentId> <내용…>'));
+  return 0;
+}
+
 async function cmdComments(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  if (!args.positionals[1] && args.flags.unanswered) return cmdInbox(ctx, deps, args);
   const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
-  if (!post) throw new UsageError('fanout comments <postId> [--limit 20]');
+  if (!post) throw new UsageError('fanout comments <postId> [--limit 20] | fanout comments --unanswered [--days 7]');
   for (const r of await fetchComments(ctx, deps.providers, post.id, num(args, 'limit') ?? 20)) {
     console.log(`\n${r.platform}/${r.account}${r.skipped ? ` — ${local(r.skipped)}` : r.error ? ` — ✗ ${local(r.error)}` : ` — ${local(msg('댓글 {count}개', { count: r.comments!.length }))}`}`);
     for (const c of r.comments ?? []) {

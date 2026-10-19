@@ -100,6 +100,10 @@ TikTok·Facebook·X·Mastodon은 읽을 수 있는 한도가 API에 없어 표�
 | PeerTube | `/videos/:id/comment-threads` | 로그인 토큰 |
 | X, TikTok | 아직 지원하지 않음(X는 검색 요금, TikTok은 공개 댓글 API 없음) | |
 
+### 답을 기다리는 댓글
+
+`fanout comments --unanswered [--days 7]`, 대시보드 게시 화면의 "답을 기다리는 댓글"(불러오기 버튼), MCP `get_comment_inbox`가 최근 게시물(새것부터 20개)의 댓글 중 연결된 계정이 아직 답하지 않은 것을 모아 줍니다. YouTube는 스레드에 딸려 오는 답글(최대 5개)에 채널의 답이 있는지, Facebook은 딸려 오는 답글(최대 25개)에 페이지의 답이 있는지, Instagram은 답글에 계정 사용자 이름이 있는지로 판단합니다. 답글이 그보다 많아 알 수 없는 것과 계정이 직접 쓴 댓글·숨긴 댓글은 빼고, 몇 개를 알 수 없었는지 알려 줍니다. 게시물마다 플랫폼 호출이 한 번씩 들어갑니다(YouTube 할당량 1).
+
 ### 답글
 
 같은 플랫폼들에서는 댓글에 답글도 달 수 있습니다: 대시보드 댓글 패널의 "답글", `fanout reply <postId> <platform> <commentId> <내용>`(댓글 ID는 `fanout comments`가 `[…]`로 보여 줌), MCP `reply_to_comment`.
