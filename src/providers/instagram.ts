@@ -30,6 +30,12 @@ export interface InstagramOptions {
 
 const TAGS_MAX = 20;
 
+function answeredBy(replies: { data?: Array<{ username?: string; user?: { id?: string } }>; paging?: { next?: string } } | undefined, igUserId: string | undefined, me: string): { answered?: boolean } {
+  const mine = (replies?.data ?? []).some((r) => (igUserId !== undefined && r.user?.id === igUserId) || (me !== '' && r.username?.toLowerCase() === me));
+  if (mine) return { answered: true };
+  return replies?.paging?.next ? {} : { answered: false };
+}
+
 /** Usernames as a list, also when given as "alice, @bob". */
 function usernamesOf(raw: unknown): string[] {
   const list = Array.isArray(raw) ? raw.map(String) : typeof raw === 'string' ? raw.split(',') : [];
@@ -134,7 +140,7 @@ export const instagram: Provider = {
     if (Math.abs(ratio - 9 / 16) > 0.02 && !(target.options as { fit?: string }).fit) {
       issues.push({ severity: 'warning', code: 'aspect', message: msg('Instagram Reels 권장 화면비는 9:16 (현재 {width}x{height}) — 잘리거나 여백이 생길 수 있습니다', { width: media.video.width, height: media.video.height }) });
     }
-    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: msg('Instagram은 로컬 썸네일 파일을 받지 않습니다 — thumbOffsetMs로 커버 프레임을 고르세요') });
+    if (post.thumbnailPath && o.thumbOffsetMs === undefined) issues.push({ severity: 'warning', code: 'thumbnail', message: msg('Instagram은 로컬 썸네일 파일을 받지 않습니다 — thumbOffsetMs로 커버 프레임을 고르세요') });
     if (post.scheduledAt) issues.push({ severity: 'warning', code: 'schedule', message: msg('Instagram은 API 예약 게시가 없어 fanout이 예약 시각에 게시합니다 (fanout worker 필요)') });
     return issues;
   },
@@ -279,13 +285,15 @@ export const instagram: Provider = {
   },
 
   // Needs the instagram_manage_comments permission on the token (see the Meta setup guide).
+  commentsKnowAnswers: true,
+
   async comments({ ctx, account, target, limit }) {
     const c = pageCreds(account);
-    const res = await graph<{ data?: Array<{ id: string; text?: string; username?: string; timestamp: string; like_count?: number; hidden?: boolean; user?: { id?: string }; replies?: { data?: Array<{ username?: string }> } }> }>(
+    const res = await graph<{ data?: Array<{ id: string; text?: string; username?: string; timestamp: string; like_count?: number; hidden?: boolean; user?: { id?: string }; replies?: { data?: Array<{ username?: string; user?: { id?: string } }>; paging?: { next?: string } } }> }>(
       ctx,
       'GET',
       `/${target.remoteId}/comments`,
-      { fields: 'id,text,username,timestamp,like_count,hidden,user,replies{username}', limit: Math.min(limit, 50), access_token: c.pageToken },
+      { fields: 'id,text,username,timestamp,like_count,hidden,user,replies{username,user}', limit: Math.min(limit, 50), access_token: c.pageToken },
     );
     // The account's own comments: `user` comes back only for those (an IG user id, unlike `from`,
     // which is app-scoped), and the username is the fallback.
@@ -300,8 +308,9 @@ export const instagram: Provider = {
       hidden: m.hidden === true,
       hideable: !own(m),
       mine: own(m),
-      // Replies come with the comment (first page): one from the account answers it.
-      ...(me ? { answered: (m.replies?.data ?? []).some((r) => r.username?.toLowerCase() === me) } : {}),
+      // Replies come with the comment (first page): one from the account answers it (by its id, which
+      // Meta returns only for the account's own replies, or its name). More pages and none seen: unknown.
+      ...answeredBy(m.replies, c.igUserId, me),
     }));
   },
 

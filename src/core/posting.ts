@@ -501,10 +501,10 @@ export interface CommentsResult {
 }
 
 /** Newest comments for each published target of a post, read live (nothing is stored). */
-export async function fetchComments(baseCtx: ProviderContext, providers: Map<string, Provider>, postId: string, limit = 20): Promise<CommentsResult[]> {
+export async function fetchComments(baseCtx: ProviderContext, providers: Map<string, Provider>, postId: string, limit = 20, only?: (platform: string) => boolean): Promise<CommentsResult[]> {
   const ctx = withTimeout(baseCtx);
   const out: CommentsResult[] = [];
-  for (const t of ctx.store.targetsForPost(postId)) {
+  for (const t of ctx.store.targetsForPost(postId).filter((t) => !only || only(t.platform))) {
     const base = { targetId: t.id, platform: t.platform, account: t.account };
     const provider = providers.get(t.platform);
     if (t.state !== 'published' || !t.remoteId) {
@@ -568,8 +568,10 @@ export async function commentInbox(
 ): Promise<{ items: InboxItem[]; posts: number; unknown: number; errors: string[] }> {
   const since = ctx.now().getTime() - (opts.days ?? 7) * 86_400_000;
   const recent = new Map<string, number>();
+  // Only platforms that can say whether a comment was answered: the rest would just cost calls.
+  const knows = (platform: string) => Boolean(providers.get(platform)?.comments && providers.get(platform)?.commentsKnowAnswers);
   for (const t of ctx.store.publishedTargets()) {
-    if (!providers.get(t.platform)?.comments) continue;
+    if (!knows(t.platform)) continue;
     const at = (ctx.store.stateSince(t.id, 'published') ?? new Date(t.updatedAt)).getTime();
     if (at >= since) recent.set(t.postId, Math.max(recent.get(t.postId) ?? 0, at));
   }
@@ -579,7 +581,7 @@ export async function commentInbox(
   let unknown = 0;
   for (const postId of postIds) {
     const title = ctx.store.getPost(postId)?.title ?? postId;
-    for (const r of await fetchComments(ctx, providers, postId, opts.perPost ?? 50)) {
+    for (const r of await fetchComments(ctx, providers, postId, opts.perPost ?? 50, knows)) {
       if (r.error) errors.push(`${r.platform}/${r.account}: ${r.error}`);
       for (const c of r.comments ?? []) {
         if (c.mine || c.hidden) continue;

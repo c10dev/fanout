@@ -208,3 +208,21 @@ describe('thumbnail from a frame (ffmpeg)', { skip: !hasFfmpeg && 'ffmpeg not in
     assert.ok(statSync(await extractFrame(info, info.durationSec, join(dir, 'media'))).size > 0);
   });
 });
+
+describe('M8 review fixes', () => {
+  it('a small landscape video can still be fitted for Facebook, and a near-9:16 one is fitted rather than blocked', () => {
+    const small = fakeMedia({ durationSec: 20 }, { width: 854, height: 480 });
+    assert.ok(checkMedia(small, { ...facebook.spec, fit: 'pad' }).every((v) => v.fixable));
+    const near = fakeMedia({ durationSec: 20 }, { width: 1100, height: 1920 });
+    const v = checkMedia(near, { ...facebook.spec, fit: 'crop' });
+    assert.ok(v.some((x) => x.code === 'fit') && v.every((x) => x.fixable));
+  });
+
+  it('Instagram stays quiet about a frame thumbnail it uses as its cover', () => {
+    const p = { id: 'p', createdAt: '', mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false, thumbnailPath: '/f.jpg' };
+    const t = (options: Record<string, unknown>) => ({ id: 't', postId: 'p', platform: 'instagram', account: 'main', options, state: 'queued' as const, warnings: [], attempts: 0, updatedAt: '' });
+    const codes = (o: Record<string, unknown>) => instagram.validate(p, t(o), fakeMedia({}, { width: 1080, height: 1920 })).map((i) => i.code);
+    assert.ok(codes({}).includes('thumbnail'));
+    assert.ok(!codes({ thumbOffsetMs: 1500 }).includes('thumbnail'));
+  });
+});

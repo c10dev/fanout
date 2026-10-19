@@ -378,7 +378,8 @@ export class McpServer {
             throw new ToolError(`${field}: ${(err as Error).message}`);
           }
         };
-        if (input.thumbnailPath) input.thumbnailPath = copy('thumbnail', input.thumbnailPath, 'thumbnailPath');
+        // A frame from thumbnailAt is fanout's own file already.
+        if (input.thumbnailPath && args.thumbnailAt === undefined) input.thumbnailPath = copy('thumbnail', input.thumbnailPath, 'thumbnailPath');
         input.captions = input.captions.map((c, i) => ({ ...c, path: copy('caption', c.path, `captions[${i}].path`) }));
         const { post, targets: created } = createScheduledPost(store, providers, input, targets);
         this.#deps.worker?.tick();

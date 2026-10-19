@@ -803,7 +803,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     if (post.thumbnailPath && statSync(post.thumbnailPath).size > 2 * 1024 * 1024) {
       issues.push({ severity: 'error', code: 'thumbnail', message: msg('YouTube 썸네일은 2MB 이하') });
     }
-    if (isShort(media)) {
+    // A vertical fit makes it a Short too, as long as it's short enough.
+    if (isShort(media) || ((target.options as { fit?: string }).fit && media.durationSec <= 180)) {
       issues.push({ severity: 'warning', code: 'shorts', message: msg('3분 이하 세로/정사각형 영상이라 YouTube가 Shorts로 분류합니다') });
     }
     return issues;
@@ -1034,6 +1035,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const status = hidden ? 'heldForReview' : 'published';
     await api(ctx, account, `/comments/setModerationStatus?${new URLSearchParams({ id: commentId, moderationStatus: status })}`, { method: 'POST' });
   },
+
+  commentsKnowAnswers: true,
 
   visibilities: ['public', 'unlisted', 'private'],
 
