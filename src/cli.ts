@@ -300,6 +300,7 @@ function settleOpts(ctx: ProviderContext) {
 const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀프호스팅 업로더
 
   fanout platforms                       지원 플랫폼과 기능
+  fanout version                         설치된 버전
   fanout setup <platform>                내 개발자 앱(BYO) 만드는 방법
   fanout app set <platform> [--key 값]   BYO 앱 자격증명 저장 (instagram·facebook은 meta)
   fanout connect <platform> [--name main] [--token T] [--page ID] [--handle H] [--instance URL]
@@ -731,19 +732,33 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   return 0;
 }
 
+/** The version in package.json (next to src/ and dist/). */
+function packageVersion(): string {
+  try {
+    return (JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as { version?: string }).version ?? '?';
+  } catch {
+    return '?';
+  }
+}
+
 async function cmdServe(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const host = str(args, 'host') ?? '127.0.0.1';
   const assumeLocal = process.env.FANOUT_ASSUME_LOCAL === '1';
-  const loopback = ['127.0.0.1', 'localhost', '::1'].includes(host) || assumeLocal;
+  const bindsLoopback = ['127.0.0.1', 'localhost', '::1'].includes(host);
+  const loopback = bindsLoopback || assumeLocal;
   const token = process.env.FANOUT_DASHBOARD_TOKEN;
   if (!loopback && !token) {
     throw new UsageError(msg('127.0.0.1이 아닌 주소로 열려면 FANOUT_DASHBOARD_TOKEN 환경 변수로 접속 토큰을 정하세요'));
+  }
+  if (token !== undefined && [...token].length < 16) throw new UsageError(msg('FANOUT_DASHBOARD_TOKEN은 16자 이상이어야 합니다 (예: openssl rand -hex 16)'));
+  if (assumeLocal && !bindsLoopback) {
+    say(msg('FANOUT_ASSUME_LOCAL=1: {host}에 오는 모든 요청을 이 컴퓨터에서 온 것으로 봅니다(토큰을 페이지에 넣고 설정을 엽니다). 그 포트가 이 컴퓨터에서만 열려 있을 때만 쓰세요(Docker는 127.0.0.1:포트로 게시).', { host }));
   }
   const dashboard = new Dashboard({
     ctx,
     providers: deps.providers,
     host,
-    port: num(args, 'port') ?? 8780,
+    port: num(args, 'port') ?? (Number(process.env.FANOUT_PORT) || 8780),
     token,
     allowedHosts: str(args, 'allow-host')?.split(','),
     pruneDays: args.flags['no-prune'] ? null : (num(args, 'keep-days') ?? 7),
@@ -1240,6 +1255,10 @@ export async function main(argv: string[]): Promise<number> {
   const args = parseArgs(argv);
   const [cmd] = args.positionals;
   const providers = providerMap();
+  if (cmd === 'version' || args.flags.version || (!cmd && args.flags.v)) {
+    console.log(`fanout ${packageVersion()}`);
+    return 0;
+  }
   if (!cmd || cmd === 'help' || args.flags.help) {
     say(HELP);
     return 0;
@@ -1366,7 +1385,17 @@ export async function main(argv: string[]): Promise<number> {
   }
 }
 
-if (import.meta.main) {
+/** Run as the program (not imported by tests): import.meta.main from Node 24.2, else compare paths. */
+function isEntry(): boolean {
+  if (typeof import.meta.main === 'boolean') return import.meta.main;
+  try {
+    return Boolean(process.argv[1]) && realpathSync(process.argv[1]!) === realpathSync(new URL(import.meta.url).pathname);
+  } catch {
+    return false;
+  }
+}
+
+if (isEntry()) {
   main(process.argv.slice(2)).then(
     (code) => process.exit(code),
     (err: unknown) => {

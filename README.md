@@ -25,7 +25,7 @@
 npm install -g --allow-git=all github:c10dev/fanout
 ```
 
-npm 12부터 git 저장소에서 설치하는 것이 기본으로 막혀 있어 `--allow-git=all`이 필요합니다(npm 11 이하는 없어도 됩니다). 설치하면 `fanout` 명령이 생깁니다. 아래 예시의 `node src/cli.ts`를 `fanout`으로 바꿔 쓰면 됩니다.
+npm 12부터 git 저장소에서 설치하는 것이 기본으로 막혀 있어 `--allow-git=all`이 필요합니다(npm 11 이하는 없어도 됩니다). 설치 중 `install scripts blocked … fanout (prepare)` 경고가 나와도 `dist/`는 만들어져 있어 그대로 쓰면 됩니다. `fanout version`으로 설치된 버전을 확인합니다. 설치하면 `fanout` 명령이 생깁니다. 아래 예시의 `node src/cli.ts`를 `fanout`으로 바꿔 쓰면 됩니다.
 
 **Docker**
 
@@ -36,7 +36,7 @@ docker compose up -d
 http://127.0.0.1:8780/ 에서 대시보드가 열리고, 데이터는 `fanout-data` 볼륨에 저장됩니다. [`docker-compose.yml`](docker-compose.yml)은 포트를 호스트의 127.0.0.1에만 열고 `FANOUT_ASSUME_LOCAL=1`을 켭니다. 그래서 컨테이너 안에서도 설정을 쓸 수 있습니다.
 
 - 포트를 `0.0.0.0`이나 다른 기기에서 접속할 수 있는 주소에 열 때는 `FANOUT_ASSUME_LOCAL`을 켜지 마세요. 그때는 `FANOUT_DASHBOARD_TOKEN`이 필요합니다.
-- 대시보드가 Host 헤더를 검사하므로 호스트 포트와 컨테이너 포트를 같게 두세요.
+- 대시보드가 Host 헤더를 검사하므로 호스트 포트와 컨테이너 포트를 같게 두세요. 다른 포트를 쓰려면 `FANOUT_PORT`를 정하고 같은 포트로 게시하세요(`127.0.0.1:9000:9000`). 상태 검사도 그 포트를 따릅니다.
 - `FANOUT_ASSUME_LOCAL=1`이면 같은 Docker 네트워크의 다른 컨테이너도 대시보드 토큰 없이 들어올 수 있습니다. 기본 `docker-compose.yml`처럼 fanout만 쓰는 네트워크에 두세요.
 
 **소스에서 실행**
@@ -59,7 +59,7 @@ node src/cli.ts doctor youtube --live  # 테스트 영상을 일부 공개로 �
 node src/cli.ts check video.mp4        # 플랫폼별로 원본 그대로 / 변환 필요 / 불가 판정
 node src/cli.ts post video.mp4 --title "제목" --description "설명" --tags 브이로그,여행 \
   --to youtube,tiktok,instagram,facebook \
-  --yt-privacy public --yt-made-for-kids no
+  --yt-privacy unlisted --yt-made-for-kids no
 node src/cli.ts status
 ```
 

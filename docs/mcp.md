@@ -21,6 +21,8 @@ npm install -g --allow-git=all github:c10dev/fanout
 /plugin install fanout@fanout
 ```
 
+플러그인은 `fanout mcp`를 `--allow` 없이 등록하므로 에이전트가 내가 읽을 수 있는 어떤 파일 경로든 넘길 수 있습니다. 영상 폴더만 열어 두려면 플러그인 대신 아래처럼 `--allow`로 직접 등록하세요.
+
 앱 등록과 계정 연결은 게시를 부탁하기 전에 대시보드(`fanout serve`)나 CLI(`fanout setup`, `fanout connect`)로 해 둡니다.
 
 ## 직접 등록하기

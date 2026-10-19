@@ -29,4 +29,4 @@ body:
     id: env
     attributes:
       label: 환경
-      placeholder: "macOS 15 / Node 24.x / ffmpeg 7.x / Docker 여부"
+      placeholder: "fanout version 결과 / macOS 15 / Node 24.x / ffmpeg 7.x / Docker 여부"

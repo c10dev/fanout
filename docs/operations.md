@@ -54,6 +54,7 @@ fanout backup ~/fanout-backups --without-key
 ```
 
 - 대시보드나 worker가 돌고 있어도 안전합니다(SQLite `VACUUM INTO`로 일관된 스냅샷을 만듭니다).
+- 토큰과 앱 비밀값은 암호화된 채로 들어가지만, 진행 중인 업로드의 재개 정보(플랫폼의 업로드 세션 URL)는 그대로 들어 있습니다. 백업 파일도 0600 권한으로 만들어지니 다른 사람과 나누지 마세요. `--without-key`로 만든 백업은 키 없이는 비밀값을 풀 수 없습니다.
 - `secret.key`가 함께 들어가므로 백업 폴더가 있으면 모든 계정 토큰을 풀 수 있습니다. 안전한 곳에 두세요. 키를 `FANOUT_SECRET_KEY`로 주고 있다면 백업에 넣지 않으니 따로 보관하세요.
 - **복원**: 대시보드·worker·watch·mcp를 모두 끈 뒤 `fanout restore <백업 폴더>`로 되돌립니다. fanout이 하는 일은 다음과 같습니다.
   - 백업 DB가 온전한지, 저장된 토큰을 쓸 키(백업의 `secret.key` 또는 `FANOUT_SECRET_KEY`)로 풀 수 있는지 먼저 확인합니다.
