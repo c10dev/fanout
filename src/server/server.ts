@@ -155,6 +155,8 @@ interface Preset {
   targets: TargetInput[];
   tags: string[];
   description: string;
+  /** A first comment used again and again ("link in bio"). */
+  firstComment?: string;
 }
 
 /**
@@ -679,6 +681,7 @@ export class Dashboard {
         targets,
         tags: Array.isArray(body.tags) ? body.tags.map(String).filter(Boolean) : [],
         description: typeof body.description === 'string' ? body.description : '',
+        ...(typeof body.firstComment === 'string' && body.firstComment.trim() ? { firstComment: body.firstComment.trim().slice(0, 10_000) } : {}),
       };
       store.setApp('presets', { items: [...all().filter((p) => p.name !== key), preset].sort((a, b) => a.name.localeCompare(b.name)) });
       return { presets: all() };

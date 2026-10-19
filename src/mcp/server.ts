@@ -73,6 +73,7 @@ const POST_SCHEMA = {
     tags: { type: 'array', items: { type: 'string' } },
     scheduledAt: { type: 'string', description: 'ISO-8601 time to publish (optional).' },
     aiGenerated: { type: 'boolean', description: 'Realistic AI-generated or altered content (disclosed on YouTube/TikTok).' },
+    firstComment: { type: 'string', description: 'Posted from the same account as a comment once the video is out (YouTube, Instagram, Facebook; on X a reply, which costs one more post). The preview says where it will not go.' },
     thumbnailPath: { type: 'string', description: 'JPEG/PNG ≤2MB (YouTube, X, Facebook, Mastodon, PeerTube).' },
     thumbnailAt: { type: 'number', description: 'Instead of thumbnailPath: use the video frame at this many seconds (also as the Instagram/TikTok cover).' },
     captions: {
@@ -619,6 +620,7 @@ export class McpServer {
       captions,
       containsSyntheticMedia: Boolean(args.aiGenerated),
       scheduledAt: args.scheduledAt ? new Date(String(args.scheduledAt)).toISOString() : undefined,
+      ...(typeof args.firstComment === 'string' && args.firstComment.trim() ? { firstComment: args.firstComment.trim().slice(0, 10_000) } : {}),
     };
     const media = await this.#probe(mediaPath);
     input.mediaHash = await fileHash(mediaPath);
