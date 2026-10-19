@@ -2178,7 +2178,7 @@ function limitsCard() {
   const load = async () => {
     try {
       const { accounts } = await api('/limits');
-      if (!accounts.length) return body.replaceChildren(h('p', { class: 'muted' }, tr('한도를 알려 주는 플랫폼(YouTube·Instagram·Bluesky·PeerTube)에 연결된 계정이 없습니다.')));
+      if (!accounts.length) return body.replaceChildren(h('p', { class: 'muted' }, tr('한도를 알려 주는 플랫폼(YouTube·Instagram·TikTok·Bluesky·PeerTube)에 연결된 계정이 없습니다.')));
       body.replaceChildren(
         h(
           'table',

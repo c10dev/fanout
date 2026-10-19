@@ -1069,7 +1069,7 @@ async function cmdLimits(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
   const platform = args.positionals[1];
   if (platform && !deps.providers.has(platform)) throw new UsageError(msg('알 수 없는 플랫폼: {platform} (가능: {providers})', { platform, providers: [...deps.providers.keys()].join(', ') }));
   const all = await readLimits(ctx, deps.providers, platform);
-  if (!all.length) say(msg('한도를 알려 주는 플랫폼에 연결된 계정이 없습니다 (YouTube·Instagram·Bluesky·PeerTube)'));
+  if (!all.length) say(msg('한도를 알려 주는 플랫폼에 연결된 계정이 없습니다 (YouTube·Instagram·TikTok·Bluesky·PeerTube)'));
   for (const a of all) {
     console.log(`\n${a.platform}/${a.account}`);
     if (a.error) console.log(`  ✗ ${local(a.error)}`);

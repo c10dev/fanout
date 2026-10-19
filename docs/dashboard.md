@@ -46,7 +46,7 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 
 - **일반**: 언어와 알림(Slack·Discord webhook). **앱마다 한 부분**(YouTube, TikTok, Meta, X, Bluesky, Mastodon, PeerTube): 개발자 앱 등록, 계정 연결·해제, 계정별 점검(`doctor`). **계정 점검**: 연결된 모든 계정을 차례로 읽기 전용으로 점검하고 결과를 요약합니다. 127.0.0.1 전용으로 연 대시보드에서만 열립니다.
 - 계정을 OAuth로 연결하고 돌아오면 그 앱의 부분이 열리고, 결과(연결됨·실패 이유)가 대화상자 위에 보입니다.
-- **남은 한도**는 계정별 하루 업로드 수·게시 한도·저장 용량을 보여 줍니다(YouTube·Instagram·Bluesky·PeerTube). 읽기만 하므로 외부 접속을 허용한 대시보드에서도 보입니다. 10% 아래로 남은 한도는 강조합니다. [자세히](platforms.md#남은-한도)
+- **남은 한도**는 계정별 하루 업로드 수·게시 한도·저장 용량과 TikTok 수신함 초안 수(추정)를 보여 줍니다(YouTube·Instagram·TikTok·Bluesky·PeerTube). 읽기만 하므로 외부 접속을 허용한 대시보드에서도 보입니다. 10% 아래로 남은 한도는 강조합니다. [자세히](platforms.md#남은-한도)
 - YouTube 계정을 연결 해제하면 Google에 토큰 철회를 요청하고 그 계정의 반응 통계를 지웁니다. [자세히](platforms.md#정책상-지키는-것)
   - YouTube: 앱 정보를 넣거나 Google에서 받은 JSON 파일을 올린 뒤 "Google 계정으로 연결". 데스크톱 앱 클라이언트라 Redirect URI를 따로 등록하지 않아도 됩니다.
   - TikTok: 설정의 TikTok 부분에 보이는 Redirect URI(`http://127.0.0.1:8780/oauth/tiktok/callback`)를 TikTok 개발자 포털에 등록해야 합니다. CLI의 `fanout connect tiktok`은 다른 주소(`http://127.0.0.1:8723/callback`)를 쓰므로, 둘 다 쓰려면 둘 다 등록하세요.

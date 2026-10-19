@@ -63,7 +63,7 @@ claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
 | `add_to_post` | 기존 게시물을 다른 플랫폼에도 올림. 먼저 `dryRun: true`로 미리보기를 보여 주고 승인받은 뒤 호출하도록 설명에 적어 둠 |
 | `get_post_status` | 플랫폼별 상태, 링크, 오류 |
 | `get_post_stats` | 게시된 대상의 조회·좋아요·댓글·공유와 하루 전 대비 변화(`trend`). 요금이 드는 X는 `includePaid`일 때만 |
-| `get_limits` | 계정별 남은 게시 한도(YouTube 오늘 업로드, Instagram 24시간 게시, Bluesky 오늘 영상·용량, PeerTube 용량). 여러 개를 올리기 전에 확인 |
+| `get_limits` | 계정별 남은 게시 한도(YouTube 오늘 업로드, Instagram 24시간 게시, TikTok 24시간 수신함 초안(fanout 추정), Bluesky 오늘 영상·용량, PeerTube 용량). 여러 개를 올리기 전에 확인 |
 | `get_calendar` | 월요일부터 주 단위(1~8주, `offset`으로 앞뒤 이동) 날마다 게시물과 대상별 상태. 기록만 읽음 |
 | `get_comment_inbox` | 최근 게시물에서 아직 답하지 않은 댓글 (YouTube·Facebook·Instagram, 기본 7일). 답하려면 사용자가 문구를 승인한 뒤 `reply_to_comment` |
 | `get_insights` | 기록된 반응으로 본 성과 요약: 플랫폼·계정별 게시물 수, 조회 합계·중앙값, 조회 100회당 좋아요, 상위 게시물, 하루 뒤 조회수가 가장 좋았던 요일·3시간대(게시물이 충분할 때). 플랫폼 호출 없음, `timeZone`으로 시간대 지정 |

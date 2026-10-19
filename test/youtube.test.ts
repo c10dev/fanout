@@ -4,7 +4,7 @@ import { ProviderError } from '../src/core/errors.ts';
 import { parseArgs, targetOptions } from '../src/cli.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
-import { CHUNK_SIZE, DAILY_UNITS, buildMetadata, insertParts, nextOffset, pacificDay, postUnits, unitCost, youtube } from '../src/providers/youtube.ts';
+import { CHUNK_SIZE, DAILY_UNITS, buildMetadata, insertParts, nextOffset, pacificDay, postUnits, tagsLength, unitCost, youtube } from '../src/providers/youtube.ts';
 import { fakeMedia, json, makeCtx, mockFetch, tempFile } from './helpers.ts';
 
 const NOW = new Date('2026-10-17T03:00:00Z');
@@ -150,6 +150,34 @@ describe('youtube validate', () => {
     const issues = youtube.validate(post({ title: 'x'.repeat(101) }), target({ privacy: 'public', madeForKids: false }), fakeMedia({ durationSec: 60 }));
     assert.ok(issues.some((i) => i.code === 'shorts' && i.severity === 'warning'));
     assert.ok(issues.some((i) => i.code === 'title' && i.severity === 'error'));
+  });
+
+  it('counts tags as YouTube does: two quote marks for a tag with a space, and the commas', () => {
+    const tagIssues = (tags: string[]) => youtube.validate(post({ tags }), target({ privacy: 'public', madeForKids: false }), fakeMedia()).filter((i) => i.code === 'tags');
+    // 60 tags like '태그 0001': 479 joined with commas, 599 the way YouTube counts them.
+    const sixty = Array.from({ length: 60 }, (_, i) => `태그 ${String(i + 1).padStart(4, '0')}`);
+    assert.equal(sixty.join(',').length, 479);
+    assert.equal(tagsLength(sixty), 599);
+    const [issue] = tagIssues(sixty);
+    assert.equal(issue?.severity, 'error');
+    assert.match(issue!.message, /599자/);
+    assert.match(issue!.message, /따옴표/);
+    // Exactly 500 passes, 501 doesn't: 494 + ('a b' + 2 quotes) + 1 comma.
+    assert.equal(tagsLength(['x'.repeat(494), 'a b']), 500);
+    assert.deepEqual(tagIssues(['x'.repeat(494), 'a b']), []);
+    assert.equal(tagIssues(['x'.repeat(495), 'a b']).length, 1);
+    assert.deepEqual([tagsLength([]), tagsLength(['one']), tagsLength(['a', 'b'])], [0, 3, 3]);
+  });
+
+  it('refuses an edit whose tags YouTube would refuse, before calling the API', async () => {
+    const { fetch, calls } = mockFetch([]);
+    const { ctx } = makeCtx(fetch, () => NOW);
+    const sixty = Array.from({ length: 60 }, (_, i) => `태그 ${String(i + 1).padStart(4, '0')}`);
+    await assert.rejects(
+      youtube.update!({ ctx, account, target: { ...target({}), state: 'published', remoteId: 'V' }, post: post({ tags: sixty }) }),
+      (e: ProviderError) => e.kind === 'rejected' && e.code === 'youtube.tags' && /따옴표/.test(e.message),
+    );
+    assert.equal(calls.length, 0, 'not even the read of the current snippet');
   });
 });
 
