@@ -54,11 +54,13 @@ const fanout = findFanout();
 if (!fanout) {
   explainInstall();
 } else {
+  // Arguments after the launcher's path in .mcp.json go to `fanout mcp` (e.g. --allow a,b).
+  const args = ['mcp', ...process.argv.slice(2)];
   // stdin and stdout go straight to fanout. This process only waits for it and passes signals on.
   // On Windows, npm installs fanout.cmd, which only a shell can run; cmd finds it on the PATH again.
   const child = WINDOWS && /\.(bat|cmd)$/i.test(fanout)
-    ? spawn('fanout', ['mcp'], { stdio: 'inherit', shell: true })
-    : spawn(fanout, ['mcp'], { stdio: 'inherit' });
+    ? spawn('fanout', args.map((a) => (/[\s"&|<>^]/.test(a) ? `"${a.replace(/"/g, '""')}"` : a)), { stdio: 'inherit', shell: true })
+    : spawn(fanout, args, { stdio: 'inherit' });
   for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(signal, () => child.kill(signal));
   child.on('error', (err) => {
     process.stderr.write(`fanout-mcp: ${err.message}\n`);

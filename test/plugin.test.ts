@@ -61,8 +61,8 @@ describe('Claude Code plugin', () => {
 });
 
 /** Run the plugin's launcher with this PATH, write `input` to it, and collect what it prints. */
-async function launch(path: string, input: string, env: Record<string, string> = {}) {
-  const child = spawn(process.execPath, [join(root, 'claude-plugin/bin/fanout-mcp.mjs')], { env: { ...env, PATH: path }, stdio: ['pipe', 'pipe', 'pipe'] });
+async function launch(path: string, input: string, env: Record<string, string> = {}, args: string[] = []) {
+  const child = spawn(process.execPath, [join(root, 'claude-plugin/bin/fanout-mcp.mjs'), ...args], { env: { ...env, PATH: path }, stdio: ['pipe', 'pipe', 'pipe'] });
   let out = '';
   let err = '';
   child.stdout.on('data', (d) => (out += d));
@@ -101,6 +101,8 @@ describe('plugin launcher', { skip: process.platform === 'win32' && 'sh scripts'
     const { code, out } = await launch(`${bin}:/usr/bin:/bin`, '{"jsonrpc":"2.0","id":1,"method":"ping"}\n', { FANOUT_LANG: 'ko' });
     assert.equal(code, 0);
     assert.equal(out, 'args=mcp lang=ko\n{"jsonrpc":"2.0","id":1,"method":"ping"}\n');
+    // Flags after the launcher in .mcp.json reach `fanout mcp`.
+    assert.match((await launch(`${bin}:/usr/bin:/bin`, '', {}, ['--allow', '/a b'])).out, /^args=mcp --allow \/a b /);
   });
 
   it('passes on the exit code of fanout', async () => {

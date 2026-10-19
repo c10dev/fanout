@@ -1,7 +1,14 @@
 // Compile src/ to dist/ and copy the dashboard's static files next to the compiled server.
 import { execFileSync } from 'node:child_process';
-import { chmodSync, cpSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, cpSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 
+const recorded = (() => {
+  try {
+    return readFileSync('dist/commit.txt', 'utf8').trim();
+  } catch {
+    return undefined;
+  }
+})();
 rmSync('dist', { recursive: true, force: true });
 execFileSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'tsconfig.build.json'], { stdio: 'inherit' });
 cpSync('src/server/public', 'dist/server/public', { recursive: true });
@@ -19,5 +26,8 @@ try {
 // that runs this build lists the git URLs it is preparing in _PACOTE_NO_PREPARE_, this package last,
 // with the resolved commit after '#'. That variable is npm-internal, so use it only if it fits.
 commit ||= /#([0-9a-f]{40})$/.exec(process.env._PACOTE_NO_PREPARE_?.split('\n').pop() ?? '')?.[1]?.slice(0, 7);
+// npm then builds the same folder a second time, without that variable: keep what the first build
+// recorded. (In a git checkout, git always answers above.)
+if (!commit && /^[0-9a-f]{7,40}$/.test(recorded ?? '')) commit = recorded;
 if (commit) writeFileSync('dist/commit.txt', commit + '\n');
 console.log('built dist/');
