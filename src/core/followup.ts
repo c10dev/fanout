@@ -1,6 +1,8 @@
 import { msg } from './i18n.ts';
 import { notifyEvent } from './notify.ts';
+import { ProviderError } from './errors.ts';
 import type { Provider, ProviderContext } from './provider.ts';
+import type { Account } from './store.ts';
 import type { Followup, Target } from './types.ts';
 
 /**
@@ -10,15 +12,18 @@ import type { Followup, Target } from './types.ts';
  */
 
 /** Warnings about the first comment on one platform: not supported there, past its limits, or what it costs. */
-export function firstCommentWarnings(provider: Provider, text: string | undefined): string[] {
+export function firstCommentWarnings(provider: Provider, text: string | undefined, options: Record<string, unknown> = {}, account?: Account): string[] {
   const t = text?.trim();
   if (!t) return [];
   if (!provider.postComment) return [msg('첫 댓글: {platform}에는 API로 댓글을 달 수 없어 건너뜁니다', { platform: provider.displayName })];
   const rule = provider.commentRules;
   if (!rule) return [];
   const out: string[] = [];
+  const refusal = rule.refuses?.(options);
+  if (refusal) return [refusal];
   const length = rule.length ? rule.length(t) : [...t].length;
-  if (length > rule.max) out.push(msg('첫 댓글이 {platform} 한도({max}자)보다 깁니다 (지금 {length}자) — 댓글만 실패합니다', { platform: provider.displayName, max: rule.max, length }));
+  const max = rule.maxFor?.(account) ?? rule.max;
+  if (length > max) out.push(msg('첫 댓글이 {platform} 한도({max}자)보다 깁니다 (지금 {length}자) — 댓글만 실패합니다', { platform: provider.displayName, max, length }));
   const hashtags = t.match(/#[\p{L}\p{N}_]+/gu)?.length ?? 0;
   if (rule.hashtags !== undefined && hashtags > rule.hashtags) out.push(msg('첫 댓글: {platform} 댓글은 해시태그 {max}개까지입니다 (지금 {n}개)', { platform: provider.displayName, max: rule.hashtags, n: hashtags }));
   const urls = t.match(/https?:\/\/\S+/g)?.length ?? 0;
@@ -30,10 +35,15 @@ export function firstCommentWarnings(provider: Provider, text: string | undefine
 /** Look only at posts made in the last week: an old post gaining a comment out of nowhere would surprise. */
 const FOLLOWUP_DAYS = 7;
 
-/** Post (or try) one target's first comment and save the outcome. */
-export async function postFirstComment(ctx: ProviderContext, providers: Map<string, Provider>, target: Target): Promise<Followup> {
+/**
+ * Post (or try) one target's first comment and save the outcome, if its followup is still
+ * `expected` (claimed atomically first, so two processes never both send it). Undefined when
+ * someone else got there first.
+ */
+export async function postFirstComment(ctx: ProviderContext, providers: Map<string, Provider>, target: Target, expected: Followup | undefined = target.followup): Promise<Followup | undefined> {
   const { store } = ctx;
   const now = () => ctx.now().toISOString();
+  if (!store.claimFollowup(target.id, expected, { state: 'sending', at: now() })) return undefined;
   const save = (f: Followup) => (store.setFollowup(target.id, f), f);
   const text = store.getPost(target.postId)?.firstComment?.trim();
   const provider = providers.get(target.platform);
@@ -60,7 +70,10 @@ export async function postFirstComment(ctx: ProviderContext, providers: Map<stri
     return save({ state: 'posted', at: now(), id: res.id, ...(res.url ? { url: res.url } : {}) });
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    const f = save({ state: 'failed', at: now(), error, ...(sent ? { maybePosted: true } : {}) });
+    // A clear refusal (permission, comments off, bad text) created nothing; a timeout, a 5xx or a
+    // dropped connection after the request may have.
+    const unclear = sent && !(err instanceof ProviderError && err.kind !== 'retryable');
+    const f = save({ state: 'failed', at: now(), error, ...(unclear ? { maybePosted: true } : {}) });
     notifyEvent(ctx, 'alert', msg('{target}: 첫 댓글을 달지 못했습니다 — {error}', { target: `${target.platform}/${target.account}`, error }), { postId: target.postId, targetId: target.id, platform: target.platform });
     return f;
   }
@@ -83,9 +96,13 @@ export async function retryFirstComment(ctx: ProviderContext, providers: Map<str
   if (!target) throw new Error(msg('대상 없음: {targetId}', { targetId }));
   if (target.state !== 'published') throw new Error(msg('게시된 대상에만 첫 댓글을 달 수 있습니다'));
   const f = target.followup;
-  if (f?.state === 'posted') throw new Error(msg('첫 댓글은 이미 달렸습니다'));
-  if ((f?.state === 'sending' || f?.maybePosted) && !confirmedNotPosted) {
+  if (!f) throw new Error(msg('첫 댓글은 아직 차례를 기다리는 중입니다'));
+  if (f.state === 'posted') throw new Error(msg('첫 댓글은 이미 달렸습니다'));
+  if ((f.state === 'sending' || f.maybePosted) && !confirmedNotPosted) {
     throw Object.assign(new Error(msg('첫 댓글이 이미 달렸을 수 있습니다. 플랫폼에서 확인한 뒤 다시 시도하세요')), { needsConfirm: true });
   }
-  return postFirstComment(ctx, providers, target);
+  // Only from the state just read: a second click (or another process) finds it claimed.
+  const out = await postFirstComment(ctx, providers, target, f);
+  if (!out) throw new Error(msg('첫 댓글을 이미 다른 곳에서 보내고 있습니다'));
+  return out;
 }

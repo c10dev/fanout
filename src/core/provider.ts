@@ -218,6 +218,10 @@ export interface Provider {
     urls?: number;
     /** Said in the preview when posting the comment costs something. */
     cost?: string;
+    /** A longer limit some accounts have (X Premium). */
+    maxFor?: (account?: Account) => number | undefined;
+    /** Why the platform will refuse any comment on this post, from its options (YouTube: made for kids). */
+    refuses?: (options: Record<string, unknown>) => string | undefined;
   };
 
   /** Apply an edited title/description/tags (already saved on `post`) to the published post. */

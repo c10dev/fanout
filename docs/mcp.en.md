@@ -54,7 +54,8 @@ or `"env": { "FANOUT_MCP_ROOTS": "/home/me/videos:/home/me/fanout-inbox" }` (pat
 | `list_accounts` | Supported platforms, whether each app is set up, and the connected accounts |
 | `check_video` | Judges a local video per platform: uploads as is / needs a transcode / can't be posted |
 | `preview_post` | Shows, without uploading, which account and visibility each target will use and every error and warning |
-| `create_post` | Creates the post and starts uploading. Creates nothing if any target is blocked With `firstComment`, a first comment from the same account once it's out (on X a reply, one more paid post). |
+| `create_post` | Creates the post and starts uploading. Creates nothing if any target is blocked. With `firstComment`, a first comment from the same account once it's out (on X a reply, one more paid post). |
+| `retry_first_comment` | Post a failed first comment again. If it may already be there (`firstComment.state` is `sending` or `maybePosted`), only with `confirmedNotPosted: true` after the user checked |
 | `add_to_post` | Posts an existing post's video to more platforms. Its description tells the agent to call it with `dryRun: true` first, show the result and wait for approval |
 | `get_post_status` | Per-platform state, links and errors |
 | `get_post_stats` | Views, likes, comments and shares of published targets, with the change since a day ago (`trend`). X, which bills for reads, only with `includePaid` |

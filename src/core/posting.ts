@@ -141,7 +141,7 @@ export function previewPost(
       warnings: [
         ...(prior.get(`${t.platform}/${t.account}`) ?? []).slice(0, 1).map(describePrior),
         ...issues.filter((i) => i.severity === 'warning').map((i) => i.message),
-        ...firstCommentWarnings(provider, input.firstComment),
+        ...firstCommentWarnings(provider, input.firstComment, t.options, account ?? undefined),
       ],
       transcode: violations.filter((v) => v.fixable).map((v) => v.message),
     };

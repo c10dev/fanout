@@ -1114,7 +1114,10 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     });
   },
 
-  commentRules: { max: 10_000 },
+  commentRules: {
+    max: 10_000,
+    refuses: (o) => (o.madeForKids === true ? msg('첫 댓글: YouTube 아동용 영상에는 댓글이 꺼져 있어 달 수 없습니다') : undefined),
+  },
 
   // A new thread on the video, as the channel. Comments must be on (not "made for kids").
   async postComment({ ctx, account, target, text, sending }) {

@@ -601,7 +601,16 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
   },
 
   // The first comment is a reply to the video post: one more paid write.
-  commentRules: { max: TEXT_MAX, length: weightedLength, cost: msg('X: 첫 댓글은 답글 게시물로 올라가 게시물 하나만큼 요금이 더 듭니다') },
+  commentRules: {
+    max: TEXT_MAX,
+    length: weightedLength,
+    // Long posts (replies too) need a Premium tier; with one, X's own limit applies.
+    maxFor: (account) => {
+      const tier = account ? creds(account).subscriptionType : undefined;
+      return tier && tier !== 'None' ? 25_000 : undefined;
+    },
+    cost: msg('X: 첫 댓글은 답글 게시물로 올라가 게시물 하나만큼 요금이 더 듭니다'),
+  },
 
   async postComment({ ctx, account, target, text, sending }) {
     const username = creds(account).username;
