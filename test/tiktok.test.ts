@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { describe, it } from 'node:test';
 import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
@@ -172,6 +173,80 @@ describe('tiktok publish', () => {
       tiktok.publish({ ctx, post, target: target({ mode: 'inbox' }), account, mediaPath: tempFile(10), media: fakeMedia(), saveResume: () => {} }),
       (e: ProviderError) => e.kind === 'rejected' && e.platformCode === 'spam_risk_too_many_posts',
     );
+  });
+});
+
+describe('tiktok sign-in', () => {
+  const REDIRECT = 'http://127.0.0.1:8723/callback';
+  const token = { access_token: 'AT', refresh_token: 'RT', expires_in: 86400, refresh_expires_in: 31536000, open_id: 'OPEN', scope: 'user.info.basic,video.upload' };
+
+  it('asks for the app\'s scopes with a fresh state and a hex S256 challenge of the verifier', () => {
+    const { ctx, store } = makeCtx(mockFetch([]).fetch, () => NOW);
+    store.setApp('tiktok', { clientKey: 'k', clientSecret: 's' });
+    const redirect = 'https://example.com/tiktok/cb?x=1';
+    const start = tiktok.oauthBegin!(ctx, redirect);
+    const u = new URL(start.url);
+    assert.equal(u.origin + u.pathname, 'https://www.tiktok.com/v2/auth/authorize/');
+    const { state, code_challenge, ...rest } = Object.fromEntries(u.searchParams);
+    assert.deepEqual(
+      rest,
+      { client_key: 'k', scope: 'user.info.basic,video.upload,video.publish', response_type: 'code', redirect_uri: redirect, code_challenge_method: 'S256' },
+      'the default scopes, and the redirect URI exactly as given',
+    );
+    assert.equal(state, start.state);
+    assert.equal(code_challenge, createHash('sha256').update(start.verifier).digest('hex'));
+    const again = tiktok.oauthBegin!(ctx, redirect);
+    assert.notEqual(again.state, start.state);
+    assert.notEqual(again.verifier, start.verifier);
+    store.setApp('tiktok', { clientKey: 'k', clientSecret: 's', scopes: 'user.info.basic,video.upload,video.list' });
+    assert.equal(new URL(tiktok.oauthBegin!(ctx, redirect).url).searchParams.get('scope'), 'user.info.basic,video.upload,video.list');
+  });
+
+  it('trades the code with the secret and verifier, and reads the display name', async () => {
+    const { fetch, calls } = mockFetch([
+      ['POST', '/v2/oauth/token/', () => json(token)],
+      ['GET', '/v2/user/info/', () => json({ data: { user: { open_id: 'OPEN', display_name: '크리에이터' } }, error: { code: 'ok' } })],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('tiktok', { clientKey: 'k', clientSecret: 's' });
+    const acct = await tiktok.oauthFinish!(ctx, 'main', new URLSearchParams({ code: 'C', state: 'S' }), REDIRECT, 'V');
+    assert.deepEqual(Object.fromEntries(new URLSearchParams(String(calls[0]!.body))), {
+      client_key: 'k',
+      client_secret: 's',
+      code: 'C',
+      grant_type: 'authorization_code',
+      redirect_uri: REDIRECT,
+      code_verifier: 'V',
+    });
+    assert.equal(calls[1]!.headers.authorization, 'Bearer AT');
+    assert.deepEqual([acct.platform, acct.name], ['tiktok', 'main']);
+    assert.deepEqual(acct.profile, { displayName: '크리에이터', openId: 'OPEN', scope: 'user.info.basic,video.upload' });
+    assert.equal((acct.credentials as { accessToken: string }).accessToken, 'AT');
+    assert.equal((acct.credentials as { expiresAt: number }).expiresAt, NOW.getTime() + 86_400_000);
+  });
+
+  it('a denied sign-in fails with TikTok\'s description and calls nothing', async () => {
+    const { fetch, calls } = mockFetch([]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('tiktok', { clientKey: 'k', clientSecret: 's' });
+    const denied = new URLSearchParams({ error: 'access_denied', error_description: 'The user denied the request', state: 'S' });
+    await assert.rejects(tiktok.oauthFinish!(ctx, 'main', denied, REDIRECT, 'V'), (e: ProviderError) => e.kind === 'auth' && e.code === 'tiktok.denied' && /The user denied the request/.test(e.message));
+    await assert.rejects(tiktok.oauthFinish!(ctx, 'main', new URLSearchParams({ error: 'access_denied' }), REDIRECT, 'V'), (e: ProviderError) => e.code === 'tiktok.denied' && /access_denied/.test(e.message));
+    assert.equal(calls.length, 0);
+  });
+
+  it('still connects when /user/info fails, only without a display name', async () => {
+    for (const userInfo of [() => new Response('<html>Bad gateway</html>', { status: 502 }), () => Promise.reject(new TypeError('fetch failed'))]) {
+      const { fetch } = mockFetch([
+        ['POST', '/v2/oauth/token/', () => json(token)],
+        ['GET', '/v2/user/info/', userInfo],
+      ]);
+      const { ctx, store } = makeCtx(fetch, () => NOW);
+      store.setApp('tiktok', { clientKey: 'k', clientSecret: 's' });
+      const acct = await tiktok.oauthFinish!(ctx, 'main', new URLSearchParams({ code: 'C' }), REDIRECT, 'V');
+      assert.deepEqual(acct.profile, { displayName: undefined, openId: 'OPEN', scope: 'user.info.basic,video.upload' });
+      assert.equal((acct.credentials as { refreshToken: string }).refreshToken, 'RT');
+    }
   });
 });
 

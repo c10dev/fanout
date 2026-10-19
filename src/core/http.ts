@@ -69,7 +69,8 @@ export async function startLoopback(port = 0, path = '/callback', host = '127.0.
     res.end(msg('<p>fanout: 인증이 끝났습니다. 이 창을 닫고 터미널로 돌아가세요.</p>'));
     resolve(url.searchParams);
   });
-  await new Promise<void>((r) => server.listen(port, host, r));
+  // A taken port (another connect still waiting) fails the call instead of crashing the process.
+  await new Promise<void>((r, j) => server.once('error', j).listen(port, host, r));
   const actual = (server.address() as AddressInfo).port;
   return {
     redirectUri: `http://${host}:${actual}${path}`,
