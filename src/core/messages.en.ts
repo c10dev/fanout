@@ -819,4 +819,7 @@ export const MESSAGES_EN: Record<string, string> = {
   "게시 직후 응답을 놓쳤지만 계정의 최근 게시물에서 찾았습니다": "The answer to publishing was lost, but the post was found among the account's latest posts",
   "시험 릴스는 게시됐지만 계정 게시물 목록에 나오지 않아 id를 찾지 못했습니다. 반응·댓글·첫 댓글은 건너뜁니다. Instagram 앱에서 확인하세요": "The trial reel went out, but it isn't in the account's post list, so its id wasn't found. Reactions, comments and the first comment are skipped. Check it in the Instagram app",
   "게시됐지만 Instagram 게시물 id를 찾지 못했습니다. 반응·댓글·첫 댓글은 건너뜁니다. 게시물은 Instagram 앱에서 확인하세요": "It went out, but its Instagram post id wasn't found. Reactions, comments and the first comment are skipped. Check the post in the Instagram app",
+  "게시물을 지우는 중이라 첫 댓글을 달지 않았습니다": "The post was being removed, so the first comment was not posted",
+  "백업 뒤에 이미 게시됐을 수 있어 멈춰 두었습니다. 플랫폼에서 확인한 뒤 다시 시도하거나 취소하세요": "Held because it may have gone out after the backup. Check on the platform, then retry or cancel",
+  "백업 뒤에 이미 게시됐을 수 있는 대상 {n}개를 멈춰 두었습니다. fanout status 로 보고, 플랫폼에서 확인한 뒤 fanout retry … --confirmed-not-posted 나 fanout cancel 하세요": "Held {n} targets that may have gone out after the backup. See them with fanout status, check on the platform, then use fanout retry … --confirmed-not-posted or fanout cancel",
 };

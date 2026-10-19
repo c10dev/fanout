@@ -43,6 +43,12 @@ export interface Args {
   lists: Record<string, string[]>;
 }
 
+/**
+ * Flags that never take the next word as their value: confirmations that something didn't go out.
+ * `fanout retry P --confirmed-not-posted x` must confirm X only, not swallow `x` and confirm all.
+ */
+const STANDALONE_FLAGS = new Set(['confirmed-not-posted', 'not-posted']);
+
 export function parseArgs(argv: string[]): Args {
   const out: Args = { positionals: [], flags: {}, lists: {} };
   for (let i = 0; i < argv.length; i++) {
@@ -55,7 +61,7 @@ export function parseArgs(argv: string[]): Args {
     const key = eq > 0 ? a.slice(2, eq) : a.slice(2);
     let value: string | boolean = true;
     if (eq > 0) value = a.slice(eq + 1);
-    else if (i + 1 < argv.length && !argv[i + 1]!.startsWith('--')) value = argv[++i]!;
+    else if (!STANDALONE_FLAGS.has(key) && i + 1 < argv.length && !argv[i + 1]!.startsWith('--')) value = argv[++i]!;
     out.flags[key] = value;
     if (typeof value === 'string') (out.lists[key] ??= []).push(value);
   }
@@ -1026,6 +1032,7 @@ async function cmdRestore(args: Args): Promise<number> {
     const r = restoreBackup({ home, backupDir: resolve(dirArg), now: new Date(), envKey: process.env.FANOUT_SECRET_KEY || undefined, force: Boolean(args.flags.force) });
     say(r.keyRestored ? msg('복원했습니다: 게시물 {posts}개, 계정 {accounts}개, secret.key 포함', { posts: r.posts, accounts: r.accounts }) : msg('복원했습니다: 게시물 {posts}개, 계정 {accounts}개', { posts: r.posts, accounts: r.accounts }));
     if (r.savedTo) say(msg('이전 데이터: {savedTo}', { savedTo: r.savedTo }));
+    if (r.held) say(msg('백업 뒤에 이미 게시됐을 수 있는 대상 {n}개를 멈춰 두었습니다. fanout status 로 보고, 플랫폼에서 확인한 뒤 fanout retry … --confirmed-not-posted 나 fanout cancel 하세요', { n: r.held }));
     return 0;
   } catch (err) {
     if (err instanceof RestoreError) throw new UsageError(err.message);
@@ -1261,7 +1268,7 @@ async function cmdFirstComment(ctx: ProviderContext, deps: RunnerDeps, args: Arg
   const target = ctx.store.targetsForPost(post.id).find((t) => t.platform === platform && (!account || t.account === account));
   if (!target) throw new UsageError(msg('그 게시물에 {platform} 대상이 없습니다', { platform }));
   try {
-    const f = await retryFirstComment(ctx, deps.providers, target.id, Boolean(args.flags['not-posted']));
+    const f = await retryFirstComment(ctx, deps.providers, target.id, bool(args, 'not-posted') === true);
     say(f.state === 'posted' ? msg('첫 댓글 ✓ {where}', { where: f.url ?? f.id ?? '' }) : msg('첫 댓글 실패: {error}', { error: f.error ?? f.state }));
     return f.state === 'posted' ? 0 : 1;
   } catch (err) {
@@ -1281,7 +1288,7 @@ async function cmdRetry(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   for (const t of ctx.store.targetsForPost(post.id)) {
     if ((t.state === 'failed' || t.state === 'needs_reauth') && (!only || t.platform === only)) {
       try {
-        retryTarget(ctx.store, t.id, 'manual retry', { confirmedNotPosted: Boolean(args.flags['confirmed-not-posted']) });
+        retryTarget(ctx.store, t.id, 'manual retry', { confirmedNotPosted: bool(args, 'confirmed-not-posted') === true });
         ids.push(t.id);
       } catch (err) {
         // May already be on the platform: only the user can say it isn't.

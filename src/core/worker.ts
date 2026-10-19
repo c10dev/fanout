@@ -10,6 +10,11 @@ import { notifyEvent } from './notify.ts';
 export const DEFAULT_STATS_EVERY_MS = 6 * 3600_000;
 const STATS_CHECK_MS = 30 * 60_000;
 const STATS_FIRST_MS = 60_000;
+/** An error from SQLite itself (full disk, I/O, locked past the busy timeout), not from a platform. */
+function isStoreError(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { code?: unknown }).code === 'ERR_SQLITE_ERROR';
+}
+
 /** Ticks that fail in a row before health() reports it, and before one alert goes out. */
 const TICK_FAILURES_UNHEALTHY = 3;
 const TICK_FAILURES_ALERT = 5;
@@ -41,6 +46,7 @@ export class Worker {
   #followupRun?: Promise<number>;
   #tickFailures = 0;
   #lastGoodTick: number;
+  #storeError?: string;
 
   constructor(deps: RunnerDeps, opts: WorkerOptions = {}) {
     this.#deps = deps;
@@ -152,15 +158,22 @@ export class Worker {
 
   tick(): void {
     void this.followupTick();
-    let workable: ReturnType<RunnerDeps['ctx']['store']['workableTargets']>;
+    let workable: ReturnType<RunnerDeps['ctx']['store']['workableTargets']> | undefined;
     const { ctx } = this.#deps;
+    // A database error in the runs since the last tick (a full disk usually lets reads through and
+    // fails the writes) counts as much as this tick's own read failing.
+    let error = this.#storeError;
+    this.#storeError = undefined;
     try {
       workable = ctx.store.workableTargets();
+    } catch (err) {
+      error = err instanceof Error ? err.message : String(err);
+    }
+    if (error === undefined) {
       this.#tickFailures = 0;
       this.#lastGoodTick = ctx.now().getTime();
-    } catch (err) {
+    } else {
       this.#tickFailures++;
-      const error = err instanceof Error ? err.message : String(err);
       ctx.log.warn(msg('작업 처리기가 데이터베이스를 읽지 못했습니다 ({n}번 연속): {error}', { n: this.#tickFailures, error }));
       // One alert per stall: the next one only after a good tick in between. (When the store itself
       // is what fails, the webhook setting may not be readable either; /healthz still says so.)
@@ -171,8 +184,8 @@ export class Worker {
           // nothing more to do: the warning above and /healthz remain
         }
       }
-      return;
     }
+    if (!workable) return;
     const byPlatform = new Map<string, string[]>();
     for (const t of workable) {
       if (this.#busyPlatforms.has(t.platform)) continue;
@@ -181,7 +194,11 @@ export class Worker {
     for (const [platform, ids] of byPlatform) {
       this.#busyPlatforms.add(platform);
       const run = settle(this.#deps, ids, { pollIntervalMs: this.#opts.pollIntervalMs ?? 10_000, timeoutMs: 10 * 60_000 })
-        .catch((err: unknown) => this.#deps.ctx.log.warn(`worker(${platform}): ${String(err)}`))
+        .catch((err: unknown) => {
+          this.#deps.ctx.log.warn(`worker(${platform}): ${String(err)}`);
+          // The store failing under a run (claim, transition): counted at the next tick.
+          if (isStoreError(err)) this.#storeError = err instanceof Error ? err.message : String(err);
+        })
         .finally(() => {
           this.#busyPlatforms.delete(platform);
           this.#running.delete(run);
