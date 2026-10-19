@@ -128,11 +128,29 @@ export function weightedLength(text: string): number {
   return n;
 }
 
-/** The POST /2/tweets body: text, the video, and the disclosures and reply setting asked for. */
-export function xPostBody(post: Post, opts: XOptions, mediaId: string, previewMediaId?: string, taggedIds?: string[]): Record<string, unknown> {
+/**
+ * The video card's title and description, from the post as approved: a custom X text changes only
+ * the post's text. Left out when empty.
+ */
+function cardText(post: Post): { title?: string; description?: string } {
+  const title = post.title.trim();
+  const description = post.description.trim();
+  return { ...(title ? { title } : {}), ...(description ? { description } : {}) };
+}
+
+/**
+ * The POST /2/tweets body: text, the video, and the disclosures and reply setting asked for.
+ * `card: false` leaves the card text out (the resend after X refused it).
+ */
+export function xPostBody(post: Post, opts: XOptions, mediaId: string, previewMediaId?: string, taggedIds?: string[], card = true): Record<string, unknown> {
   return {
     text: tweetText(post, opts),
-    media: { media_ids: [mediaId], ...(previewMediaId ? { preview_media_id: previewMediaId } : {}), ...(taggedIds?.length ? { tagged_user_ids: taggedIds } : {}) },
+    media: {
+      media_ids: [mediaId],
+      ...(previewMediaId ? { preview_media_id: previewMediaId } : {}),
+      ...(card ? cardText(post) : {}),
+      ...(taggedIds?.length ? { tagged_user_ids: taggedIds } : {}),
+    },
     ...(post.containsSyntheticMedia ? { made_with_ai: true } : {}),
     ...(opts.paidPartnership ? { paid_partnership: true } : {}),
     ...(opts.replySettings ? { reply_settings: opts.replySettings } : {}),
@@ -539,18 +557,28 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       throw new ProviderError('rejected', 'x.maybe_posted', msg('이전 시도에서 이미 게시됐을 수 있습니다. https://x.com/{username} 에서 확인한 뒤, 없으면 다시 시도하세요', { username }), undefined, { keepResume: true });
     }
     ctx.store.updateTarget(target.id, { resume: { ...resume, posting: true } });
-    const send = (preview?: string) =>
+    // `bare` leaves out what X documents only tersely and no live post has confirmed yet: the
+    // preview image and the card text.
+    const send = (bare = false) =>
       api<{ data: { id: string } }>(ctx, account, '/2/tweets', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(xPostBody(post, target.options as XOptions, mediaId, preview, resume.taggedIds)),
+        body: JSON.stringify(xPostBody(post, target.options as XOptions, mediaId, bare ? undefined : resume.previewMediaId, resume.taggedIds, !bare)),
       });
-    const tweet = await send(resume.previewMediaId)
+    const card = cardText(post);
+    const unconfirmed = [
+      ...(resume.previewMediaId ? [msg('썸네일')] : []),
+      ...(card.title ? [msg('카드 제목')] : []),
+      ...(card.description ? [msg('카드 설명')] : []),
+    ];
+    const tweet = await send()
       .catch(async (err: unknown) => {
-        // A refused preview image mustn't cost the post: a clear rejection posted nothing, so once more without it.
-        if (!resume.previewMediaId || !(err instanceof ProviderError) || err.kind !== 'rejected' || err.code !== 'x.http_400') throw err;
-        resume = { ...resume, extraWarnings: [...(resume.extraWarnings ?? []), msg('X가 썸네일을 받지 않아 빼고 올렸습니다: {err}', { err: err.message })] };
-        return send();
+        // A refused extra mustn't cost the post: a clear rejection posted nothing, so once more without them.
+        if (!unconfirmed.length || !(err instanceof ProviderError) || err.kind !== 'rejected' || err.code !== 'x.http_400') throw err;
+        const sent = await send(true);
+        // Said only once it is up: after a failed resend, a retry sends them all again.
+        resume = { ...resume, extraWarnings: [...(resume.extraWarnings ?? []), msg('X가 게시물을 받지 않아 {dropped} 없이 다시 올렸습니다: {err}', { dropped: unconfirmed.join(' / '), err: err.message })] };
+        return sent;
       })
       .catch((err: unknown) => {
         // A clear rejection means nothing was posted, so a later retry is safe. (A lost work lock is
