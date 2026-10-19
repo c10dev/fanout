@@ -1025,6 +1025,8 @@ export class Dashboard {
       removable: t.state === 'published' && Boolean(provider?.remove),
       // Retrying it could post it twice: the dashboard asks the user to check the platform first.
       mayBeDuplicate: Boolean(mayBeDuplicate(t)),
+      // Removing it also removes its first-comment reply (X): one more request, said in the confirmation.
+      removesReply: t.state === 'published' && Boolean(provider?.firstCommentIsPost) && t.followup?.state === 'posted',
       visibilities: t.state === 'published' && provider?.setVisibility ? provider.visibilities : undefined,
       goesPublicAt: this.#goesPublicAt(t),
       trend: t.stats ? statsTrend(this.#opts.ctx.store, t.id, this.#opts.ctx.now()) : undefined,

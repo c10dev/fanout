@@ -1,4 +1,4 @@
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { extname, join } from 'node:path';
 import { ProviderError, kindForStatus } from '../core/errors.ts';
@@ -971,62 +971,77 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     }
 
     // Open question from the research: does an unverified project's upload still get locked to private?
+    // The test video and the clip are removed whatever happens on the way.
     const clip = join(tmpdir(), `fanout-doctor-${Date.now()}.mp4`);
-    await makeTestClip(clip);
-    const media = await probe(clip);
-    const post: Post = {
-      id: 'doctor',
-      createdAt: ctx.now().toISOString(),
-      mediaPath: clip,
-      title: msg('fanout doctor test (자동 삭제)'),
-      description: msg('fanout doctor --live 가 업로드 동작을 확인하려고 올린 테스트 영상입니다.'),
-      tags: [],
-      captions: [],
-      containsSyntheticMedia: false,
+    let videoId: string | undefined;
+    let removed = false;
+    let step = msg('테스트 업로드');
+    const removeVideo = async (id: string) => {
+      const del = await ytFetch(ctx, `${API}/videos?id=${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${creds(acct).accessToken}` } });
+      return del.ok || del.status === 404 ? undefined : del.status;
     };
-    const opts: YouTubeOptions = { privacy: 'unlisted', madeForKids: false, notifySubscribers: false };
-    const day = pacificDay(ctx.now());
-    const session = await startSession(ctx, acct, post, opts, media.sizeBytes);
-    ctx.store.bumpUsage('youtube', 'project', day);
-    let video = await uploadBytes(ctx, acct, session, clip, media.sizeBytes, 0);
-    checks.push({ name: msg('테스트 업로드'), status: 'ok', detail: msg('videoId={id}, 요청 unlisted → 응답 {privacyStatus}', { id: video.id, privacyStatus: video.status?.privacyStatus }) });
+    try {
+      await makeTestClip(clip);
+      const media = await probe(clip);
+      const post: Post = {
+        id: 'doctor',
+        createdAt: ctx.now().toISOString(),
+        mediaPath: clip,
+        title: msg('fanout doctor test (자동 삭제)'),
+        description: msg('fanout doctor --live 가 업로드 동작을 확인하려고 올린 테스트 영상입니다.'),
+        tags: [],
+        captions: [],
+        containsSyntheticMedia: false,
+      };
+      const opts: YouTubeOptions = { privacy: 'unlisted', madeForKids: false, notifySubscribers: false };
+      const day = pacificDay(ctx.now());
+      const session = await startSession(ctx, acct, post, opts, media.sizeBytes);
+      ctx.store.bumpUsage('youtube', 'project', day);
+      let video = await uploadBytes(ctx, acct, session, clip, media.sizeBytes, 0);
+      videoId = video.id;
+      checks.push({ name: msg('테스트 업로드'), status: 'ok', detail: msg('videoId={id}, 요청 unlisted → 응답 {privacyStatus}', { id: video.id, privacyStatus: video.status?.privacyStatus }) });
 
-    for (let i = 0; i < 30 && video.status?.uploadStatus !== 'processed'; i++) {
-      await sleep(10_000);
-      const r = await api<{ items?: VideoResource[] }>(ctx, acct, `/videos?part=status&id=${video.id}`);
-      if (r.items?.[0]) video = r.items[0];
-      if (video.status?.uploadStatus === 'failed' || video.status?.uploadStatus === 'rejected') break;
+      step = msg('미검증 프로젝트 공개 업로드');
+      for (let i = 0; i < 30 && video.status?.uploadStatus !== 'processed'; i++) {
+        await sleep(10_000);
+        const r = await api<{ items?: VideoResource[] }>(ctx, acct, `/videos?part=status&id=${video.id}`);
+        if (r.items?.[0]) video = r.items[0];
+        if (video.status?.uploadStatus === 'failed' || video.status?.uploadStatus === 'rejected') break;
+      }
+      const privacy = video.status?.privacyStatus;
+      checks.push(
+        privacy === 'private'
+          ? {
+              name: msg('미검증 프로젝트 공개 업로드'),
+              status: 'fail',
+              detail: msg('처리 후 privacyStatus=private (uploadStatus={uploadStatus}). 비공개 고정 규칙이 아직 적용됩니다 — YouTube API audit 신청 필요', { uploadStatus: video.status?.uploadStatus }),
+            }
+          : {
+              name: msg('미검증 프로젝트 공개 업로드'),
+              status: video.status?.uploadStatus === 'processed' ? 'ok' : 'warn',
+              detail:
+                video.status?.uploadStatus === 'processed'
+                  ? msg('privacyStatus={privacy}, uploadStatus={uploadStatus}. 비공개로 고정되지 않았습니다', { privacy, uploadStatus: video.status?.uploadStatus })
+                  : msg('privacyStatus={privacy}, uploadStatus={uploadStatus}. 비공개로 고정되지 않았습니다 (처리 미완료 — 나중에 Studio에서 한 번 더 확인)', {
+                      privacy,
+                      uploadStatus: video.status?.uploadStatus,
+                    }),
+            },
+      );
+    } catch (err) {
+      checks.push({ name: step, status: 'fail', detail: err instanceof Error ? err.message : String(err) });
+    } finally {
+      if (videoId) {
+        const failed = await removeVideo(videoId).catch((err: unknown) => (err instanceof Error ? err.message : String(err)));
+        removed = failed === undefined;
+        checks.push({
+          name: msg('테스트 영상 삭제'),
+          status: removed ? 'ok' : 'warn',
+          detail: removed ? msg('삭제함') : msg('삭제 실패 HTTP {status} — Studio에서 직접 지우세요: https://youtu.be/{id}', { status: failed, id: videoId }),
+        });
+      }
+      rmSync(clip, { force: true });
     }
-    const privacy = video.status?.privacyStatus;
-    checks.push(
-      privacy === 'private'
-        ? {
-            name: msg('미검증 프로젝트 공개 업로드'),
-            status: 'fail',
-            detail: msg('처리 후 privacyStatus=private (uploadStatus={uploadStatus}). 비공개 고정 규칙이 아직 적용됩니다 — YouTube API audit 신청 필요', { uploadStatus: video.status?.uploadStatus }),
-          }
-        : {
-            name: msg('미검증 프로젝트 공개 업로드'),
-            status: video.status?.uploadStatus === 'processed' ? 'ok' : 'warn',
-            detail:
-              video.status?.uploadStatus === 'processed'
-                ? msg('privacyStatus={privacy}, uploadStatus={uploadStatus}. 비공개로 고정되지 않았습니다', { privacy, uploadStatus: video.status?.uploadStatus })
-                : msg('privacyStatus={privacy}, uploadStatus={uploadStatus}. 비공개로 고정되지 않았습니다 (처리 미완료 — 나중에 Studio에서 한 번 더 확인)', {
-                    privacy,
-                    uploadStatus: video.status?.uploadStatus,
-                  }),
-          },
-    );
-
-    const del = await ytFetch(ctx, `${API}/videos?id=${video.id}`, {
-      method: 'DELETE',
-      headers: { authorization: `Bearer ${creds(acct).accessToken}` },
-    });
-    checks.push({
-      name: msg('테스트 영상 삭제'),
-      status: del.ok ? 'ok' : 'warn',
-      detail: del.ok ? msg('삭제함') : msg('삭제 실패 HTTP {status} — Studio에서 직접 지우세요: https://youtu.be/{id}', { status: del.status, id: video.id }),
-    });
     return checks;
   },
 

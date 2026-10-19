@@ -930,11 +930,13 @@ async function cmdRemove(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
   if (candidates.length !== 1) throw new UsageError(candidates.length ? msg('계정이 여러 개입니다. --account 로 고르세요: {candidates}', { candidates: candidates.map((t) => t.account).join(', ') }) : msg('{platform} 대상이 없습니다', { platform }));
   const t = candidates[0]!;
   console.log(`"${post.title}" → ${t.platform}/${t.account} ${t.remoteUrl ?? t.remoteId ?? ''}`);
+  if (deps.providers.get(t.platform)?.firstCommentIsPost && t.followup?.state === 'posted') say(msg('첫 댓글 답글도 먼저 지웁니다 (삭제 요청 2건)'));
   if (!args.flags.yes && !(await confirm(msg('플랫폼에서 이 게시물을 삭제할까요? 되돌릴 수 없습니다')))) return 1;
   const done = await removeTarget(ctx, deps.providers, t.id).catch((err: Error) => {
     throw err instanceof ProviderError ? err : new UsageError(err.message);
   });
   say(msg('삭제했습니다: {platform}/{account}', { platform: done.platform, account: done.account }));
+  for (const w of done.warnings.filter((w) => !t.warnings.includes(w))) sayErr(w);
   return 0;
 }
 

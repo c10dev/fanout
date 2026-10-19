@@ -813,4 +813,6 @@ export const MESSAGES_EN: Record<string, string> = {
   "작업 잠금을 잃어 이 단계를 멈췄습니다. 이어서 할 정보는 남겨 두었습니다": "Lost the work lock, so this step stopped; what it needs to resume is kept",
   "작업 처리기가 데이터베이스를 읽지 못했습니다 ({n}번 연속): {error}": "The worker couldn't read the database ({n} in a row): {error}",
   "fanout 작업 처리기가 멈췄습니다: 데이터베이스 오류가 계속됩니다 — {error}": "The fanout worker has stalled: database errors keep coming — {error}",
+  "첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못했습니다. {platform}에서 확인해 직접 지우세요": "Couldn't tell whether the first-comment reply went up, so it wasn't deleted. Check on {platform} and delete it yourself",
+  "첫 댓글 답글도 먼저 지웁니다 (삭제 요청 2건)": "The first-comment reply is deleted first (two delete requests)",
 };

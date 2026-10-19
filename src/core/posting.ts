@@ -413,8 +413,16 @@ export async function removeTarget(baseCtx: ProviderContext, providers: Map<stri
   let account = ctx.store.getAccount(t.platform, t.account);
   if (!account) throw new Error(msg('연결된 계정이 없습니다: {platform}/{account}', { platform: t.platform, account: t.account }));
   account = await provider.refresh(ctx, account);
+  // Where the first comment is a post of its own (X), it goes first: a failure then leaves the post
+  // up with its reply, never a reply with nothing to answer.
+  const f = t.followup;
+  const notes: string[] = [];
+  if (provider.firstCommentIsPost && f?.state === 'posted' && f.id) await provider.remove({ ctx, account, target: { ...t, remoteId: f.id } });
+  else if (provider.firstCommentIsPost && (f?.state === 'sending' || f?.maybePosted)) {
+    notes.push(msg('첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못했습니다. {platform}에서 확인해 직접 지우세요', { platform: provider.displayName }));
+  }
   await provider.remove({ ctx, account, target: { ...t, remoteId: t.remoteId } });
-  return ctx.store.transition(t.id, 'removed', {}, 'removed by user');
+  return ctx.store.transition(t.id, 'removed', notes.length ? { warnings: [...t.warnings, ...notes] } : {}, 'removed by user');
 }
 
 /**
