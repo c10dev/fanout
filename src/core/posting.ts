@@ -1,3 +1,4 @@
+import { firstCommentWarnings } from './followup.ts';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { ProviderError } from './errors.ts';
@@ -137,7 +138,11 @@ export function previewPost(
       accountLabel: account ? accountLabel(account.profile, t.account) : undefined,
       verdict: errors.length ? 'blocked' : violations.length ? 'transcode' : 'as_is',
       errors,
-      warnings: [...(prior.get(`${t.platform}/${t.account}`) ?? []).slice(0, 1).map(describePrior), ...issues.filter((i) => i.severity === 'warning').map((i) => i.message)],
+      warnings: [
+        ...(prior.get(`${t.platform}/${t.account}`) ?? []).slice(0, 1).map(describePrior),
+        ...issues.filter((i) => i.severity === 'warning').map((i) => i.message),
+        ...firstCommentWarnings(provider, input.firstComment),
+      ],
       transcode: violations.filter((v) => v.fixable).map((v) => v.message),
     };
   });

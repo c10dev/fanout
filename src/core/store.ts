@@ -3,7 +3,7 @@ import { chmodSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import type { SecretBox } from './crypto.ts';
 import { assertTransition } from './state.ts';
-import type { Post, PostInput, PostStats, StatsPoint, Target, TargetEvent, TargetInput, TargetState } from './types.ts';
+import type { Followup, Post, PostInput, PostStats, StatsPoint, Target, TargetEvent, TargetInput, TargetState } from './types.ts';
 
 /** Account names: short ASCII, so they are never mistaken for text (or translated) anywhere. */
 export const ACCOUNT_NAME = /^[A-Za-z0-9_-]{1,32}$/;
@@ -100,6 +100,7 @@ interface TargetRow {
   not_before: string | null;
   updated_at: string;
   stats: string | null;
+  followup: string | null;
 }
 
 function toTarget(row: TargetRow): Target {
@@ -120,6 +121,7 @@ function toTarget(row: TargetRow): Target {
     notBefore: row.not_before ?? undefined,
     updatedAt: row.updated_at,
     stats: row.stats ? JSON.parse(row.stats) : undefined,
+    followup: row.followup ? JSON.parse(row.followup) : undefined,
   };
 }
 
@@ -165,6 +167,7 @@ export class Store {
     if (!cols.has('lease_owner')) this.#db.exec('ALTER TABLE targets ADD COLUMN lease_owner TEXT');
     if (!cols.has('lease_until')) this.#db.exec('ALTER TABLE targets ADD COLUMN lease_until TEXT');
     if (!cols.has('stats')) this.#db.exec('ALTER TABLE targets ADD COLUMN stats TEXT');
+    if (!cols.has('followup')) this.#db.exec('ALTER TABLE targets ADD COLUMN followup TEXT');
   }
 
   // ── Leases: one process works on a target at a time ──────────────
@@ -497,6 +500,29 @@ export class Store {
   }
 
   // ── Local usage counters (mirrors of platform quotas) ────────────
+
+  /** The first comment's progress; null forgets it (so it's sent again). Not a state change either. */
+  setFollowup(id: string, followup: Followup | null): void {
+    this.#db.prepare('UPDATE targets SET followup = ? WHERE id = ?').run(followup ? JSON.stringify(followup) : null, id);
+  }
+
+  /**
+   * Published targets whose post has a first comment not yet tried on them, of posts made since
+   * `sinceIso` and public by `nowIso` (a native schedule keeps the video private until then).
+   */
+  followupsDue(nowIso: string, sinceIso: string, limit = 20): Target[] {
+    const rows = this.#db
+      .prepare(
+        `SELECT t.* FROM targets t JOIN posts p ON p.id = t.post_id
+         WHERE t.state = 'published' AND t.followup IS NULL
+           AND coalesce(json_extract(p.body, '$.firstComment'), '') != ''
+           AND p.created_at >= ?
+           AND coalesce(json_extract(p.body, '$.scheduledAt'), '') <= ?
+         ORDER BY t.updated_at LIMIT ?`,
+      )
+      .all(sinceIso, nowIso, limit) as unknown as TargetRow[];
+    return rows.map(toTarget);
+  }
 
   /** Stats are observations, not state: saving them doesn't touch updated_at or the event log. */
   saveStats(id: string, stats: PostStats): void {

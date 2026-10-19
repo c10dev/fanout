@@ -314,6 +314,15 @@ export const instagram: Provider = {
     }));
   },
 
+  async postComment({ ctx, account, target, text, sending }) {
+    const c = pageCreds(account);
+    sending();
+    const res = await graph<{ id: string }>(ctx, 'POST', `/${target.remoteId}/comments`, { message: text, access_token: c.pageToken }).catch((err: unknown) => {
+      throw missingScope(err, 'instagram_manage_comments');
+    });
+    return { id: res.id };
+  },
+
   async reply({ ctx, account, comment, text, sending }) {
     const c = pageCreds(account);
     sending();

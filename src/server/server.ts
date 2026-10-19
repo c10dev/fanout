@@ -22,6 +22,7 @@ import { disconnectAccount, signInExpiry } from '../core/accounts.ts';
 import { computeCalendar } from '../core/calendar.ts';
 import { computeInsights, validTimeZone } from '../core/insights.ts';
 import { suggestTimes } from '../core/slots.ts';
+import { retryFirstComment } from '../core/followup.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
 import { ASSET_RULES, type AssetKind } from '../core/assets.ts';
@@ -177,6 +178,15 @@ function cleanPreset(p: Preset): Preset {
   return { ...p, targets: p.targets.map((t) => ({ ...t, options: presetOptions(t.platform, t.options) })) };
 }
 
+/** The first comment from a request: text up to 10,000 characters, or none. */
+function firstComment(value: unknown): { firstComment?: string } {
+  if (value === undefined || value === null || value === '') return {};
+  if (typeof value !== 'string') throw new HttpError(400, msg('첫 댓글은 글자여야 합니다'));
+  const text = value.trim();
+  if ([...text].length > 10_000) throw new HttpError(400, msg('첫 댓글은 10000자까지입니다'));
+  return text ? { firstComment: text } : {};
+}
+
 interface CreatePostBody {
   mediaId?: string;
   title?: string;
@@ -184,6 +194,8 @@ interface CreatePostBody {
   tags?: string[];
   scheduledAt?: string;
   containsSyntheticMedia?: boolean;
+  /** Posted as a comment once the video is out, where the platform allows. */
+  firstComment?: string;
   targets?: TargetInput[];
   /** From POST /api/assets/thumbnail. */
   thumbnailId?: string;
@@ -353,6 +365,15 @@ export class Dashboard {
     if (method === 'POST' && parts[0] === 'preview' && parts.length === 1) return send(res, 200, await this.#preview(req));
     if (method === 'GET' && parts[0] === 'posts' && parts[1] && parts.length === 2) return send(res, 200, this.#postDetail(parts[1]));
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'retry') return send(res, 200, this.#retry(parts[1]));
+    if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'first-comment') {
+      const body = await readJson<{ confirmedNotPosted?: unknown }>(req).catch(() => ({}) as { confirmedNotPosted?: unknown });
+      try {
+        return send(res, 200, { followup: await retryFirstComment(this.#opts.ctx, this.#opts.providers, decode(parts[1]), body.confirmedNotPosted === true) });
+      } catch (err) {
+        const e = err as Error & { needsConfirm?: boolean };
+        return send(res, 409, { error: e.message, ...(e.needsConfirm ? { needsConfirm: true } : {}) });
+      }
+    }
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'cancel') {
       try {
         const body = await readJson<{ confirmedNotPosted?: unknown }>(req).catch(() => ({}) as { confirmedNotPosted?: unknown });
@@ -851,6 +872,7 @@ export class Dashboard {
       }),
       containsSyntheticMedia: Boolean(body.containsSyntheticMedia),
       scheduledAt: body.scheduledAt ? new Date(body.scheduledAt).toISOString() : undefined,
+      ...firstComment(body.firstComment),
     };
     const targets = body.targets.map((t) => ({ platform: t.platform, account: t.account, options: t.options ?? {} }));
     return { input, targets };

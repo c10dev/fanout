@@ -43,6 +43,8 @@ export interface PostInput {
   scheduledAt?: string;
   /** SHA-256 of the original video, to notice the same video being posted again. */
   mediaHash?: string;
+  /** Posted as a comment from the same account once the video is out (where the platform allows). */
+  firstComment?: string;
 }
 
 export interface TargetInput {
@@ -140,6 +142,22 @@ export interface Target {
   notBefore?: string;
   updatedAt: string;
   stats?: PostStats;
+  /** The post's first comment on this target, once there is something to say about it. */
+  followup?: Followup;
+}
+
+/**
+ * A target's first comment. `sending` is written right before the request: left like that (a crash,
+ * a timeout), it may be on the platform already, so it's never sent again by itself.
+ */
+export interface Followup {
+  state: 'sending' | 'posted' | 'failed' | 'unsupported';
+  at: string;
+  id?: string;
+  url?: string;
+  error?: string;
+  /** Failed after the request went out: it may be there anyway. */
+  maybePosted?: boolean;
 }
 
 export interface TargetEvent {
