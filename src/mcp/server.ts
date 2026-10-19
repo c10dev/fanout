@@ -6,7 +6,7 @@ import { extractFrame, fileHash, probe as realProbe, withCoverMoment, type Media
 import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, editPost, fetchComments, hideComment, planAddTargets, previewPost, refreshStats, replyToComment, MaybeDuplicateError, MaybeLiveError, retryTarget, suggestCrossPosts, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
-import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
+import type { Capabilities, CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
 import type { Worker } from '../core/worker.ts';
 import { defaultAccountName } from '../core/inbox.ts';
 import { isShort } from '../providers/youtube.ts';
@@ -64,6 +64,7 @@ const TARGETS_SCHEMA = {
   },
 };
 
+// postSchema() describes aiGenerated, thumbnailPath and captions with the platforms that take them.
 const POST_SCHEMA = {
   type: 'object',
   required: ['path', 'title', 'targets'],
@@ -73,18 +74,32 @@ const POST_SCHEMA = {
     description: { type: 'string' },
     tags: { type: 'array', items: { type: 'string' } },
     scheduledAt: { type: 'string', description: 'ISO-8601 time to publish (optional).' },
-    aiGenerated: { type: 'boolean', description: 'Realistic AI-generated or altered content (disclosed on YouTube/TikTok).' },
+    aiGenerated: { type: 'boolean' },
     firstComment: { type: 'string', description: 'Posted from the same account as a comment once the video is out (YouTube, Instagram, Facebook; on X a reply, which costs one more post). The preview says where it will not go.' },
-    thumbnailPath: { type: 'string', description: 'JPEG/PNG ≤2MB (YouTube, X, Facebook, Mastodon, PeerTube).' },
+    thumbnailPath: { type: 'string' },
     thumbnailAt: { type: 'number', description: 'Instead of thumbnailPath: use the video frame at this many seconds (also as the Instagram/TikTok cover).' },
     captions: {
       type: 'array',
-      description: 'YouTube only.',
       items: { type: 'object', required: ['language', 'path'], properties: { language: { type: 'string' }, path: { type: 'string' } } },
     },
     targets: TARGETS_SCHEMA,
   },
 };
+
+/** POST_SCHEMA, with the platforms that take the AI label, a thumbnail or captions named from their capabilities so the text can't drift from the code. */
+function postSchema(providers: readonly Provider[]) {
+  const on = (cap: keyof Capabilities) => providers.filter((p) => p.capabilities[cap]).map((p) => p.displayName).join(', ');
+  const { aiGenerated, thumbnailPath, captions } = POST_SCHEMA.properties;
+  return {
+    ...POST_SCHEMA,
+    properties: {
+      ...POST_SCHEMA.properties,
+      aiGenerated: { ...aiGenerated, description: `Realistic AI-generated or altered content (disclosed on ${on('syntheticMediaFlag')}).` },
+      thumbnailPath: { ...thumbnailPath, description: `JPEG/PNG ≤2MB (${on('thumbnail')}).` },
+      captions: { ...captions, description: `Subtitle files, SRT/VTT and the like ≤5MB (${on('captions')}).` },
+    },
+  };
+}
 
 const TOOLS = [
   {
@@ -293,6 +308,12 @@ const TOOLS = [
   },
 ];
 
+/** The tools as listed, with the post schema for the providers this server runs with. */
+function toolList(providers: readonly Provider[]) {
+  const schema = postSchema(providers);
+  return TOOLS.map((t) => (t.inputSchema === POST_SCHEMA ? { ...t, inputSchema: schema } : t));
+}
+
 export interface McpDeps {
   ctx: ProviderContext;
   providers: Map<string, Provider>;
@@ -305,9 +326,11 @@ export interface McpDeps {
 export class McpServer {
   readonly #deps: McpDeps;
   readonly #version = packageVersion();
+  readonly #tools: ReturnType<typeof toolList>;
 
   constructor(deps: McpDeps) {
     this.#deps = deps;
+    this.#tools = toolList([...deps.providers.values()]);
   }
 
   /** Handle one JSON-RPC message; returns the response, or undefined for notifications. */
@@ -345,7 +368,7 @@ export class McpServer {
       case 'ping':
         return {};
       case 'tools/list':
-        return { tools: TOOLS };
+        return { tools: this.#tools };
       case 'tools/call':
         return this.#callTool(String(msg.params?.name ?? ''), (msg.params?.arguments ?? {}) as Record<string, unknown>);
       default:
@@ -355,7 +378,7 @@ export class McpServer {
   }
 
   async #callTool(name: string, args: Record<string, unknown>): Promise<unknown> {
-    if (!TOOLS.some((t) => t.name === name)) throw { code: -32602, message: `Unknown tool: ${name}` };
+    if (!this.#tools.some((t) => t.name === name)) throw { code: -32602, message: `Unknown tool: ${name}` };
     try {
       // Messages are stored and built in Korean; FANOUT_LANG=en (the `fanout mcp` default) turns them into English here.
       const data = translateDeep(await this.#run(name, args), currentLang());

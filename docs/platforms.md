@@ -224,7 +224,7 @@ PeerTube와 Mastodon은 공개 인스턴스 계정 대신 Docker로 띄운 로�
 - 업로드 전에 대상 채널·계정과 공개 범위를 보여주고 확인을 받습니다 (YouTube 정책). `--yes`로 생략할 수 있습니다.
 - 썸네일·자막을 다른 플랫폼에 제공하면 YouTube에도 제공해야 하는 동등성 조항이 있어, YouTube가 가장 많은 메타데이터를 지원합니다.
 - TikTok 영상에 워터마크나 로고를 덧씌우지 않습니다.
-- AI 생성·합성 콘텐츠는 `--ai`로 표시하면 YouTube `containsSyntheticMedia`, TikTok `is_aigc`로 전달합니다.
+- AI 생성·합성 콘텐츠는 `--ai`(대시보드 체크박스, MCP `aiGenerated`)로 표시하면 YouTube `containsSyntheticMedia`, TikTok `is_aigc`, Instagram·Facebook `is_ai_generated`, X `made_with_ai`로 전달합니다. Facebook 릴스에 표시가 붙는지는 실제 페이지에서 아직 확인 전입니다. Bluesky·Mastodon·PeerTube에는 이런 표시가 없습니다.
 - YouTube에서 받은 데이터는 YouTube Developer Policies(III.D.2, III.E.4)에 맞춰 관리합니다.
   - fanout이 저장하는 것은 토큰, 채널 ID·이름, 영상 링크, 반응 통계(최신 값과 기록)입니다. 댓글은 저장하지 않고 볼 때마다 읽습니다.
   - 작업 처리기(대시보드·`fanout worker`·MCP 서버)가 YouTube 계정마다 하루 한 번 권한이 살아 있는지 확인하고 채널 이름을 다시 읽습니다(할당량 1). 통계는 이 확인이 이어지는 동안만 보관하고, 채널 이름은 30일 안에 갱신하라는 규정 때문입니다. 작업 처리기를 오래 켜지 않으면 확인도 하지 않으니, 그때는 `fanout doctor youtube`나 `fanout stats`로 토큰을 써 보세요.

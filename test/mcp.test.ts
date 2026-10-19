@@ -47,6 +47,20 @@ describe('MCP server', () => {
     assert.equal(missing.error.code, -32601);
   });
 
+  it('names exactly the platforms whose capabilities take the AI label, a thumbnail or captions', async () => {
+    // An extra provider shows the text comes from the providers the server runs with.
+    const clip = { ...providerMap().get('bluesky')!, id: 'clip', displayName: 'Clip', capabilities: { nativeSchedule: false, thumbnail: true, captions: true, syntheticMediaFlag: true } };
+    const providers = providerMap([clip]);
+    const mcp = new McpServer({ ctx: makeCtx().ctx, providers });
+    const list = (await mcp.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' })) as { result: { tools: Array<{ name: string; inputSchema: { properties: Record<string, { description: string }> } }> } };
+    for (const tool of ['preview_post', 'create_post']) {
+      const props = list.result.tools.find((t) => t.name === tool)!.inputSchema.properties;
+      for (const [field, cap] of [['aiGenerated', 'syntheticMediaFlag'], ['thumbnailPath', 'thumbnail'], ['captions', 'captions']] as const) {
+        for (const p of providers.values()) assert.equal(props[field]!.description.includes(p.displayName), p.capabilities[cap], `${tool} ${field}: ${p.id}`);
+      }
+    }
+  });
+
   it('lists accounts without credentials', async () => {
     const { call } = server();
     const r = await call('list_accounts');

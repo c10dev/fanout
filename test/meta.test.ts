@@ -174,6 +174,23 @@ describe('facebook reels', () => {
     assert.equal(finish.get('place'), '110843418940484');
     assert.equal(finish.get('video_state'), 'SCHEDULED');
     assert.equal(finish.get('scheduled_publish_time'), String(Date.parse('2026-10-20T00:00:00Z') / 1000));
+    assert.equal(finish.get('is_ai_generated'), null, 'only when the post is marked AI');
+  });
+
+  it('sends the AI disclosure at finish, also when finishing an earlier upload', async () => {
+    const { fetch, calls } = mockFetch([
+      ['GET', '/R0?', () => json({ status: { uploading_phase: { status: 'complete' }, processing_phase: { status: 'not_started' }, publishing_phase: { status: 'not_started' } } })],
+      ['POST', '/PAGE/video_reels', (c) => (new URLSearchParams(String(c.body)).get('upload_phase') === 'start' ? json({ video_id: 'R1', upload_url: 'https://rupload.facebook.com/video-upload/v24.0/R1' }) : json({ success: true }))],
+      ['POST', 'rupload.facebook.com', () => json({ success: true })],
+    ]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const ai = { ...post, containsSyntheticMedia: true };
+    await facebook.publish({ ctx, post: ai, target: target('facebook'), account: account('facebook'), mediaPath: tempFile(16), media: fakeMedia(), saveResume: () => {} });
+    await facebook.publish({ ctx, post: ai, target: target('facebook', { videoId: 'R0', finished: false, pageId: 'PAGE' }), account: account('facebook'), mediaPath: tempFile(16), media: fakeMedia(), saveResume: () => {} });
+    const finishes = calls.filter((c) => c.url.includes('/video_reels')).map((c) => new URLSearchParams(String(c.body))).filter((f) => f.get('upload_phase') === 'finish');
+    assert.deepEqual(finishes.map((f) => [f.get('video_id'), f.get('is_ai_generated')]), [['R1', 'true'], ['R0', 'true']]);
+    assert.equal(facebook.capabilities.syntheticMediaFlag, true);
   });
 
   it('sends the title and saves a draft instead of publishing (or scheduling)', async () => {
