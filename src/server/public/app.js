@@ -1433,10 +1433,10 @@ async function refreshBoard() {
   try {
     const limit = boardLimit;
     const posts = await api(`/posts?limit=${limit}${boardScheduled ? '&scheduled=1' : boardQuery ? `&q=${encodeURIComponent(boardQuery)}` : ''}`);
-    // The sidebar's recent list: the newest posts whatever the board's filter.
-    if (!boardScheduled && !boardQuery) renderRecent(posts);
     // A newer refresh (another search, a click) started meanwhile: its answer wins.
     if (seq !== boardSeq) return;
+    // The sidebar's recent list: the newest posts whatever the board's filter.
+    if (!boardScheduled && !boardQuery) renderRecent(posts);
     // A full page means there may be more; set only where the board is actually redrawn.
     const showMore = () => ($('#board-more').hidden = posts.length < limit);
     // Don't wipe an edit form or reply the user is typing in: refresh every other card around it, or
@@ -1507,14 +1507,17 @@ function openSettings(part) {
     settingsReturnFocus = document.activeElement;
     modal.hidden = false;
     document.body.classList.add('modal-open');
+    // Into the dialog, so Tab doesn't wander the page behind it.
+    $('#settings-close').focus();
   }
   settingsPart = part || settingsPart || 'general';
   const hash = `#settings/${settingsPart}`;
   if (location.hash !== hash) history.replaceState(null, '', hash);
   for (const item of document.querySelectorAll('.nav-item[data-section]')) {
     if (item.dataset.section === 'settings') item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
   }
-  closeSidebar();
+  closeSidebar(false);
   loadSettings();
 }
 
@@ -1524,9 +1527,14 @@ function closeSettings(restore = true) {
   if (modal.hidden) return;
   modal.hidden = true;
   document.body.classList.remove('modal-open');
-  for (const item of document.querySelectorAll('.nav-item[data-section="settings"]')) item.removeAttribute('aria-current');
+  for (const item of document.querySelectorAll('.nav-item[data-section]')) {
+    if (item.dataset.section === lastSection) item.setAttribute('aria-current', 'page');
+    else item.removeAttribute('aria-current');
+  }
   if (restore) history.replaceState(null, '', `#${lastSection}`);
-  settingsReturnFocus?.focus?.();
+  // Back where it was opened from, unless that is now off screen in the closed drawer.
+  const hiddenNow = (el) => !el?.isConnected || ($('#sidebar').contains(el) && getComputedStyle($('#sidebar')).visibility === 'hidden');
+  (hiddenNow(settingsReturnFocus) ? $('#sidebar-toggle') : settingsReturnFocus)?.focus?.();
 }
 
 $('#settings-close').addEventListener('click', () => closeSettings());
@@ -1558,11 +1566,15 @@ function openSidebar() {
   $('#sidebar-toggle').setAttribute('aria-expanded', 'true');
   $('#sidebar .nav-item[aria-current]')?.focus();
 }
-function closeSidebar() {
-  if (!$('#sidebar').classList.contains('open')) return;
-  $('#sidebar').classList.remove('open');
+/** Close the drawer; focus inside it goes back to the toggle unless `refocus` is false (something else takes it). */
+function closeSidebar(refocus = true) {
+  const sidebar = $('#sidebar');
+  if (!sidebar.classList.contains('open')) return;
+  const hadFocus = sidebar.contains(document.activeElement);
+  sidebar.classList.remove('open');
   $('#scrim').hidden = true;
   $('#sidebar-toggle').setAttribute('aria-expanded', 'false');
+  if (hadFocus && refocus) $('#sidebar-toggle').focus();
 }
 $('#sidebar-toggle').addEventListener('click', openSidebar);
 $('#sidebar-close').addEventListener('click', closeSidebar);
@@ -1918,21 +1930,34 @@ async function loadSettings() {
       ['general', tr('일반'), () => [languageRow(), notifyCard(notify)]],
       ...settings.apps.map((app) => [app.key, APP_TITLE[app.key] ?? app.key, () => [appCard(app, settings.platforms.filter((p) => app.platforms.includes(p.id)))]]),
       ['limits', tr('남은 한도'), () => [limitsCard()]],
-      ['checks', tr('계정 점검'), () => [checkAllCard()]],
+      [
+        'checks',
+        tr('계정 점검'),
+        () => {
+          // The checks come from the account rows: build them (off screen) so the button has accounts to run.
+          for (const app of settings.apps) appCard(app, settings.platforms.filter((p) => app.platforms.includes(p.id)));
+          return [checkAllCard()];
+        },
+      ],
     ];
     // A platform (back from connecting instagram/…) opens the app it belongs to.
     const owner = settings.apps.find((app) => app.platforms.includes(settingsPart));
     if (owner) settingsPart = owner.key;
     if (!parts.some(([key]) => key === settingsPart)) settingsPart = 'general';
     if (location.hash !== `#settings/${settingsPart}`) history.replaceState(null, '', `#settings/${settingsPart}`);
+    const navFocused = nav.contains(document.activeElement);
     nav.replaceChildren(
       ...parts.map(([key, label]) =>
         h('button', { type: 'button', class: 'modal-nav-item', 'aria-current': key === settingsPart ? 'page' : null, onclick: () => openSettings(key) }, label),
       ),
     );
-    nav.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const current = nav.querySelector('[aria-current="page"]');
+    current?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (navFocused) current?.focus();
     const [, label, build] = parts.find(([key]) => key === settingsPart);
-    box.replaceChildren(h('h3', { class: 'settings-heading' }, label), ...build());
+    // The page's banner (e.g. the result of a sign-in) is behind the dialog: repeat it here.
+    const notice = $('#banner').hidden ? null : h('div', { class: $('#banner').className, role: 'status' }, $('#banner').textContent);
+    box.replaceChildren(h('h3', { class: 'settings-heading' }, label), ...(notice ? [notice] : []), ...build());
   } catch (err) {
     box.replaceChildren(h('p', { class: 'form-error' }, err.message));
   }
@@ -2101,6 +2126,7 @@ function inboxPanel() {
                 type: 'button',
                 onclick: () => {
                   // Answer it on the post's own card, with its reply box.
+                  showView('board');
                   loadComments(i.postId);
                   document.querySelector(`#board [data-post="${CSS.escape(i.postId)}"]`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                 },
@@ -2217,7 +2243,8 @@ async function init() {
   try {
     overview = await api('/overview');
   } catch (err) {
-    $('#form-error').textContent = tr('대시보드에 연결할 수 없습니다: {error}', { error: err.message });
+    showView('new');
+    banner(tr('대시보드에 연결할 수 없습니다: {error}', { error: err.message }), 'bad');
     return;
   }
   renderAccounts();
@@ -2236,7 +2263,7 @@ async function init() {
   // Back from an OAuth redirect (?view=settings): the dialog over the new-post screen.
   if (params.get('view') === 'settings') {
     showView('new');
-    showView(`settings/${params.get('connected')?.split('/')[0] || 'general'}`);
+    showView(`settings/${params.get('connected')?.split('/')[0] || params.get('platform') || 'general'}`);
   } else {
     const start = location.hash.slice(1) || 'new';
     // A #settings/… address opens the dialog over the new-post screen.

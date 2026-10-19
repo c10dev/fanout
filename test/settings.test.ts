@@ -71,6 +71,8 @@ describe('dashboard settings', () => {
     const bad = await fetch(`${base}/oauth/youtube/callback?state=forged&code=x`, { redirect: 'manual', headers: { 'accept-language': 'ko-KR,ko' } });
     assert.equal(bad.status, 303);
     assert.match(new URL(bad.headers.get('location')!, base).searchParams.get('oauthError')!, /연결 요청이 만료됐거나/);
+    // The dashboard opens settings on the app that failed.
+    assert.equal(new URL(bad.headers.get('location')!, base).searchParams.get('platform'), 'youtube');
     // Without a pending request to say which language the connect started in, the browser's decides.
     const badEn = await fetch(`${base}/oauth/youtube/callback?state=forged&code=x`, { redirect: 'manual', headers: { 'accept-language': 'en-US,en' } });
     assert.match(new URL(badEn.headers.get('location')!, base).searchParams.get('oauthError')!, /^The connection request expired or is invalid/);
