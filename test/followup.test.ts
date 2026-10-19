@@ -124,3 +124,39 @@ describe('first comment', () => {
     assert.equal(ig.length, 3);
   });
 });
+
+describe('first comment from the CLI', () => {
+  it('fanout run posts a first comment that is due, without a dashboard or worker', async () => {
+    const { mkdtempSync } = await import('node:fs');
+    const { tmpdir } = await import('node:os');
+    const { join } = await import('node:path');
+    const { openContext } = await import('../src/core/context.ts');
+    const { main } = await import('../src/cli.ts');
+    const home = mkdtempSync(join(tmpdir(), 'fanout-cli-fc-'));
+    const prev = { home: process.env.FANOUT_HOME, fetch: globalThis.fetch };
+    process.env.FANOUT_HOME = home;
+    const ctx = openContext(home);
+    ctx.store.saveAccount({ platform: 'youtube', name: 'main', credentials: yt, profile: {} });
+    ctx.store.setApp('youtube', { clientId: 'c', clientSecret: 's' });
+    const { targets } = ctx.store.createPost(POST(), [{ platform: 'youtube', account: 'main', options: {} }]);
+    ctx.store.transition(targets[0]!.id, 'uploading');
+    ctx.store.transition(targets[0]!.id, 'published', { remoteId: 'V1' });
+    ctx.store.close();
+    const sent: string[] = [];
+    globalThis.fetch = (async (url: string | URL) => {
+      sent.push(String(url));
+      return json({ id: 'TH1' });
+    }) as typeof fetch;
+    try {
+      assert.equal(await main(['run']), 0);
+    } finally {
+      globalThis.fetch = prev.fetch;
+      if (prev.home === undefined) delete process.env.FANOUT_HOME;
+      else process.env.FANOUT_HOME = prev.home;
+    }
+    assert.ok(sent.some((u) => u.includes('/commentThreads')), sent.join('\n'));
+    const after = openContext(home);
+    assert.equal(after.store.getTarget(targets[0]!.id)!.followup!.state, 'posted');
+    after.store.close();
+  });
+});
