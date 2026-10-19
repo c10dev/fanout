@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "fanout": {
-      "command": "fanout",
-      "args": ["mcp"]
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/fanout-mcp.mjs"]
     }
   }
 }

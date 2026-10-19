@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, it } from 'node:test';
 
@@ -19,12 +21,13 @@ describe('Claude Code plugin', () => {
     assert.ok(plugin.description?.length > 20);
   });
 
-  it('starts the fanout MCP server', () => {
+  it('starts the fanout MCP server through the launcher', () => {
     const { mcpServers } = json('claude-plugin/.mcp.json');
     assert.deepEqual(Object.keys(mcpServers), ['fanout']);
-    assert.equal(mcpServers.fanout.command, 'fanout');
-    assert.deepEqual(mcpServers.fanout.args, ['mcp']);
-    // FANOUT_LANG is left to the user's environment so FANOUT_LANG=ko still works.
+    assert.equal(mcpServers.fanout.command, 'node');
+    assert.deepEqual(mcpServers.fanout.args, ['${CLAUDE_PLUGIN_ROOT}/bin/fanout-mcp.mjs']);
+    assert.ok(existsSync(join(root, 'claude-plugin/bin/fanout-mcp.mjs')));
+    // FANOUT_LANG and FANOUT_MCP_ROOTS are left to the user's environment.
     assert.equal(mcpServers.fanout.env, undefined);
   });
 
@@ -54,5 +57,56 @@ describe('Claude Code plugin', () => {
     assert.match(skill, /every single time/);
     assert.match(skill, /Never call `create_post` until the user has seen the `preview_post` result/);
     assert.doesNotMatch(skill, /[가-힣]/);
+  });
+});
+
+/** Run the plugin's launcher with this PATH, write `input` to it, and collect what it prints. */
+async function launch(path: string, input: string, env: Record<string, string> = {}) {
+  const child = spawn(process.execPath, [join(root, 'claude-plugin/bin/fanout-mcp.mjs')], { env: { ...env, PATH: path }, stdio: ['pipe', 'pipe', 'pipe'] });
+  let out = '';
+  let err = '';
+  child.stdout.on('data', (d) => (out += d));
+  child.stderr.on('data', (d) => (err += d));
+  child.stdin.end(input);
+  const code = await new Promise((r) => child.on('close', r));
+  return { code, out, err };
+}
+
+describe('plugin launcher', { skip: process.platform === 'win32' && 'sh scripts' }, () => {
+  it('answers every request with how to install fanout when it is not on the PATH', async () => {
+    const empty = mkdtempSync(join(tmpdir(), 'fanout-launcher-'));
+    const { code, out, err } = await launch(
+      empty,
+      '{"jsonrpc":"2.0","id":0,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}\n' +
+        '{"jsonrpc":"2.0","method":"notifications/initialized"}\n' +
+        '{"jsonrpc":"2.0","id":"a","method":"tools/list"}\n',
+    );
+    assert.equal(code, 0);
+    const lines = out.trim().split('\n').map((l) => JSON.parse(l) as { id: unknown; error: { code: number; message: string } });
+    assert.deepEqual(lines.map((l) => l.id), [0, 'a'], 'one answer per request, none for the notification');
+    for (const l of lines) {
+      assert.equal(l.error.code, -32603);
+      assert.match(l.error.message, /fanout is not installed/);
+      assert.ok(l.error.message.includes('npm install -g --allow-git=all github:c10dev/fanout'));
+      assert.match(l.error.message, /\/mcp/);
+    }
+    assert.match(err, /fanout is not installed/);
+  });
+
+  it('runs `fanout mcp` from the PATH with stdin, stdout and the environment passed through', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'fanout-launcher-'));
+    const fake = join(bin, 'fanout');
+    writeFileSync(fake, '#!/bin/sh\nprintf "args=%s lang=%s\\n" "$*" "$FANOUT_LANG"\nexec cat\n');
+    chmodSync(fake, 0o755);
+    const { code, out } = await launch(`${bin}:/usr/bin:/bin`, '{"jsonrpc":"2.0","id":1,"method":"ping"}\n', { FANOUT_LANG: 'ko' });
+    assert.equal(code, 0);
+    assert.equal(out, 'args=mcp lang=ko\n{"jsonrpc":"2.0","id":1,"method":"ping"}\n');
+  });
+
+  it('passes on the exit code of fanout', async () => {
+    const bin = mkdtempSync(join(tmpdir(), 'fanout-launcher-'));
+    writeFileSync(join(bin, 'fanout'), '#!/bin/sh\nexit 3\n');
+    chmodSync(join(bin, 'fanout'), 0o755);
+    assert.equal((await launch(bin, '')).code, 3);
   });
 });

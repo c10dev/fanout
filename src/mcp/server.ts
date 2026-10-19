@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -24,6 +25,11 @@ import { assetProblem, importAsset, type AssetKind } from '../core/assets.ts';
 // Spec: https://modelcontextprotocol.io/specification
 
 const SUPPORTED_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05'];
+
+/** How long a preview stays good for the create_post or add_to_post call that follows it. */
+const PREVIEW_TTL_MS = 30 * 60_000;
+/** Previews the server keeps at once; the oldest go first. */
+const MAX_PREVIEWS = 100;
 
 function packageVersion(): string {
   for (const rel of ['../../package.json', '../package.json']) {
@@ -120,17 +126,18 @@ const TOOLS = [
     name: 'preview_post',
     title: 'Preview a post without uploading',
     description:
-      'Show exactly which account and visibility each target will use, and every error/warning the upload would hit. ' +
-      'Always call this and show the result to the user before create_post.',
+      'Show exactly which account and visibility each target will use, and every error/warning the upload would hit (asks the platforms for account limits and rules). ' +
+      'Always call this and show the result to the user before create_post. When no target has errors, the result has a previewId: create_post needs it, with the same arguments.',
     inputSchema: POST_SCHEMA,
-    annotations: { readOnlyHint: true, openWorldHint: false },
+    annotations: { readOnlyHint: true, openWorldHint: true },
   },
   {
     name: 'create_post',
     title: 'Upload a video to the chosen platforms',
     description:
       'Queue the post and start uploading in the background; returns the post id. This publishes to real accounts — ' +
-      'only call it after the user approved the preview_post result. Track progress with get_post_status.',
+      'only call it after the user approved the preview_post result, with exactly the arguments of that preview and its previewId. ' +
+      'Refused without a matching previewId (from this server, at most 30 minutes old, used once); if anything changed, preview again and ask again. Track progress with get_post_status.',
     inputSchema: POST_SCHEMA,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
@@ -139,12 +146,18 @@ const TOOLS = [
     title: 'Add platforms to an existing post',
     description:
       'Upload an existing post\'s video (same title, description, schedule and attachments) to more platform accounts. ' +
-      'Call it first with dryRun: true and show the result to the user; this publishes to real accounts, so only call it without dryRun after they approve. ' +
+      'Call it first with dryRun: true and show the result to the user; this publishes to real accounts, so only call it without dryRun after they approve, ' +
+      'with the same postId and targets and the previewId of that dry run (refused without it). ' +
       'Refused when the original video was already cleaned up or the platform account is already on the post.',
     inputSchema: {
       type: 'object',
       required: ['postId', 'targets'],
-      properties: { postId: { type: 'string', description: 'Full id or unique prefix.' }, targets: TARGETS_SCHEMA, dryRun: { type: 'boolean' } },
+      properties: {
+        postId: { type: 'string', description: 'Full id or unique prefix.' },
+        targets: TARGETS_SCHEMA,
+        dryRun: { type: 'boolean' },
+        previewId: { type: 'string', description: 'From the dryRun: true result the user approved; needed without dryRun.' },
+      },
     },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true },
   },
@@ -234,7 +247,8 @@ const TOOLS = [
       required: ['postId'],
       properties: { postId: { type: 'string' }, title: { type: 'string' }, description: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } } },
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: true },
+    // It overwrites the live text, so the old text is gone.
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: true },
   },
   {
     name: 'reply_to_comment',
@@ -280,7 +294,8 @@ const TOOLS = [
       'Give up on a queued (including scheduled-for-later), failed or needs_reauth target so it never uploads. Already published posts are not affected. ' +
       'If the upload got far enough that the post may already be live, this is refused: ask the user to check the platform, and only pass confirmedNotPosted: true once they confirm it is not there — a canceled target can no longer be retried or removed.',
     inputSchema: { type: 'object', required: ['targetId'], properties: { targetId: { type: 'string' }, confirmedNotPosted: { type: 'boolean' } } },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+    // A canceled target can't be retried or removed: there is no undo.
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: true, openWorldHint: false },
   },
   {
     name: 'retry_first_comment',
@@ -308,10 +323,18 @@ const TOOLS = [
   },
 ];
 
-/** The tools as listed, with the post schema for the providers this server runs with. */
-function toolList(providers: readonly Provider[]) {
+/**
+ * The tools as listed, with the post schema for the providers this server runs with. create_post
+ * also takes the previewId, required unless the server runs with --post-without-preview.
+ */
+function toolList(providers: readonly Provider[], previewRequired: boolean) {
   const schema = postSchema(providers);
-  return TOOLS.map((t) => (t.inputSchema === POST_SCHEMA ? { ...t, inputSchema: schema } : t));
+  const create = {
+    ...schema,
+    required: previewRequired ? [...schema.required, 'previewId'] : schema.required,
+    properties: { ...schema.properties, previewId: { type: 'string', description: 'previewId of the preview_post result the user approved, for exactly these arguments.' } },
+  };
+  return TOOLS.map((t) => (t.name === 'create_post' ? { ...t, inputSchema: create } : t.inputSchema === POST_SCHEMA ? { ...t, inputSchema: schema } : t));
 }
 
 export interface McpDeps {
@@ -321,16 +344,20 @@ export interface McpDeps {
   probe?: (path: string) => Promise<MediaInfo>;
   /** Folders (real paths) agents may read files from; unset means anywhere the user can read. */
   roots?: string[];
+  /** Take create_post and add_to_post without a matching preview first (fanout mcp --post-without-preview). */
+  postWithoutPreview?: boolean;
 }
 
 export class McpServer {
   readonly #deps: McpDeps;
   readonly #version = packageVersion();
   readonly #tools: ReturnType<typeof toolList>;
+  /** Previews shown in this server, by previewId: what they were for, and until when they count. */
+  readonly #previews = new Map<string, { digest: string; expiresAt: number }>();
 
   constructor(deps: McpDeps) {
     this.#deps = deps;
-    this.#tools = toolList([...deps.providers.values()]);
+    this.#tools = toolList([...deps.providers.values()], !deps.postWithoutPreview);
   }
 
   /** Handle one JSON-RPC message; returns the response, or undefined for notifications. */
@@ -362,7 +389,8 @@ export class McpServer {
           serverInfo: { name: 'fanout', title: 'fanout video uploader', version: this.#version },
           instructions:
             'fanout uploads one local video to YouTube, TikTok, Instagram Reels, Facebook Reels, X, Bluesky, Mastodon and PeerTube through the user\'s own platform apps. ' +
-            'Use preview_post and get the user\'s approval before create_post: posts go to real, often public, accounts.',
+            'Use preview_post and get the user\'s approval before create_post: posts go to real, often public, accounts. ' +
+            'create_post takes the previewId of the preview the user approved, with the same arguments.',
         };
       }
       case 'ping':
@@ -421,48 +449,44 @@ export class McpServer {
           targets: previews.map(withFitHint),
           // Shown so the user sees exactly which local files go out with the post.
           files: { video: input.mediaPath, thumbnail: input.thumbnailPath, captions: input.captions.map((c) => ({ language: c.language, path: c.path })) },
+          // A preview with errors can't be posted, so it gets no id.
+          ...(previews.some((p) => p.errors.length) ? {} : this.#rememberPreview(postDigest(input, targets, args), 'create_post')),
         };
       }
       case 'create_post': {
         const { input, targets, media } = await this.#postArgs(args);
-        const preview = previewPost(store, providers, input, targets, media);
-        // The account's live rules too (TikTok creator_info), so an agent can't create a post they refuse.
-        await addLiveChecks(this.#deps.ctx, providers, preview, { input, targets, media });
-        const blocked = preview.filter((p) => p.errors.length);
-        if (blocked.length) throw new ToolError(msg('올릴 수 없는 대상이 있어 게시하지 않았습니다:\n{blocked}', { blocked: blocked.map(describeBlocked).join('\n') }));
-        // Upload later reads fanout's own copies (no symlink, no hard link), so the originals can't be
-        // swapped for something else before the post goes out. The video is checked by its hash.
-        const mediaDir = join(this.#deps.ctx.home, 'media');
-        const copy = (kind: AssetKind, path: string, field: string) => {
-          try {
-            return importAsset(kind, path, mediaDir);
-          } catch (err) {
-            throw new ToolError(`${field}: ${(err as Error).message}`);
-          }
-        };
-        // A frame from thumbnailAt is fanout's own file already.
-        if (input.thumbnailPath && args.thumbnailAt === undefined) input.thumbnailPath = copy('thumbnail', input.thumbnailPath, 'thumbnailPath');
-        input.captions = input.captions.map((c, i) => ({ ...c, path: copy('caption', c.path, `captions[${i}].path`) }));
-        const { post, targets: created } = createScheduledPost(store, providers, input, targets);
-        this.#deps.worker?.tick();
-        return { postId: post.id, targets: created.map(publicTarget), next: msg('get_post_status 로 진행 상황을 확인하세요') };
+        const giveBack = this.#takePreview(args.previewId, postDigest(input, targets, args), 'preview_post');
+        try {
+          return await this.#createPost(args, input, targets, media);
+        } catch (err) {
+          // Nothing was posted: the preview still stands.
+          giveBack();
+          throw err;
+        }
       }
       case 'add_to_post': {
         const p = store.findPost(String(args.postId ?? ''));
         if (!p) throw new ToolError(msg('게시물 없음: {postId}', { postId: String(args.postId) }));
         const targets = this.#targetArgs(args.targets);
-        try {
-          if (!existsSync(p.mediaPath)) throw new Error(msg('원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요'));
-          const media = await this.#probe(p.mediaPath);
-          if (args.dryRun === true) {
+        if (!existsSync(p.mediaPath)) throw new ToolError(msg('원본 영상이 이미 정리돼 없습니다. 새 게시물로 올리세요'));
+        const media = await this.#probe(p.mediaPath);
+        const digest = digestOf({ postId: p.id, targets });
+        if (args.dryRun === true) {
+          try {
             const { preview } = planAddTargets(store, providers, p.id, targets, media);
             await addLiveChecks(this.#deps.ctx, providers, preview, { input: p, targets, media });
-            return { postId: p.id, targets: preview.map(withFitHint) };
+            return { postId: p.id, targets: preview.map(withFitHint), ...(preview.some((t) => t.errors.length) ? {} : this.#rememberPreview(digest, 'add_to_post')) };
+          } catch (err) {
+            throw new ToolError((err as Error).message);
           }
+        }
+        const giveBack = this.#takePreview(args.previewId, digest, 'add_to_post dryRun: true');
+        try {
           const created = addTargets(store, providers, p.id, targets, media);
           this.#deps.worker?.tick();
           return { postId: p.id, targets: created.map(publicTarget), next: msg('get_post_status 로 진행 상황을 확인하세요') };
         } catch (err) {
+          giveBack();
           throw new ToolError((err as Error).message);
         }
       }
@@ -589,6 +613,63 @@ export class McpServer {
     }
   }
 
+  /** Queue a post whose preview the user approved; still refused if a target has errors now. */
+  async #createPost(args: Record<string, unknown>, input: PostInput, targets: TargetInput[], media: MediaInfo): Promise<Record<string, unknown>> {
+    const { ctx, providers } = this.#deps;
+    const { store } = ctx;
+    const preview = previewPost(store, providers, input, targets, media);
+    // The account's live rules too (TikTok creator_info), so an agent can't create a post they refuse.
+    await addLiveChecks(ctx, providers, preview, { input, targets, media });
+    const blocked = preview.filter((p) => p.errors.length);
+    if (blocked.length) throw new ToolError(msg('올릴 수 없는 대상이 있어 게시하지 않았습니다:\n{blocked}', { blocked: blocked.map(describeBlocked).join('\n') }));
+    // Upload later reads fanout's own copies (no symlink, no hard link), so the originals can't be
+    // swapped for something else before the post goes out. The video is checked by its hash.
+    const mediaDir = join(ctx.home, 'media');
+    const copy = (kind: AssetKind, path: string, field: string) => {
+      try {
+        return importAsset(kind, path, mediaDir);
+      } catch (err) {
+        throw new ToolError(`${field}: ${(err as Error).message}`);
+      }
+    };
+    // A frame from thumbnailAt is fanout's own file already.
+    if (input.thumbnailPath && args.thumbnailAt === undefined) input.thumbnailPath = copy('thumbnail', input.thumbnailPath, 'thumbnailPath');
+    input.captions = input.captions.map((c, i) => ({ ...c, path: copy('caption', c.path, `captions[${i}].path`) }));
+    const { post, targets: created } = createScheduledPost(store, providers, input, targets);
+    this.#deps.worker?.tick();
+    return { postId: post.id, targets: created.map(publicTarget), next: msg('get_post_status 로 진행 상황을 확인하세요') };
+  }
+
+  /** A preview the user is about to see: the id the call that posts it must name. */
+  #rememberPreview(digest: string, then: string): { previewId: string; previewExpiresAt: string; next: string } {
+    const now = this.#deps.ctx.now().getTime();
+    for (const [id, p] of this.#previews) if (p.expiresAt <= now) this.#previews.delete(id);
+    while (this.#previews.size >= MAX_PREVIEWS) this.#previews.delete(this.#previews.keys().next().value!);
+    const previewId = randomBytes(12).toString('base64url');
+    const expiresAt = now + PREVIEW_TTL_MS;
+    this.#previews.set(previewId, { digest, expiresAt });
+    return { previewId, previewExpiresAt: new Date(expiresAt).toISOString(), next: msg('이 미리보기를 사용자에게 보여 주고, 승인하면 같은 인자와 이 previewId 로 {then} 를 호출하세요', { then }) };
+  }
+
+  /**
+   * Take the preview a posting call names: it must be one this server showed, not expired, for
+   * exactly these arguments. Taken at once, so two calls can't both post it; the returned function
+   * gives it back when nothing was posted.
+   */
+  #takePreview(value: unknown, digest: string, preview: string): () => void {
+    if (this.#deps.postWithoutPreview) return () => {};
+    const id = typeof value === 'string' ? value.trim() : '';
+    if (!id) throw new ToolError(msg('previewId 가 없습니다. 먼저 {preview} 를 호출해 결과를 사용자에게 보여 주고, 승인하면 같은 인자와 그 previewId 로 다시 호출하세요', { preview }));
+    const entry = this.#previews.get(id);
+    if (!entry || entry.expiresAt <= this.#deps.ctx.now().getTime()) {
+      this.#previews.delete(id);
+      throw new ToolError(msg('이 previewId 는 없거나 만료됐습니다(이 서버에서 30분 안에 만든 미리보기, 한 번만). {preview} 를 다시 호출해 사용자에게 다시 보여 주세요', { preview }));
+    }
+    if (entry.digest !== digest) throw new ToolError(msg('인자가 그 미리보기와 다릅니다. 바뀐 내용으로 {preview} 를 다시 호출해 사용자에게 다시 보여 주고 승인을 받으세요', { preview }));
+    this.#previews.delete(id);
+    return () => this.#previews.set(id, entry);
+  }
+
   #file(value: unknown, field: string): string {
     if (typeof value !== 'string' || !value.trim()) throw new ToolError(msg('{field}: 파일 경로가 필요합니다', { field }));
     const path = isAbsolute(value) ? value : resolve(value);
@@ -672,6 +753,22 @@ export class McpServer {
     }
     return { input, targets, media };
   }
+}
+
+/**
+ * What a preview and the post it approves must agree on: the post as fanout will make it, with the
+ * video's hash. A frame from thumbnailAt counts by its time.
+ */
+function postDigest(input: PostInput, targets: TargetInput[], args: Record<string, unknown>): string {
+  return digestOf({ ...input, thumbnailPath: args.thumbnailAt !== undefined ? { at: args.thumbnailAt } : input.thumbnailPath, targets });
+}
+
+/** SHA-256 of the value as JSON with sorted keys, so the order fields came in doesn't matter. */
+function digestOf(value: unknown): string {
+  const sorted = JSON.stringify(value, (_, v: unknown) =>
+    v && typeof v === 'object' && !Array.isArray(v) ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) : v,
+  );
+  return createHash('sha256').update(sorted).digest('hex');
 }
 
 function describeBlocked(p: TargetPreview): string {

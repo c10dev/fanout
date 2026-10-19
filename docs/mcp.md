@@ -14,18 +14,28 @@
 npm install -g --allow-git=all github:c10dev/fanout
 ```
 
-이 명령은 `main`(다음 릴리스 전 최신)을 설치합니다. 릴리스 그대로 쓰려면 태그를 붙이세요: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`.
+이 명령은 `main`(다음 릴리스 전 최신)을 설치합니다. 릴리스 그대로 쓰려면 태그를 붙이세요: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`. `fanout version`으로 설치를 확인합니다.
 
 그다음 Claude Code에서:
 
 ```
-/plugin marketplace add c10dev/fanout
-/plugin install fanout@fanout
+/plugin install fanout --marketplace c10dev/fanout
 ```
 
-플러그인은 `fanout mcp`를 `--allow` 없이 등록하므로 에이전트가 내가 읽을 수 있는 어떤 파일 경로든 넘길 수 있습니다. 영상 폴더만 열어 두려면 플러그인 대신 아래처럼 `--allow`로 직접 등록하세요.
+터미널에서는 `claude plugin install fanout --marketplace c10dev/fanout`입니다. `--marketplace`가 없는 Claude Code 버전에서는 두 단계로 합니다: `/plugin marketplace add c10dev/fanout` 다음 `/plugin install fanout@fanout`.
+
+플러그인은 작은 실행 스크립트(`claude-plugin/bin/fanout-mcp.mjs`, `node`로 실행)로 `fanout mcp`를 띄웁니다. `--allow` 없이 등록하므로 에이전트가 내가 읽을 수 있는 어떤 파일 경로든 넘길 수 있습니다. 영상 폴더만 열어 두려면 Claude Code를 띄우는 환경에 `FANOUT_MCP_ROOTS`를 정하세요([읽을 수 있는 폴더 제한](#읽을-수-있는-폴더-제한)). 플러그인의 서버는 `FANOUT_LANG`처럼 이 값도 물려받습니다. 아니면 아래처럼 `--allow`로 직접 등록하세요.
 
 앱 등록과 계정 연결은 게시를 부탁하기 전에 대시보드(`fanout serve`)나 CLI(`fanout setup`, `fanout connect`)로 해 둡니다.
+
+### 서버가 뜨지 않을 때
+
+`/mcp`(터미널에서는 `claude mcp list`)가 `plugin:fanout:fanout` 옆에 이유를 보여 줍니다.
+
+- `Failed to connect — -32603: fanout is not installed: there is no fanout command on the PATH that Claude Code runs with. …`: 위처럼 fanout을 설치하고 `fanout version`으로 확인하세요. 데스크톱 실행기로 띄운 Claude Code는 셸의 PATH를 모를 수 있습니다.
+- `Failed to connect — ENOENT: Executable not found in $PATH: "stdio"`: Claude Code가 `node`를 실행하지 못했습니다(플러그인 명령이 없으면 무엇이든 "stdio"로 표시합니다). Node.js 24 이상을 설치하세요. 실행 스크립트가 생기기 전의 플러그인도 fanout이 없으면 이렇게 표시합니다.
+
+고친 뒤에는 `/mcp`에서 `plugin:fanout:fanout`을 골라 다시 연결하거나 Claude Code를 다시 시작하세요. 그러지 않으면 Claude Code는 실패를 기억해 두고 최대 15분 뒤에야 다시 시도합니다.
 
 ## 직접 등록하기
 
@@ -49,7 +59,21 @@ claude mcp add fanout -- fanout mcp
 claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
 ```
 
-또는 `"env": { "FANOUT_MCP_ROOTS": "/home/me/videos:/home/me/fanout-inbox" }`(경로 구분자는 macOS·Linux `:`, Windows `;`). 심볼릭 링크는 실제 위치로 따져서, 허용한 폴더 안의 링크가 밖을 가리키면 거절합니다.
+또는 `"env": { "FANOUT_MCP_ROOTS": "/home/me/videos:/home/me/fanout-inbox" }`(경로 구분자는 macOS·Linux `:`, Windows `;`). 플러그인을 쓸 때는 Claude Code를 띄우는 환경에 `FANOUT_MCP_ROOTS`를 정합니다(예: `FANOUT_MCP_ROOTS=~/videos claude`). 심볼릭 링크는 실제 위치로 따져서, 허용한 폴더 안의 링크가 밖을 가리키면 거절합니다.
+
+## 게시하려면 미리보기가 먼저
+
+`create_post`는 같은 서버의 `preview_post`가 보여 준 것만 게시합니다.
+
+1. `preview_post`는 오류가 있는 대상이 없으면 `previewId`를 돌려줍니다.
+2. `create_post`는 같은 인자와 그 `previewId`를 넘겨야 합니다. `previewId`가 없거나, 미리보기 뒤 인자나 영상 파일이 바뀌었으면 거절하고 아무것도 올리지 않습니다.
+3. `previewId`는 서버 메모리에 30분 동안 남고 한 번만 게시합니다. 서버를 다시 띄우면 모두 사라집니다.
+
+`add_to_post`도 같습니다. `dryRun: true` 결과의 `previewId`를 실제 호출에 넘깁니다.
+
+서버는 사용자가 미리보기를 봤는지, 승인했는지는 알 수 없습니다. 미리보기를 보여 주고 승인을 기다리라는 것은 도구 설명, 서버 안내문, 플러그인 스킬에 적혀 있습니다. Claude Code도 도구를 항상 허용해 두지 않았다면 `create_post`를 부를 때마다 묻습니다.
+
+다른 방법으로 게시를 확인하는 스크립트라면 `fanout mcp --post-without-preview`(또는 `FANOUT_MCP_POST_WITHOUT_PREVIEW=1`)로 이 검사를 끕니다. 오류가 있는 대상은 그래도 거절합니다.
 
 ## 도구
 
@@ -57,10 +81,10 @@ claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
 |---|---|
 | `list_accounts` | 지원 플랫폼, 앱 등록 여부, 연결된 계정 |
 | `check_video` | 로컬 영상을 플랫폼별로 원본 그대로 / 변환 필요 / 불가로 판정. 세로로 맞추기만 하면 되는 곳(가로 영상의 Facebook 릴스)은 `fittable: true`와 `hint`로 대상 옵션 `fit`을 권함 (`preview_post`·`create_post`의 거부 이유도 같음) |
-| `preview_post` | 실제로 올리지 않고, 어느 계정에 어떤 공개 범위로 올라가는지와 오류·경고를 미리 보여줌 |
-| `create_post` | 게시물을 만들고 업로드 시작. 막히는 문제가 있으면 만들지 않음. `firstComment`을 주면 게시된 뒤 같은 계정으로 첫 댓글(X는 답글, 요금 한 건 더). |
+| `preview_post` | 실제로 올리지 않고, 어느 계정에 어떤 공개 범위로 올라가는지와 오류·경고를 미리 보여줌(계정 한도와 규칙은 플랫폼에 물어봄). 오류가 없으면 `create_post`에 넘길 `previewId`를 줌 |
+| `create_post` | 게시물을 만들고 업로드 시작. 같은 인자로 만든 미리보기의 `previewId`가 있어야 함([게시하려면 미리보기가 먼저](#게시하려면-미리보기가-먼저)). 막히는 문제가 있으면 만들지 않음. `firstComment`을 주면 게시된 뒤 같은 계정으로 첫 댓글(X는 답글, 요금 한 건 더). |
 | `retry_first_comment` | 실패한 첫 댓글 다시 달기. 이미 달렸을 수 있으면(`firstComment.state`가 `sending`이거나 `maybePosted`) 사용자 확인 뒤 `confirmedNotPosted: true`. 게시물을 지웠으면(`canceled`) 거부 |
-| `add_to_post` | 기존 게시물을 다른 플랫폼에도 올림. 먼저 `dryRun: true`로 미리보기를 보여 주고 승인받은 뒤 호출하도록 설명에 적어 둠 |
+| `add_to_post` | 기존 게시물을 다른 플랫폼에도 올림. 먼저 `dryRun: true`로 미리보기를 보여 주고 승인받은 뒤, 그 결과의 `previewId`를 넘겨 호출 |
 | `get_post_status` | 플랫폼별 상태, 링크, 오류 |
 | `get_post_stats` | 게시된 대상의 조회·좋아요·댓글·공유와 하루 전 대비 변화(`trend`). 요금이 드는 X는 `includePaid`일 때만 |
 | `get_limits` | 계정별 남은 게시 한도(YouTube 오늘 업로드, Instagram 24시간 게시, TikTok 24시간 수신함 초안(fanout 추정), Bluesky 오늘 영상·용량, PeerTube 용량). 여러 개를 올리기 전에 확인 |
@@ -76,6 +100,6 @@ claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
 | `cancel_target` | 대기·실패·재연결 필요 대상을 올리지 않기로 취소. 게시된 글은 지우지 않음. 이미 올라갔을 수 있는 대상은 사용자 확인(`confirmedNotPosted: true`) 없이는 거부 |
 | `retry_target` | 실패했거나 재연결이 필요한 대상을 다시 시도. "이미 게시됐을 수 있음"으로 멈춘 대상은 사용자가 확인했다는 `confirmedNotPosted: true` 없이는 거부 |
 
-`create_post`는 실제 계정에 게시합니다. 도구 설명과 서버 안내문에 "`preview_post` 결과를 사용자에게 보여주고 승인받은 뒤 호출하라"고 적어 두었고, 읽기 전용 도구에는 `readOnlyHint`를 붙였습니다. 앱 등록과 계정 연결은 MCP로 하지 않고 대시보드나 CLI에서 합니다.
+`create_post`는 실제 계정에 게시합니다. 서버는 맞는 `previewId`가 있을 때만 받고, 도구 설명과 서버 안내문에 "`preview_post` 결과를 사용자에게 보여주고 승인받은 뒤 호출하라"고 적어 두었습니다. 읽기 전용 도구에는 `readOnlyHint`를, 되돌릴 수 없는 `update_post`·`cancel_target`에는 `destructiveHint`를 붙였습니다. 앱 등록과 계정 연결은 MCP로 하지 않고 대시보드나 CLI에서 합니다.
 
 썸네일은 JPG·PNG 2MB 이하, 자막은 SRT·VTT 등 5MB 이하 파일만 받습니다(대시보드와 같은 규칙). `preview_post` 결과의 `files`에 함께 올라갈 로컬 파일이 모두 나오므로, 사용자가 확인할 수 있습니다.

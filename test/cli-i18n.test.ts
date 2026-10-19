@@ -96,9 +96,12 @@ describe('MCP in English', () => {
     const env = makeCtx();
     env.store.saveAccount({ platform: 'youtube', name: 'main', credentials: {}, profile: { channelTitle: 'C10' } });
     const video = join(mkdtempSync(join(tmpdir(), 'fanout-mcp-')), 'clip.mp4');
-    const mcp = new McpServer({ ctx: env.ctx, providers: providerMap(), probe: async (path) => ({ ...fakeMedia({ durationSec: 20 }), path }), worker: { tick() {} } as never });
-    const call = async (name: string, args: Record<string, unknown>) =>
-      ((await mcp.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })) as { result: { isError?: boolean; structuredContent: any; content: Array<{ text: string }> } }).result;
+    const caller = (postWithoutPreview: boolean) => {
+      const mcp = new McpServer({ ctx: env.ctx, providers: providerMap(), probe: async (path) => ({ ...fakeMedia({ durationSec: 20 }), path }), worker: { tick() {} } as never, postWithoutPreview });
+      return async (name: string, args: Record<string, unknown>) =>
+        ((await mcp.handle({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name, arguments: args } })) as { result: { isError?: boolean; structuredContent: any; content: Array<{ text: string }> } }).result;
+    };
+    const call = caller(false);
 
     writeFileSync(video, 'x');
     process.env.FANOUT_LANG = 'en';
@@ -111,7 +114,9 @@ describe('MCP in English', () => {
       assert.ok(yt.errors.some((e: string) => /YouTube visibility/.test(e)), JSON.stringify(yt.errors));
       assert.ok(ig.errors.every((e: string) => !/[가-힣]/.test(e)), JSON.stringify(ig.errors));
       assert.ok(!/[가-힣]/.test(preview.content[0]!.text.replaceAll('제목을 입력하세요', '')));
-      const bad = await call('create_post', { path: video, title: 'T', targets: [{ platform: 'youtube' }] });
+      const unseen = await call('create_post', { path: video, title: 'T', targets: [{ platform: 'youtube' }] });
+      assert.match(unseen.content[0]!.text, /^No previewId\. Call preview_post first/);
+      const bad = await caller(true)('create_post', { path: video, title: 'T', targets: [{ platform: 'youtube' }] });
       assert.match(bad.content[0]!.text, /^Not posted: some targets can't be posted:\n- youtube\/main: /);
       assert.doesNotMatch(bad.content[0]!.text, /[가-힣]/);
     } finally {

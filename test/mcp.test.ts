@@ -5,12 +5,13 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
 import { mcpRoots } from '../src/cli.ts';
+import { makeTestClip } from '../src/core/media.ts';
 import { McpServer } from '../src/mcp/server.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { fakeMedia, makeCtx } from './helpers.ts';
 
-function server(roots?: string[]) {
-  const env = makeCtx();
+function server({ roots, postWithoutPreview, now }: { roots?: string[]; postWithoutPreview?: boolean; now?: () => Date } = {}) {
+  const env = makeCtx(undefined, now);
   env.store.saveAccount({ platform: 'youtube', name: 'main', credentials: { secret: 'NOPE' }, profile: { channelTitle: 'C10' } });
   env.store.saveAccount({ platform: 'tiktok', name: 'mainmain', credentials: {}, profile: { displayName: 'c10e2' } });
   const video = join(mkdtempSync(join(tmpdir(), 'fanout-mcp-')), 'clip.mp4');
@@ -22,6 +23,7 @@ function server(roots?: string[]) {
     probe: async (path) => ({ ...fakeMedia({ durationSec: 20 }), path }),
     worker: { tick: () => ticks++ } as never,
     roots,
+    postWithoutPreview,
   });
   let id = 0;
   const call = async (name: string, args: Record<string, unknown> = {}) => {
@@ -30,8 +32,15 @@ function server(roots?: string[]) {
     };
     return res.result;
   };
-  return { env, mcp, video, call, ticks: () => ticks };
+  /** preview_post, then create_post with the previewId it gave, as after the user's yes. */
+  const post = async (args: Record<string, unknown>) => {
+    const preview = await call('preview_post', args);
+    return call('create_post', { ...args, previewId: preview.structuredContent?.previewId });
+  };
+  return { env, mcp, video, call, post, ticks: () => ticks };
 }
+
+const YT = { platform: 'youtube', options: { privacy: 'unlisted', madeForKids: false } };
 
 describe('MCP server', () => {
   it('negotiates the protocol version and lists tools', async () => {
@@ -43,6 +52,13 @@ describe('MCP server', () => {
     const list = (await mcp.handle({ jsonrpc: '2.0', id: 2, method: 'tools/list' })) as { result: { tools: Array<{ name: string; annotations: { readOnlyHint: boolean } }> } };
     const tools = Object.fromEntries(list.result.tools.map((t) => [t.name, t.annotations.readOnlyHint]));
     assert.deepEqual(tools, { list_accounts: true, check_video: true, preview_post: true, create_post: false, get_post_status: true, get_post_stats: true, get_calendar: true, get_comment_inbox: true, get_insights: true, suggest_post_times: true, get_limits: true, get_post_comments: true, update_post: false, reply_to_comment: false, hide_comment: false, set_visibility: false, cancel_target: false, retry_first_comment: false, retry_target: false, add_to_post: false });
+    const byName = Object.fromEntries((list.result.tools as unknown as Array<{ name: string; annotations: Record<string, boolean>; inputSchema: { required?: string[] } }>).map((t) => [t.name, t]));
+    // preview_post asks the platforms (limits, TikTok creator_info); edits and cancels can't be undone.
+    assert.equal(byName.preview_post!.annotations.openWorldHint, true);
+    assert.equal(byName.update_post!.annotations.destructiveHint, true);
+    assert.equal(byName.cancel_target!.annotations.destructiveHint, true);
+    assert.ok(byName.create_post!.inputSchema.required!.includes('previewId'));
+    assert.ok(!byName.preview_post!.inputSchema.required!.includes('previewId'));
     const missing = (await mcp.handle({ jsonrpc: '2.0', id: 3, method: 'nope' })) as { error: { code: number } };
     assert.equal(missing.error.code, -32601);
   });
@@ -81,26 +97,100 @@ describe('MCP server', () => {
     assert.ok(ig.errors.some((e: string) => e.includes('연결되지 않은 계정')));
   });
 
-  it('refuses to create a post with blocking issues, then creates a valid one', async () => {
+  it('posts only what a preview in this server showed, once', async () => {
     const { call, video, env, ticks } = server();
+    const args = { path: video, title: 'T', aiGenerated: true, targets: [YT] };
+    // A fresh server has shown nothing, so nothing is posted.
+    const unseen = await call('create_post', args);
+    assert.equal(unseen.isError, true);
+    assert.match(unseen.content[0]!.text, /previewId/);
+    assert.equal((await call('create_post', { ...args, previewId: 'made-up' })).isError, true);
+    // A preview with errors gets no id: it can't be posted.
+    const bad = await call('preview_post', { path: video, title: 'T', targets: [{ platform: 'youtube' }] });
+    assert.ok(bad.structuredContent.targets[0].errors.length);
+    assert.equal(bad.structuredContent.previewId, undefined);
+    assert.equal(env.store.listPosts().length, 0);
+
+    const preview = await call('preview_post', args);
+    const previewId = preview.structuredContent.previewId as string;
+    assert.match(previewId, /^[\w-]{16}$/);
+    assert.equal(preview.structuredContent.previewExpiresAt, '2026-10-17T03:30:00.000Z');
+    // Fields in another order are the same post.
+    const ok = await call('create_post', { targets: [{ options: { madeForKids: false, privacy: 'unlisted' }, platform: 'youtube' }], aiGenerated: true, title: 'T', path: video, previewId });
+    assert.equal(ok.isError, undefined, ok.content[0]!.text);
+    assert.equal(ticks(), 1, 'kicks the worker');
+    const postId = ok.structuredContent.postId as string;
+    assert.equal(env.store.getPost(postId)?.containsSyntheticMedia, true);
+    const status = await call('get_post_status', { postId: postId.slice(0, 8) });
+    assert.equal(status.structuredContent.posts[0].targets[0].state, 'queued');
+
+    // One yes, one post: the same preview can't post again.
+    const again = await call('create_post', { ...args, previewId });
+    assert.equal(again.isError, true);
+    assert.equal(env.store.listPosts().length, 1);
+  });
+
+  it('refuses a preview of other arguments or one that expired, and keeps it when that is all', async () => {
+    let at = Date.parse('2026-10-17T03:00:00Z');
+    const { call, video, env } = server({ now: () => new Date(at) });
+    const args = { path: video, title: 'T', targets: [YT] };
+    const previewId = (await call('preview_post', args)).structuredContent.previewId as string;
+    for (const changed of [{ title: 'T2' }, { description: 'more' }, { scheduledAt: '2026-10-18T00:00:00Z' }, { targets: [{ ...YT, options: { ...YT.options, privacy: 'public' } }] }, { targets: [YT, { platform: 'tiktok' }] }]) {
+      const r = await call('create_post', { ...args, ...changed, previewId });
+      assert.equal(r.isError, true, JSON.stringify(changed));
+      assert.match(r.content[0]!.text, /미리보기와 다릅니다/);
+    }
+    // The video itself changed since the preview.
+    writeFileSync(video, 'y');
+    assert.match((await call('create_post', { ...args, previewId })).content[0]!.text, /미리보기와 다릅니다/);
+    writeFileSync(video, 'x');
+    at += 31 * 60_000;
+    const late = await call('create_post', { ...args, previewId });
+    assert.equal(late.isError, true);
+    assert.match(late.content[0]!.text, /만료/);
+    assert.equal(env.store.listPosts().length, 0);
+  });
+
+  it('takes posts without a preview only when the server runs with --post-without-preview', async () => {
+    const { call, video, env, mcp } = server({ postWithoutPreview: true });
+    const list = (await mcp.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' })) as { result: { tools: Array<{ name: string; inputSchema: { required: string[] } }> } };
+    assert.ok(!list.result.tools.find((t) => t.name === 'create_post')!.inputSchema.required.includes('previewId'));
+    // Errors still block the post.
     const bad = await call('create_post', { path: video, title: 'T', targets: [{ platform: 'youtube' }] });
     assert.equal(bad.isError, true);
     assert.match(bad.content[0]!.text, /게시하지 않았습니다/);
     assert.equal(env.store.listPosts().length, 0);
+    assert.equal((await call('create_post', { path: video, title: 'T', targets: [YT] })).isError, undefined);
+    assert.equal(env.store.listPosts().length, 1);
+  });
 
-    const ok = await call('create_post', {
-      path: video,
-      title: 'T',
-      aiGenerated: true,
-      targets: [{ platform: 'youtube', options: { privacy: 'unlisted', madeForKids: false } }],
-    });
-    assert.equal(ok.isError, undefined);
-    assert.equal(ticks(), 1, 'kicks the worker');
-    const postId = ok.structuredContent.postId as string;
-    assert.equal(env.store.getPost(postId)?.containsSyntheticMedia, true);
+  it('matches a preview with thumbnailAt to its post (the frame is made again)', async () => {
+    const { post, env } = server();
+    const clip = join(realpathSync(mkdtempSync(join(tmpdir(), 'fanout-mcp-clip-'))), 'clip.mp4');
+    await makeTestClip(clip, 2);
+    const r = await post({ path: clip, title: 'T', thumbnailAt: 1, targets: [YT] });
+    assert.equal(r.isError, undefined, r.content[0]!.text);
+    assert.ok(env.store.getPost(r.structuredContent.postId)!.thumbnailPath!.startsWith(join(env.ctx.home, 'media')));
+  });
 
-    const status = await call('get_post_status', { postId: postId.slice(0, 8) });
-    assert.equal(status.structuredContent.posts[0].targets[0].state, 'queued');
+  it('adds platforms to a post only after a dry run of exactly those targets', async () => {
+    const { call, post, env, ticks, video } = server();
+    const made = await post({ path: video, title: 'T', targets: [YT] });
+    const postId = made.structuredContent.postId as string;
+    const tiktok = [{ platform: 'tiktok' }];
+    const unseen = await call('add_to_post', { postId, targets: tiktok });
+    assert.equal(unseen.isError, true);
+    assert.match(unseen.content[0]!.text, /previewId/);
+    const dry = await call('add_to_post', { postId, targets: tiktok, dryRun: true });
+    const previewId = dry.structuredContent.previewId as string;
+    assert.ok(previewId);
+    assert.equal(env.store.targetsForPost(postId).length, 1, 'a dry run adds nothing');
+    assert.match((await call('add_to_post', { postId, targets: [{ platform: 'tiktok', options: { mode: 'direct' } }], previewId })).content[0]!.text, /미리보기와 다릅니다/);
+    const added = await call('add_to_post', { postId, targets: tiktok, previewId });
+    assert.equal(added.isError, undefined, added.content[0]!.text);
+    assert.equal(env.store.targetsForPost(postId).length, 2);
+    assert.equal(ticks(), 2);
+    assert.equal((await call('add_to_post', { postId, targets: tiktok, previewId })).isError, true, 'used once');
   });
 
   it('retries only failed targets', async () => {
@@ -149,6 +239,24 @@ describe('MCP server', () => {
     assert.equal(lines.find((l) => l.id === null)?.error?.code, -32700);
   });
 
+  it('needs a preview unless started with --post-without-preview or FANOUT_MCP_POST_WITHOUT_PREVIEW=1', async () => {
+    const { FANOUT_MCP_POST_WITHOUT_PREVIEW: _, ...env } = process.env;
+    const required = async (flags: string[], extra: Record<string, string> = {}) => {
+      const home = mkdtempSync(join(tmpdir(), 'fanout-mcp-home-'));
+      const child = spawn(process.execPath, ['src/cli.ts', 'mcp', ...flags], { env: { ...env, FANOUT_HOME: home, ...extra }, stdio: ['pipe', 'pipe', 'pipe'] });
+      let out = '';
+      child.stdout.on('data', (d) => (out += d));
+      child.stdin.end('{"jsonrpc":"2.0","id":1,"method":"tools/list"}\n');
+      await new Promise((r) => child.on('close', r));
+      const tools = (JSON.parse(out) as { result: { tools: Array<{ name: string; inputSchema: { required: string[] } }> } }).result.tools;
+      return tools.find((t) => t.name === 'create_post')!.inputSchema.required.includes('previewId');
+    };
+    assert.equal(await required([]), true);
+    assert.equal(await required(['--post-without-preview']), false);
+    assert.equal(await required([], { FANOUT_MCP_POST_WITHOUT_PREVIEW: '1' }), false);
+    assert.equal(await required(['--post-without-preview', 'no'], { FANOUT_MCP_POST_WITHOUT_PREVIEW: '1' }), true, 'the flag wins');
+  });
+
   it('answers in English unless FANOUT_LANG asks for Korean', async () => {
     const { FANOUT_LANG: _, ...env } = process.env;
     const ask = async (lang?: string) => {
@@ -177,7 +285,7 @@ describe('MCP file access limited to chosen folders', () => {
     writeFileSync(inside, 'x');
     writeFileSync(outside, 'x');
     symlinkSync(outside, sneaky);
-    const { call } = server([allowed]);
+    const { call } = server({ roots: [allowed] });
     assert.ok(!(await call('check_video', { path: inside })).isError);
     // One answer for "outside" and "not there", so an agent can't probe what exists elsewhere.
     for (const path of [outside, sneaky, join(allowed, '..', 'secret.mp4'), join(base, 'nothing.mp4')]) {
@@ -204,7 +312,7 @@ describe('MCP file access limited to chosen folders', () => {
 
 describe('MCP posts read fanout\'s own copies', () => {
   it('copies the thumbnail and captions at create_post, refusing links', async () => {
-    const { env, call } = server();
+    const { env, call, post } = server();
     const dir = realpathSync(mkdtempSync(join(tmpdir(), 'fanout-mcp-assets-')));
     const video = join(dir, 'clip.mp4');
     const thumb = join(dir, 'cover.jpg');
@@ -213,14 +321,22 @@ describe('MCP posts read fanout\'s own copies', () => {
     writeFileSync(thumb, Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 0, 0, 0]));
     writeFileSync(subs, '1\n00:00:00,000 --> 00:00:01,000\nhi\n');
     const args = { path: video, title: 'T', targets: [{ platform: 'youtube', options: { privacy: 'unlisted', madeForKids: false } }] };
-    const r = await call('create_post', { ...args, thumbnailPath: thumb, captions: [{ language: 'ko', path: subs }] });
+    const r = await post({ ...args, thumbnailPath: thumb, captions: [{ language: 'ko', path: subs }] });
     assert.ok(!r.isError, r.content[0]!.text);
-    const post = env.store.getPost(r.structuredContent.postId)!;
-    assert.ok(post.thumbnailPath!.startsWith(join(env.ctx.home, 'media')) && post.captions[0]!.path.startsWith(join(env.ctx.home, 'media')));
+    const made = env.store.getPost(r.structuredContent.postId)!;
+    assert.ok(made.thumbnailPath!.startsWith(join(env.ctx.home, 'media')) && made.captions[0]!.path.startsWith(join(env.ctx.home, 'media')));
     const linked = join(dir, 'link.srt');
     symlinkSync(subs, linked);
-    const refused = await call('create_post', { ...args, captions: [{ language: 'ko', path: linked }] });
+    const withLink = { ...args, captions: [{ language: 'ko', path: linked }] };
+    const previewId = (await call('preview_post', withLink)).structuredContent.previewId as string;
+    const refused = await call('create_post', { ...withLink, previewId });
     assert.ok(refused.isError);
+    assert.doesNotMatch(refused.content[0]!.text, /previewId/);
+    // Nothing was posted, so the preview still stands: the same refusal again, not "unknown previewId".
+    const again = await call('create_post', { ...withLink, previewId });
+    assert.ok(again.isError);
+    assert.doesNotMatch(again.content[0]!.text, /previewId/);
+    assert.equal(env.store.listPosts().length, 1);
   });
 });
 

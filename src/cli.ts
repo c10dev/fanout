@@ -48,7 +48,7 @@ export interface Args {
  * is a yes/no word. `fanout retry P --confirmed-not-posted x` confirms X only (x stays the platform),
  * while `--confirmed-not-posted no` still means no.
  */
-const YES_NO_FLAGS = new Set(['confirmed-not-posted', 'not-posted']);
+const YES_NO_FLAGS = new Set(['confirmed-not-posted', 'not-posted', 'post-without-preview']);
 const YES_NO_WORD = /^(yes|no|true|false|y|n|1|0)$/i;
 
 export function parseArgs(argv: string[]): Args {
@@ -350,6 +350,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout prune [--days 7] [--dry-run]    다 올린 원본·오래된 변환 파일 정리 (~/.fanout 안만)
   fanout mcp                             MCP 서버 (stdio) — AI 에이전트용 도구, 업로드 처리 포함
                                          --allow 폴더1,폴더2 (또는 FANOUT_MCP_ROOTS): 에이전트가 읽을 수 있는 폴더 제한
+                                         --post-without-preview (또는 FANOUT_MCP_POST_WITHOUT_PREVIEW=1): 미리보기 없이 게시 허용
   fanout watch <폴더> --init             감시 폴더와 예시 설정(fanout.watch.json) 만들기
   fanout watch <폴더> [--yes] [--once] [--interval 15] [--settle 10]
                                          폴더에 넣은 영상을 설정대로 자동으로 올림
@@ -1253,12 +1254,15 @@ async function cmdMcp(providers: Map<string, Provider>, args: Args): Promise<num
   // English unless FANOUT_LANG asks otherwise; FANOUT_LANG=ko keeps Korean.
   process.env.FANOUT_LANG ||= 'en';
   const roots = mcpRoots(args.flags.allow === true ? true : str(args, 'allow'));
+  // Off by default: create_post and add_to_post need the id of a preview this server showed.
+  const postWithoutPreview = bool(args, 'post-without-preview') ?? process.env.FANOUT_MCP_POST_WITHOUT_PREVIEW === '1';
   const ctx = openContext(undefined, stderrLogger);
   if (roots) ctx.log.info(msg('MCP: 이 폴더의 파일만 읽습니다: {roots}', { roots: roots.join(', ') }));
+  if (postWithoutPreview) ctx.log.warn(msg('MCP: 미리보기 없이도 create_post·add_to_post 를 받습니다 (--post-without-preview)'));
   const worker = new Worker({ ctx, providers });
   worker.start();
   try {
-    await serveStdio(new McpServer({ ctx, providers, worker, roots }));
+    await serveStdio(new McpServer({ ctx, providers, worker, roots, postWithoutPreview }));
   } finally {
     // Unfinished uploads resume in the next fanout process (its lease takeover sees this pid is gone).
     worker.stop();
