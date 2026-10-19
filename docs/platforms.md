@@ -7,7 +7,7 @@
 | YouTube | `videos.insert` 재개형 업로드 | 공개 범위·아동용 여부를 직접 지정해야 함 | 네이티브 `publishAt` | 프로젝트당 하루 100회 업로드. 3분 이하 세로 영상은 Shorts로 분류. 썸네일·자막·재생목록 지원. 제목·설명 언어, 다른 언어 제목·설명(`localizations`, `--yt-localizations 파일.json`), 크리에이티브 커먼즈 라이선스, 퍼가기·확장 통계 공개 끄기. 음성 언어는 API로 설정할 수 없어 YouTube Studio에서 정합니다. 유료 PPL 표시(`--yt-paid-placement yes`, `--paid-partnership yes`도 같음 → `paidProductPlacementDetails.hasPaidProductPlacement`): 업로드 직후 `videos.update`로 한 번 설정합니다(API 단위 50). 실패하면 게시는 그대로 두고 경고로 알리니 YouTube Studio에서 직접 켜세요. 다시 읽으면 몇 초 늦게 반영됩니다. `videos.update`로 바뀌는 것은 실제 계정에서 확인했고(2026-10-19), fanout 옵션으로 실제 영상에 올려 본 확인은 아직입니다. 설명의 타임스탬프가 챕터 조건(0:00 시작, 3개 이상, 10초 이상, 차례대로)에 안 맞으면 미리 경고. 촬영일(`--yt-recorded`, `recordingDetails.recordingDate`). 태그는 합쳐서 500자: YouTube처럼 태그 사이 쉼표를 세고, 띄어쓰기가 있는 태그는 따옴표 두 자를 더해 셉니다(`태그 0001` 60개는 599자). 올리기 전과 게시 후 태그를 고칠 때 모두 확인 |
 | TikTok | Content Posting API `FILE_UPLOAD` | **inbox**: TikTok 앱 수신함으로 보내고 앱에서 마무리 | fanout worker | 수신함에는 마무리하지 않은 초안이 24시간에 5개까지만 들어감(넘으면 `spam_risk_too_many_pending_share`). 심사 전 direct는 비공개 계정 SELF_ONLY만, 24시간 5명. direct 모드는 TikTok이 요구하는 UX 필드(공개 범위 기본값 없음, 댓글·듀엣·이어찍기 기본 끔, 음악 사용 동의, 브랜디드 콘텐츠)를 요구 |
 | Instagram Reels | 컨테이너 → rupload → `media_publish` | 프로페셔널 계정 + 연결된 Facebook 페이지 | fanout worker | 3초~15분, 300MB. 24시간 한도는 매번 `content_publishing_limit`로 조회. 공동 작업자(3명까지, `--ig-collab`)·오디오 이름(`--ig-audio`)·AI 표시(`--ai` → `is_ai_generated`). 캡션 2200자·해시태그 30개·@멘션 20개 시험 릴스(`--ig-trial manual|auto` → `trial_params`, 팔로워가 아닌 사람에게 먼저 보임)는 실험적: Meta 문서에는 URL 업로드에만 나와 있습니다. 실제 계정으로 시험했을 때(2026-10-19) Meta는 fanout의 파일 업로드에서 이 값을 읽고 계정 자격을 검사했습니다. 팔로워 요구 사항에 못 미치는 계정은 `10/2207081`로 거절되고(게시물은 만들어지지 않음), fanout은 재연결이 아니라 실패로 보여 줍니다. 자격이 되는 계정에서 실제로 시험 릴스로 올라가는지는 아직 확인 못 했습니다. 이 계정이 직접 쓴 댓글은 Instagram이 숨기지 않으므로 숨기기를 거절함. 유료 파트너십 라벨(`--paid-partnership` → `is_paid_partnership`, 릴스에서 실제 확인 전). 사람 태그(`--ig-tag` → `user_tags`, 사용자 이름만, 20명까지). 장소(`--ig-location 페이지ID` → `location_id`; 위치가 없는 페이지면 게시가 거절됨). 페이지 ID 검색(Pages Search)은 앱 심사가 따로 필요해 지원하지 않으니 페이지 주소에서 ID를 찾아 넣으세요. |
-| Facebook Reels | `video_reels` start → rupload → finish | 페이지만 가능 | 네이티브 (10분~29일). 29일보다 먼 예약은 28일 전까지 fanout이 기다렸다가 올림 | 9:16, 3~90초. 릴스 제목(`--fb-title`)과 초안 저장(`--fb-draft`, 처리가 끝나면 "앱에서 마무리" 상태) 커버 이미지: 처리가 끝나면 게시물 썸네일을 `/{video}/thumbnails`(`is_preferred`)로 올림 — 릴스에서 되는지 실제 확인 전이라 안 되면 경고만 남김. 공동 작업자 페이지 초대(`--fb-collab 페이지ID,…` → 게시 뒤 `/{video}/collaborators`, 페이지당 하루 10건, 초안은 제외). 장소(`--fb-place 페이지ID` → 게시 단계의 `place`, 위치가 있는 페이지여야 함). |
+| Facebook Reels | `video_reels` start → rupload → finish | 페이지만 가능 | 네이티브 (10분~29일). 29일보다 먼 예약은 28일 전까지 fanout이 기다렸다가 올림 | 9:16, 3~90초. 릴스 제목(`--fb-title`)과 초안 저장(`--fb-draft`, 처리가 끝나면 "앱에서 마무리" 상태) 커버 이미지: 처리가 끝나면 게시물 썸네일을 `/{video}/thumbnails`(`is_preferred`)로 올림 — 릴스에서 되는 것을 실제 계정으로 확인함(2026-10-19). 바꾸지 못해도 릴스는 그대로 올라가고 경고만 남김. 공동 작업자 페이지 초대(`--fb-collab 페이지ID,…` → 게시 뒤 `/{video}/collaborators`, 페이지당 하루 10건, 초안은 제외). 장소(`--fb-place 페이지ID` → 게시 단계의 `place`, 위치가 있는 페이지여야 함). |
 | X | v2 `initialize` → 4MB `append` → `finalize` → STATUS → `POST /2/tweets` | 내 X 앱(OAuth 2.0 PKCE), **종량제 크레딧 필요** | fanout worker | 기본 20분·8GB(Premium은 더 김). 글은 가중치 280(한글 2). URL이 들어가면 요금이 높음. 계정이 Premium이 아니면(연결·점검 때 확인) 280을 넘는 글은 올리기 전에 막음. AI 표시(`--ai` → `made_with_ai`)·유료 파트너십(`--x-paid-partnership`)·답글 허용 범위(`--x-reply`)·영상 대체 텍스트(`--x-alt`, `POST /2/media/metadata`)·자막(SRT·VTT를 `subtitles`로 올린 뒤 `POST /2/media/subtitles`, 두 글자 언어 코드). 게시 응답을 잃으면 중복을 피하려고 멈추고 확인을 요청. 썸네일: 게시물 썸네일을 이미지로 올려 `media.preview_media_id`로 붙임(실제 확인 전). 영상 카드 제목·설명: 게시물 제목·설명을 `media.title`·`media.description`으로 보냄(실제 확인 전, 비어 있으면 뺌; `--x-text`는 글만 바꿈). 썸네일이나 카드 글을 실은 게시가 400으로 거절되면 썸네일·카드 제목·설명을 모두 빼고 한 번만 더 올리고, 뺀 것을 경고로 남김. `--paid-partnership` 하나로 X·TikTok(direct)·Instagram·YouTube(유료 PPL)에 함께 표시. 사람 태그(`--x-tag` → `media.tagged_user_ids`, 10명까지; 사용자 이름을 한 번 조회하며 요금이 듦, 못 찾은 사람은 빼고 경고). 커뮤니티에 게시(`--x-community ID` → `community_id`). |
 | Bluesky | 영상 서비스 `uploadVideo` → 처리 완료 blob → `createRecord` | 앱 비밀번호로 연결 (개발자 앱 필요 없음) | fanout worker | mp4 최대 300MB, 글 300자, 자막은 VTT만(20KB 이하). 이메일 인증된 계정만 영상 가능, 하루 한도는 `getUploadLimits`로 조회 |
 | Mastodon | `POST /api/v2/media`(썸네일 포함) → 처리 대기 → `POST /api/v1/statuses` | 인스턴스에서 만든 액세스 토큰 (개발자 앱 심사 없음) | 네이티브 `scheduled_at` (5분 뒤부터) | 공개 범위 직접 지정. 영상 크기는 인스턴스마다 다르며(기본 99MB) 올리기 전에 조회. `Idempotency-Key`로 중복 게시 방지 |
@@ -189,7 +189,7 @@ YouTube에 게시된 영상은 공개·일부 공개·비공개를 바꾸거나,
 
 ## 실제 계정으로 확인한 것
 
-리서치에서 공식 문서만으로 답할 수 없었던 질문들입니다. 처음 세 개는 각자 자기 키로 확인할 수 있게 명령으로 만들어 두었습니다. 결과 칸은 2026-10-17에 계정 하나씩으로 확인한 것이라, 플랫폼 정책이 바뀌거나 계정마다 다르면 결과가 달라질 수 있습니다.
+리서치에서 공식 문서만으로 답할 수 없었던 질문들입니다. 처음 세 개는 각자 자기 키로 확인할 수 있게 명령으로 만들어 두었습니다. 결과는 적힌 날짜에 계정 하나씩으로 확인한 것이라, 플랫폼 정책이 바뀌거나 계정마다 다르면 결과가 달라질 수 있습니다.
 
 | 질문 | 확인 방법 | 결과 (2026-10-17) |
 |---|---|---|
@@ -217,6 +217,19 @@ PeerTube와 Mastodon은 공개 인스턴스 계정 대신 Docker로 띄운 로�
 - `doctor --live`: 비공개 업로드, 트랜스코딩, 게시, 삭제까지 확인. 끝난 뒤 서버의 영상 수 0
 - 이어 올리기: 20MB 영상을 첫 조각 뒤에 일부러 끊었다가 다시 시도하니, 서버가 받은 위치(`bytes=0-8388607`)부터 이어서 끝까지 올렸습니다
 - 공개 인스턴스마다 다를 수 있는 것(프록시 본문 크기 제한, 업로드 필터 플러그인, 외부 로그인 전용 계정)은 확인하지 않았습니다
+
+### 2026-10-19
+
+YouTube·Facebook·Instagram·TikTok 실제 계정에서 소유자 승인을 받아 하나씩 확인했습니다. YouTube·Facebook 시험 게시물은 확인 뒤 지웠습니다. 확인하면서 찾은 문제(CLI가 첫 댓글을 보내지 않음, 시험 릴스 거절을 재연결 필요로 보여 줌)는 고쳤습니다. 기록은 [#116](https://github.com/c10dev/fanout/issues/116)에 있습니다.
+
+| 질문 | 확인 방법 | 결과 (2026-10-19) |
+|---|---|---|
+| YouTube 첫 댓글이 달리는가? | unlisted 업로드에 `--first-comment` | **달림.** `commentThreads.insert`로 댓글이 달렸고 다시 읽혔습니다 |
+| YouTube 유료 PPL 표시(`paidProductPlacementDetails`)를 API로 켤 수 있는가? | 시험 영상에 `videos.update` 한 번 | **켜짐, 몇 초 늦게 반영.** 200을 돌려줬고, 바로 다시 읽으면 false, 몇 초 뒤에는 true였습니다. fanout 옵션(`--yt-paid-placement`)으로 올린 영상에서는 아직 확인 전입니다 |
+| Facebook 릴스에도 커버 이미지(`/{video}/thumbnails`)가 적용되는가? | 6초 세로 릴스를 커버 이미지와 첫 댓글을 넣어 페이지에 게시 | **적용됨.** 게시 뒤 대표 썸네일이 올린 커버였습니다(색으로 확인) |
+| Instagram 시험 릴스(`trial_params`)를 fanout의 파일 업로드에서도 받는가? | `--ig-trial manual` | **읽고 계정 자격을 검사함.** 팔로워 요구 사항에 못 미치는 계정은 컨테이너를 만들 때 `10/2207081`로 거절됐고 아무것도 게시되지 않았습니다. fanout은 이 거절을 재연결이 아니라 실패로 보여 줍니다. 자격이 되는 계정에서 실제로 시험 릴스로 올라가는지는 아직 확인 전입니다 |
+| Facebook·Instagram 첫 댓글이 달리는가? | 위 Facebook 릴스의 첫 댓글 | **권한이 없어 거절됨.** Facebook은 `(#200) Permissions error`로 거절했고, fanout은 "이미 달렸을 수 있음"이 아니라 `pages_manage_engagement` 권한이 없다는 분명한 거절로 보여 줬습니다. 쓰던 토큰에 `instagram_manage_comments`도 없어 Instagram 첫 댓글은 시험하지 않았습니다. 두 권한을 넣어 토큰을 다시 만든 뒤 다시 확인합니다 |
+| TikTok에서 "나만 보기"로 게시한 영상을 API로 찾을 수 있는가? | 수신함으로 보낸 6초 영상을 앱에서 나만 보기로 게시 | **찾을 수 없음.** 약 3분 동안 `status/fetch`는 계속 `SEND_TO_USER_INBOX`였고 `/v2/video/list/`에도 나오지 않았습니다. 그래서 비공개 게시물은 링크와 반응을 읽을 수 없습니다. 공개 게시물의 통계는 아직 확인 전입니다 |
 
 ## 정책상 지키는 것
 

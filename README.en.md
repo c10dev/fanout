@@ -4,7 +4,7 @@
 
 A **video-first, self-hosted uploader** that posts one video to YouTube, TikTok, Instagram Reels, Facebook Reels, X, Bluesky, Mastodon and PeerTube at once. It uses only the platforms' official APIs, through your own accounts and your own developer apps.
 
-> **Status: v0.1, experimental.** Upload flows follow each platform's official documentation and are covered by HTTP-mocked tests. With real accounts (2026-10-17) we have confirmed an unlisted YouTube post end to end, a TikTok upload to the app inbox, and Instagram/Facebook connection and checks. PeerTube and Mastodon were exercised end to end (post, edit, comments, replies, scheduling, delete) against local instances. Run `fanout doctor <platform> --live` on your own setup before relying on it. The detailed docs under `docs/` are in Korean for now, except [docs/mcp.en.md](docs/mcp.en.md).
+> **Status: v0.1, experimental.** Upload flows follow each platform's official documentation and are covered by HTTP-mocked tests. With real accounts (2026-10-17 and 2026-10-19, [details in Korean](docs/platforms.md#실제-계정으로-확인한-것)) we have confirmed an unlisted YouTube post end to end with its first comment, a TikTok upload to the app inbox, a Facebook reel with a custom cover, and Instagram/Facebook connection and checks. PeerTube and Mastodon were exercised end to end (post, edit, comments, replies, scheduling, delete) against local instances. Run `fanout doctor <platform> --live` on your own setup before relying on it. The detailed docs under `docs/` are in Korean for now, except [docs/mcp.en.md](docs/mcp.en.md).
 
 ## Why another uploader
 

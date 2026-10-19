@@ -146,8 +146,9 @@ export const instagram: Provider = {
     if (bad.length) issues.push({ severity: 'error', code: 'collaborators', message: msg('Instagram 사용자 이름이 아닙니다: {names}', { names: bad.join(', ') }) });
     if (o.trialReel !== undefined) {
       if (!(o.trialReel in TRIAL)) issues.push({ severity: 'error', code: 'trial', message: msg('trialReel은 manual 또는 auto') });
-      // Meta documents trial_params for URL uploads; fanout uploads the file itself (resumable).
-      else issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스는 팔로워가 아닌 사람에게 먼저 보입니다. fanout의 파일 업로드 방식에서 Meta가 받아 주는지는 아직 확인되지 않았습니다 — 조용히 무시되면 팔로워에게도 보이는 일반 릴스로 올라가고 되돌릴 수 없습니다') });
+      // Meta documents trial_params for URL uploads; fanout uploads the file itself (resumable). Seen live
+      // on 2026-10-19 (#116): Meta reads it there too and refuses an ineligible account (10/2207081).
+      else issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스는 팔로워가 아닌 사람에게 먼저 보이며, 자격이 되는 계정만 쓸 수 있습니다. 자격이 안 되면 Instagram이 게시할 때 거절하고 아무것도 올라가지 않습니다. 자격이 되는 계정에서 실제로 시험 릴스로 올라가는지는 아직 확인 전입니다') });
       // Not documented either way by Meta; reported not to combine.
       if (collaboratorsOf(o).length) issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스와 공동 작업자는 함께 쓰지 못할 수 있습니다') });
       if (o.shareToFeed === true) issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스는 피드 공유(shareToFeed)와 함께 쓰지 못할 수 있습니다') });

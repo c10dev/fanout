@@ -4,7 +4,7 @@
 
 영상 하나를 YouTube · TikTok · Instagram Reels · Facebook Reels · X · Bluesky · Mastodon · PeerTube에 한 번에 올리는 **영상 중심(video-first) 셀프호스팅 업로더**입니다. 모든 플랫폼에 공식 API만 쓰고, 사용자가 자기 계정과 개발자 앱을 연결합니다.
 
-> **상태: v0.1 실험 단계.** 업로드 흐름은 플랫폼 공식 문서를 기준으로 구현했고 HTTP mock 테스트로 검증했습니다. 실제 계정으로는 YouTube 일부 공개 게시까지, TikTok 수신함 업로드까지, Instagram·Facebook 연결과 점검까지 확인했고, PeerTube·Mastodon은 로컬 인스턴스에서 게시부터 삭제까지 확인했습니다(2026-10-17, [자세히](docs/platforms.md#실제-계정으로-확인한-것)). 처음 쓰기 전에 `fanout doctor <플랫폼> --live`로 내 환경에서 먼저 확인하세요.
+> **상태: v0.1 실험 단계.** 업로드 흐름은 플랫폼 공식 문서를 기준으로 구현했고 HTTP mock 테스트로 검증했습니다. 실제 계정으로는 YouTube 일부 공개 게시와 첫 댓글까지, TikTok 수신함 업로드까지, Facebook 릴스 게시(커버 이미지 포함)와 Instagram·Facebook 연결과 점검까지 확인했고, PeerTube·Mastodon은 로컬 인스턴스에서 게시부터 삭제까지 확인했습니다(2026-10-17·10-19, [자세히](docs/platforms.md#실제-계정으로-확인한-것)). 처음 쓰기 전에 `fanout doctor <플랫폼> --live`로 내 환경에서 먼저 확인하세요.
 
 ## 왜 또 하나의 업로더인가
 
