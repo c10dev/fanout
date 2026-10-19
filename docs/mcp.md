@@ -57,7 +57,7 @@ claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
 |---|---|
 | `list_accounts` | 지원 플랫폼, 앱 등록 여부, 연결된 계정 |
 | `check_video` | 로컬 영상을 플랫폼별로 원본 그대로 / 변환 필요 / 불가로 판정. 세로로 맞추기만 하면 되는 곳(가로 영상의 Facebook 릴스)은 `fittable: true`와 `hint`로 대상 옵션 `fit`을 권함 (`preview_post`·`create_post`의 거부 이유도 같음) |
-| `preview_post` | 실제로 올리지 않고, 어느 계정에 어떤 공개 범위로 올라가는지와 오류·경고를 미리 보여줌 |
+| `preview_post` | 실제로 올리지 않고, 어느 계정에 어떤 공개 범위로 올라가는지와 오류·경고를 미리 보여줌. 대상마다 `visibility`(문장, 예약 시각은 `FANOUT_TZ`나 서버 시간대 오프셋을 붙인 ISO-8601)와 같은 내용의 `privacy`·`publishAt`(UTC)·`mode` 필드 |
 | `create_post` | 게시물을 만들고 업로드 시작. 막히는 문제가 있으면 만들지 않음. `firstComment`을 주면 게시된 뒤 같은 계정으로 첫 댓글(X는 답글, 요금 한 건 더). |
 | `retry_first_comment` | 실패한 첫 댓글 다시 달기. 이미 달렸을 수 있으면(`firstComment.state`가 `sending`이거나 `maybePosted`) 사용자 확인 뒤 `confirmedNotPosted: true`. 게시물을 지웠으면(`canceled`) 거부 |
 | `add_to_post` | 기존 게시물을 다른 플랫폼에도 올림. 먼저 `dryRun: true`로 미리보기를 보여 주고 승인받은 뒤 호출하도록 설명에 적어 둠 |

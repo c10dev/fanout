@@ -77,8 +77,34 @@ describe('MCP server', () => {
     assert.ok(yt.errors.some((e: string) => e.includes('공개 범위')));
     assert.equal(tt.account, 'mainmain', 'defaults to the only connected account');
     assert.equal(tt.visibility, 'inbox (TikTok 앱에서 마무리)');
+    assert.deepEqual([tt.mode, tt.privacy, tt.publishAt], ['inbox', undefined, undefined]);
+    assert.deepEqual([yt.mode, yt.privacy], [undefined, undefined], 'no YouTube visibility chosen');
     assert.deepEqual(tt.errors, []);
     assert.ok(ig.errors.some((e: string) => e.includes('연결되지 않은 계정')));
+  });
+
+  it('previews a scheduled post with the time as ISO-8601 with the FANOUT_TZ offset, and as fields', async () => {
+    const { call, video } = server();
+    const day = 86_400_000;
+    const at = new Date(Math.floor((Date.now() + 2 * day) / day) * day).toISOString();
+    const seoul = `${at.slice(0, 10)}T09:00:00+09:00`;
+    const tz = process.env.FANOUT_TZ;
+    process.env.FANOUT_TZ = 'Asia/Seoul';
+    try {
+      const r = await call('preview_post', {
+        path: video,
+        title: 'T',
+        scheduledAt: at,
+        targets: [{ platform: 'youtube', options: { privacy: 'public' } }, { platform: 'tiktok', options: { mode: 'direct', privacyLevel: 'SELF_ONLY' } }, { platform: 'facebook' }],
+      });
+      const [yt, tt, fb] = r.structuredContent.targets;
+      assert.deepEqual([yt.visibility, yt.privacy, yt.publishAt, yt.mode], [`private → ${seoul}에 public`, 'public', at, 'private_until']);
+      assert.deepEqual([tt.visibility, tt.privacy, tt.publishAt, tt.mode], [`direct, SELF_ONLY, ${seoul}에 게시`, 'SELF_ONLY', at, 'direct']);
+      assert.deepEqual([fb.visibility, fb.privacy, fb.publishAt], [`public, ${seoul}에 게시`, 'public', at]);
+    } finally {
+      if (tz === undefined) delete process.env.FANOUT_TZ;
+      else process.env.FANOUT_TZ = tz;
+    }
   });
 
   it('refuses to create a post with blocking issues, then creates a valid one', async () => {

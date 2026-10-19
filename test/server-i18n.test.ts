@@ -94,6 +94,7 @@ describe('translating messages', () => {
       'notBefore = 오류 — 다시 in {platform}: {message} — {notBefore}에 다시 시도합니다',
       'notBefore = 오류 — 다시 in {platform}: {message} — {notBefore}에 재시도',
       'time = 가, 나 in {visibility}, {time}에 게시',
+      'time = 가, 나 in {visibility}, {time}에 보냄',
       'url = 끝. 다음 in PeerTube {failure}. {url} 에서 확인하세요',
     ]);
   });

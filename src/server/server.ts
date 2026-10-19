@@ -369,7 +369,7 @@ export class Dashboard {
       return send(res, 200, this.#listPosts(Number(url.searchParams.get('limit') ?? 20), url.searchParams.get('q') ?? undefined, url.searchParams.get('scheduled') === '1'));
     }
     if (method === 'POST' && parts[0] === 'posts' && parts.length === 1) return send(res, 201, await this.#createPost(req));
-    if (method === 'POST' && parts[0] === 'preview' && parts.length === 1) return send(res, 200, await this.#preview(req));
+    if (method === 'POST' && parts[0] === 'preview' && parts.length === 1) return send(res, 200, await this.#preview(req, this.#timeZone(url)));
     if (method === 'GET' && parts[0] === 'posts' && parts[1] && parts.length === 2) return send(res, 200, this.#postDetail(parts[1]));
     if (method === 'POST' && parts[0] === 'targets' && parts[1] && parts[2] === 'retry') {
       const body = await readJson<{ confirmedNotPosted?: unknown }>(req).catch(() => ({}) as { confirmedNotPosted?: unknown });
@@ -460,7 +460,7 @@ export class Dashboard {
       try {
         const media = existsSync(post.mediaPath) ? await (this.#opts.probe ?? realProbe)(post.mediaPath) : undefined;
         if (parts[3] === 'preview') {
-          const { preview } = planAddTargets(this.#opts.ctx.store, this.#opts.providers, post.id, targets, media!);
+          const { preview } = planAddTargets(this.#opts.ctx.store, this.#opts.providers, post.id, targets, media!, { timeZone: this.#timeZone(url) });
           await addLiveChecks(this.#opts.ctx, this.#opts.providers, preview, { input: post, targets, media: media! });
           return send(res, 200, { targets: preview });
         }
@@ -907,13 +907,20 @@ export class Dashboard {
     return { input: { ...parsed.input, thumbnailPath }, targets: withCoverMoment(parsed.targets, body.thumbnailAt) };
   }
 
+  /** The viewer's time zone (?tz=Asia/Seoul), for times the server words; undefined when not given. */
+  #timeZone(url: URL): string | undefined {
+    const tz = url.searchParams.get('tz') || undefined;
+    if (tz && !validTimeZone(tz)) throw new HttpError(400, msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz }));
+    return tz;
+  }
+
   /** Who and how each target would post, plus every error/warning preflight would raise. Creates nothing. */
-  async #preview(req: IncomingMessage) {
+  async #preview(req: IncomingMessage, timeZone?: string) {
     const body = await readJson<CreatePostBody>(req);
     const { input, targets } = await this.#withFrame(body, this.#parsePost(body));
     input.mediaHash = await fileHash(input.mediaPath);
     const media = await (this.#opts.probe ?? realProbe)(input.mediaPath);
-    const previews = previewPost(this.#opts.ctx.store, this.#opts.providers, input, targets, media);
+    const previews = previewPost(this.#opts.ctx.store, this.#opts.providers, input, targets, media, { timeZone });
     await addLiveChecks(this.#opts.ctx, this.#opts.providers, previews, { input, targets, media });
     return { targets: previews };
   }

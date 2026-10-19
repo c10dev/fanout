@@ -30,7 +30,7 @@ import { currentLang, local, msg } from './core/i18n.ts';
 import { ACCOUNT_NAME } from './core/store.ts';
 import { disconnectAccount, signInExpiry, verifyDueAccounts } from './core/accounts.ts';
 import { computeCalendar } from './core/calendar.ts';
-import { computeInsights, validTimeZone } from './core/insights.ts';
+import { computeInsights, localTime, validTimeZone } from './core/insights.ts';
 import { suggestTimes } from './core/slots.ts';
 import { postDueFirstComments, retryFirstComment } from './core/followup.ts';
 
@@ -553,9 +553,10 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
   });
 
   // YouTube policy: show which channel and which visibility before uploading.
-  console.log(`\n"${title}"  ${mediaPath}${input.scheduledAt ? `  ${local(msg('예약 {at}', { at: input.scheduledAt }))}` : ''}`);
+  const when = input.scheduledAt ? localTime(input.scheduledAt) : undefined;
+  console.log(`\n"${title}"  ${mediaPath}` + (when ? '  ' + local(msg('예약 {at}', { at: when })) : ''));
   for (const t of targets) {
-    console.log(`  ${accountLine(ctx, t).padEnd(40)} ${local(visibilityLabel(t, input.scheduledAt))}`);
+    console.log(`  ${accountLine(ctx, t).padEnd(40)} ${local(visibilityLabel(t, when))}`);
     const before = prior.get(`${t.platform}/${t.account}`)?.[0];
     if (before) console.log(`      ⚠ ${local(describePrior(before))}`);
   }
@@ -597,10 +598,11 @@ async function cmdAdd(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promi
   }
   await addLiveChecks(ctx, deps.providers, plan.preview, { input: post, targets, media });
   const adding = local(msg('"{title}"에 추가', { title: post.title }));
-  const at = post.scheduledAt ? local(msg('예약 {at}', { at: post.scheduledAt })) : '';
-  console.log(`\n${adding}${at ? `  ${at}` : ''}`);
-  for (const p of plan.preview) {
-    console.log(`  ${accountLine(ctx, p).padEnd(40)} ${local(p.visibility)}`);
+  const when = post.scheduledAt ? localTime(post.scheduledAt) : undefined;
+  console.log(`\n${adding}` + (when ? '  ' + local(msg('예약 {at}', { at: when })) : ''));
+  for (const [i, p] of plan.preview.entries()) {
+    // The preview words the time with an offset; the terminal shows its own clock.
+    console.log(`  ${accountLine(ctx, p).padEnd(40)} ${local(visibilityLabel(targets[i]!, when))}`);
     for (const e of p.errors) console.log(`      ✗ ${local(e)}`);
     if (p.fittable) console.log(`      → ${local(verticalHint())}`);
     for (const w of p.warnings) console.log(`      ⚠ ${local(w)}`);
@@ -702,7 +704,8 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     if (!deps.providers.has(platform)) throw new UsageError(msg('{file}: 알 수 없는 플랫폼 {platform}', { file: CONFIG_FILE, platform }));
     const account = accountOf(platform, explicit);
     const t: TargetInput = { platform, account, options: config.options?.[platform] ?? {} };
-    const when = config.at ?? (config.slots?.length ? msg('다음 빈 슬롯({slots})', { slots: config.slots.join(', ') }) : undefined);
+    // No ", " in the slot list: the label's "{visibility}, {time}" would split there when translated.
+    const when = config.at ? localTime(config.at) : config.slots?.length ? msg('다음 빈 슬롯({slots})', { slots: config.slots.join(' · ') }) : undefined;
     console.log(`  ${accountLine(ctx, t).padEnd(40)} ${local(visibilityLabel(t, when))}`);
   }
   say(msg('  (영상별 <이름>.json 이 있으면 그 값이 우선합니다)'));

@@ -5,7 +5,7 @@ import { existsSync } from 'node:fs';
 import { ProviderError } from './errors.ts';
 import { isStaleOwner } from './lease.ts';
 import { checkMedia, FITS, probe as probeMedia, type MediaInfo, type Violation } from './media.ts';
-import { computeInsights } from './insights.ts';
+import { computeInsights, isoInZone, validTimeZone } from './insights.ts';
 import { notifyEvent } from './notify.ts';
 import { isTerminal } from './state.ts';
 import { targetSpec, withFit, type Provider, type ProviderContext } from './provider.ts';
@@ -92,20 +92,52 @@ export function accountLabel(profile: Record<string, unknown>, name: string): st
   return pr.channelTitle ?? (pr.username ? `@${pr.username}` : undefined) ?? pr.pageName ?? pr.displayName ?? name;
 }
 
-/** Where a post ends up and who can see it, as shown before uploading (YouTube policy asks for this). */
-export function visibilityLabel(t: TargetInput, scheduledAt?: string): string {
+/**
+ * Where a post ends up and who can see it, as shown before uploading (YouTube policy asks for this),
+ * in words for the terminal and agents. `when` is the scheduled time as its reader should see it
+ * (local in the CLI, ISO with an offset over MCP and the API), or a note in its place.
+ */
+export function visibilityLabel(t: TargetInput, when?: string): string {
   const o = t.options as Record<string, unknown>;
+  // A draft waits in the Page's drafts; it isn't scheduled (holdUntil).
+  if (t.platform === 'facebook' && o.draft === true) return msg('draft (Meta Business Suite에서 마무리)');
   switch (t.platform) {
     case 'youtube':
-      return scheduledAt ? msg('private → {scheduledAt}에 public', { scheduledAt }) : String(o.privacy ?? msg('(미지정)'));
+      return when ? msg('private → {scheduledAt}에 public', { scheduledAt: when }) : String(o.privacy ?? msg('(미지정)'));
     case 'mastodon':
-      return scheduledAt ? msg('{visibility}, {time}에 게시', { visibility: String(o.visibility ?? msg('(공개 범위 미지정)')), time: scheduledAt }) : String(o.visibility ?? msg('(공개 범위 미지정)'));
+      return when ? msg('{visibility}, {time}에 게시', { visibility: String(o.visibility ?? msg('(공개 범위 미지정)')), time: when }) : String(o.visibility ?? msg('(공개 범위 미지정)'));
     case 'peertube':
-      return scheduledAt ? msg('private → {time}에 {privacy}', { time: scheduledAt, privacy: String(o.privacy ?? msg('(미지정)')) }) : String(o.privacy ?? msg('(공개 범위 미지정)'));
-    case 'tiktok':
-      return o.mode === 'direct' ? 'direct, ' + String(o.privacyLevel ?? msg('(공개 범위 미지정)')) : msg('inbox (TikTok 앱에서 마무리)');
+      return when ? msg('private → {time}에 {privacy}', { time: when, privacy: String(o.privacy ?? msg('(미지정)')) }) : String(o.privacy ?? msg('(공개 범위 미지정)'));
+    case 'tiktok': {
+      // fanout holds a scheduled TikTok post and sends it at the time.
+      if (o.mode !== 'direct') return when ? msg('{visibility}, {time}에 보냄', { visibility: msg('inbox (TikTok 앱에서 마무리)'), time: when }) : msg('inbox (TikTok 앱에서 마무리)');
+      const direct = 'direct, ' + String(o.privacyLevel ?? msg('(공개 범위 미지정)'));
+      return when ? msg('{visibility}, {time}에 게시', { visibility: direct, time: when }) : direct;
+    }
     default:
-      return scheduledAt ? `public, ${scheduledAt}` : 'public';
+      return when ? msg('{visibility}, {time}에 게시', { visibility: 'public', time: when }) : 'public';
+  }
+}
+
+/**
+ * The same as fields, for a client that words them itself (the dashboard, in the viewer's language
+ * and time zone): the platform's own visibility value, when it goes out or public, and how.
+ */
+function visibilityFields(t: TargetInput, scheduledAt?: string): Pick<TargetPreview, 'privacy' | 'publishAt' | 'mode'> {
+  const o = t.options as Record<string, unknown>;
+  const value = (v: unknown) => (typeof v === 'string' && v ? v : undefined);
+  if (t.platform === 'facebook' && o.draft === true) return { mode: 'draft' };
+  switch (t.platform) {
+    case 'youtube':
+    case 'peertube':
+      // Uploaded private, and the platform switches it at the time.
+      return scheduledAt ? { privacy: value(o.privacy), publishAt: scheduledAt, mode: 'private_until' } : { privacy: value(o.privacy) };
+    case 'mastodon':
+      return { privacy: value(o.visibility), publishAt: scheduledAt };
+    case 'tiktok':
+      return o.mode === 'direct' ? { privacy: value(o.privacyLevel), publishAt: scheduledAt, mode: 'direct' } : { publishAt: scheduledAt, mode: 'inbox' };
+    default:
+      return { privacy: 'public', publishAt: scheduledAt };
   }
 }
 
@@ -114,7 +146,14 @@ export interface TargetPreview {
   account: string;
   accountLabel?: string;
   connected: boolean;
+  /** visibilityLabel: who sees it and when, in words, the time in ISO-8601 with the zone's offset. */
   visibility: string;
+  /** The platform's visibility value (public, unlisted, SELF_ONLY…); none while unchosen or when the app decides (TikTok inbox, Facebook draft). */
+  privacy?: string;
+  /** When it goes out, or goes public, if scheduled (ISO-8601, UTC). */
+  publishAt?: string;
+  /** How it goes out: TikTok 'inbox' or 'direct', Facebook 'draft', or 'private_until' (YouTube, PeerTube: private until publishAt). */
+  mode?: string;
   verdict: Verdict;
   /** Anything here stops the upload. */
   errors: string[];
@@ -132,13 +171,16 @@ export function previewPost(
   input: PostInput,
   targets: TargetInput[],
   media: MediaInfo,
+  opts: { timeZone?: string } = {},
 ): TargetPreview[] {
   const post: Post = { ...input, id: 'preview', createdAt: new Date(0).toISOString() };
   const prior = priorPosts(store, input.mediaHash, targets);
+  // The words carry the time with an offset in the reader's zone (the dashboard's, else FANOUT_TZ or this machine's).
+  const when = input.scheduledAt ? isoInZone(input.scheduledAt, validTimeZone(opts.timeZone) ?? validTimeZone(process.env.FANOUT_TZ)) : undefined;
   return targets.map((t) => {
     const provider = providers.get(t.platform);
     const account = store.getAccount(t.platform, t.account);
-    const base = { platform: t.platform, account: t.account, connected: Boolean(account), visibility: visibilityLabel(t, input.scheduledAt) };
+    const base = { platform: t.platform, account: t.account, connected: Boolean(account), visibility: visibilityLabel(t, when), ...visibilityFields(t, input.scheduledAt) };
     if (!provider) return { ...base, verdict: 'blocked' as const, errors: [msg('알 수 없는 플랫폼: {platform}', { platform: t.platform })], warnings: [], transcode: [] };
     const target: Target = { id: 'preview', postId: post.id, platform: t.platform, account: t.account, options: t.options, state: 'queued', warnings: [], attempts: 0, updatedAt: post.createdAt };
     const issues = provider.validate(post, target, media, account ?? undefined);
@@ -179,7 +221,7 @@ export interface AddTargetsPlan {
  * original already cleaned up, platform account already on the post); everything else is in the
  * preview, like a new post's.
  */
-export function planAddTargets(store: Store, providers: Map<string, Provider>, postId: string, targets: TargetInput[], media: MediaInfo): AddTargetsPlan {
+export function planAddTargets(store: Store, providers: Map<string, Provider>, postId: string, targets: TargetInput[], media: MediaInfo, opts: { timeZone?: string } = {}): AddTargetsPlan {
   const post = store.getPost(postId);
   if (!post) throw new Error(msg('게시물 없음: {postId}', { postId }));
   if (!targets.length) throw new Error(msg('추가할 플랫폼을 하나 이상 고르세요'));
@@ -207,7 +249,7 @@ export function planAddTargets(store: Store, providers: Map<string, Provider>, p
     dropped.push(...post.captions.filter((c) => !captions.includes(c)).map((c) => msg('자막({language})', { language: c.language })));
     input = { ...input, captions };
   }
-  const preview = previewPost(store, providers, input, targets, media).map((p) =>
+  const preview = previewPost(store, providers, input, targets, media, opts).map((p) =>
     dropped.length ? { ...p, warnings: [msg('파일이 없어 빼고 올립니다: {dropped}', { dropped: dropped.join(', ') }), ...p.warnings] } : p,
   );
   return { post: input, preview, dropped };
