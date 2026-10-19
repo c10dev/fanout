@@ -89,6 +89,30 @@ const VERDICT = {
 };
 const fmtTime = (iso) => new Date(iso).toLocaleString(LOCALE, { dateStyle: 'short', timeStyle: 'short' });
 const badge = ([text, kind]) => h('span', { class: `badge ${kind}` }, text);
+const stateName = (state) => STATE[state]?.[0] ?? state;
+const VISIBILITY = { public: tr('공개'), unlisted: tr('일부 공개'), private: tr('비공개') };
+// Each platform's visibility values, worded as its option form words them.
+const PRIVACY = {
+  youtube: VISIBILITY,
+  tiktok: { PUBLIC_TO_EVERYONE: tr('모두'), MUTUAL_FOLLOW_FRIENDS: tr('맞팔로우 친구'), FOLLOWER_OF_CREATOR: tr('팔로워'), SELF_ONLY: tr('나만 보기') },
+  mastodon: { public: tr('공개'), unlisted: tr('조용히 공개'), private: tr('팔로워만') },
+  peertube: { public: tr('공개'), unlisted: tr('링크가 있는 사람만'), private: tr('비공개'), internal: tr('인스턴스 사용자만') },
+};
+/** A platform's name (YouTube, Facebook Reels (Page)…) and an account's channel, page or handle, from the overview; the ids when unknown. */
+const platformName = (id) => overview.platforms.find((p) => p.id === id)?.displayName ?? id;
+const accountName = (platform, name) => overview.platforms.find((p) => p.id === platform)?.accounts.find((a) => a.name === name)?.label ?? name;
+const targetName = (t) => `${platformName(t.platform)} · ${accountName(t.platform, t.account)}`;
+
+/** Who will see a previewed target and from when, from its fields, in the viewer's language and time zone. */
+function visibilityText(p) {
+  const time = p.publishAt ? fmtTime(p.publishAt) : '';
+  if (p.mode === 'draft') return tr('게시하지 않고 초안으로 저장 (Meta Business Suite에서 마무리)');
+  if (p.mode === 'inbox') return time ? tr('{time}에 TikTok 앱 수신함으로 보냄', { time }) : tr('TikTok 앱 수신함으로 보내기');
+  const privacy = p.privacy ? (PRIVACY[p.platform]?.[p.privacy] ?? VISIBILITY[p.privacy] ?? p.privacy) : tr('공개 범위 미지정');
+  if (!time) return privacy;
+  // YouTube and PeerTube keep a scheduled video private on the channel until the time.
+  return p.mode === 'private_until' ? tr('비공개 → {time}에 {privacy}', { time, privacy }) : tr('{privacy}, {time}에 게시', { privacy, time });
+}
 
 // ── Per-platform option forms ────────────────────────────────────
 // Field rules follow each platform's policy: YouTube visibility and "made for kids" have no default;
@@ -1124,8 +1148,10 @@ $('#post-form').addEventListener('submit', async (e) => {
   const button = $('#submit');
   button.disabled = true;
   try {
+    // The server words times too (the preview's visibility): in the viewer's zone.
+    const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone ?? '');
     if (addingTo) {
-      const { targets } = await api(`/posts/${addingTo.postId}/targets/preview`, { method: 'POST', body: JSON.stringify({ targets: form.payload.targets }) });
+      const { targets } = await api(`/posts/${addingTo.postId}/targets/preview?tz=${tz}`, { method: 'POST', body: JSON.stringify({ targets: form.payload.targets }) });
       renderConfirm(targets, form);
       return;
     }
@@ -1133,7 +1159,7 @@ $('#post-form').addEventListener('submit', async (e) => {
     form.payload.thumbnailId = form.thumbnail ? await uploadAsset('thumbnail', form.thumbnail) : undefined;
     form.payload.captions = [];
     for (const c of form.captionRows) form.payload.captions.push({ language: c.language, assetId: await uploadAsset('caption', c.file) });
-    const { targets } = await api('/preview', { method: 'POST', body: JSON.stringify(form.payload) });
+    const { targets } = await api(`/preview?tz=${tz}`, { method: 'POST', body: JSON.stringify(form.payload) });
     renderConfirm(targets, form);
   } catch (err) {
     $('#form-error').textContent = err.message;
@@ -1148,7 +1174,7 @@ function renderConfirm(previews, form) {
     h(
       'li',
       { class: 'confirm-row' },
-      h('div', { class: 'confirm-head' }, h('strong', {}, p.platform), ` → ${p.accountLabel ?? p.account}`, h('span', { class: 'muted' }, ` · ${p.visibility}`), badge(VERDICT[p.verdict])),
+      h('div', { class: 'confirm-head' }, h('strong', {}, platformName(p.platform)), ` → ${p.accountLabel ?? p.account}`, h('span', { class: 'muted' }, ` · ${visibilityText(p)}`), badge(VERDICT[p.verdict])),
       p.errors.map((m) => h('div', { class: 'err' }, `✗ ${m}`)),
       p.warnings.map((m) => h('div', { class: 'warnline' }, `⚠ ${m}`)),
       p.transcode.length ? h('div', { class: 'muted' }, tr('변환: {list}', { list: p.transcode.join(', ') })) : null,
@@ -1286,7 +1312,7 @@ function firstCommentLine(t) {
           await send(false);
         } catch (err) {
           // It may already be there: only the user can say it isn't.
-          if (err.body?.needsConfirm && confirm(`${err.message}\n\n${tr('{platform}에서 직접 확인했고 첫 댓글이 없나요?', { platform: t.platform })}`)) {
+          if (err.body?.needsConfirm && confirm(`${err.message}\n\n${tr('{platform}에서 직접 확인했고 첫 댓글이 없나요?', { platform: platformName(t.platform) })}`)) {
             await send(true).catch((again) => message(status, again.message, false));
           } else if (!err.body?.needsConfirm) message(status, err.message, false);
         }
@@ -1337,7 +1363,7 @@ function targetRow(t) {
           class: 'small danger',
           type: 'button',
           onclick: async (e) => {
-            const question = tr('{target}에서 이 게시물을 삭제할까요?\n플랫폼에서 지워지며 되돌릴 수 없습니다.', { target: `${t.platform}/${t.account}` });
+            const question = tr('{target}에서 이 게시물을 삭제할까요?\n플랫폼에서 지워지며 되돌릴 수 없습니다.', { target: targetName(t) });
             const extra = t.removesReply ? tr('첫 댓글 답글도 먼저 지웁니다 (삭제 요청 2건)') : t.replyUnknown ? tr('첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못합니다. X에서 확인해 직접 지우세요') : '';
             if (!confirm(extra ? `${question}\n${extra}` : question)) return;
             e.target.disabled = true;
@@ -1355,14 +1381,14 @@ function targetRow(t) {
           class: 'small',
           type: 'button',
           onclick: async (e) => {
-            if (!confirm(tr('{target}에 올리는 것을 취소할까요?', { target: `${t.platform}/${t.account}` }))) return;
+            if (!confirm(tr('{target}에 올리는 것을 취소할까요?', { target: targetName(t) }))) return;
             e.target.disabled = true;
             const cancelIt = (confirmedNotPosted) => api(`/targets/${t.id}/cancel`, { method: 'POST', body: JSON.stringify({ confirmedNotPosted }) });
             try {
               await cancelIt(false);
             } catch (err) {
               // It may already be on the platform: only the user can say it isn't.
-              if (err.body?.needsConfirm && confirm(`${err.message}\n\n${tr('{platform}에서 직접 확인했고 올라가지 않았나요?', { platform: t.platform })}`)) {
+              if (err.body?.needsConfirm && confirm(`${err.message}\n\n${tr('{platform}에서 직접 확인했고 올라가지 않았나요?', { platform: platformName(t.platform) })}`)) {
                 await cancelIt(true).catch((again) => alert(again.message));
               } else if (!err.body?.needsConfirm) alert(err.message);
             }
@@ -1386,7 +1412,7 @@ function targetRow(t) {
                 await retryIt(false);
               } catch (err) {
                 // It may already be on the platform: only the user can say it isn't, or it goes up twice.
-                if (err.body?.needsConfirm && confirm(`${err.message}\n\n${tr('{platform}에서 직접 확인했고 올라가지 않았나요?', { platform: t.platform })}`)) {
+                if (err.body?.needsConfirm && confirm(`${err.message}\n\n${tr('{platform}에서 직접 확인했고 올라가지 않았나요?', { platform: platformName(t.platform) })}`)) {
                   await retryIt(true).catch((again) => alert(again.message));
                 } else if (!err.body?.needsConfirm) alert(err.message);
               }
@@ -1397,7 +1423,6 @@ function targetRow(t) {
         )
       : null;
   // A published video's visibility (YouTube): changing it asks first, the platform does the rest.
-  const VISIBILITY = { public: tr('공개'), unlisted: tr('일부 공개'), private: tr('비공개') };
   const visibility = t.visibilities
     ? h(
         'select',
@@ -1406,7 +1431,7 @@ function targetRow(t) {
           'aria-label': tr('공개 범위'),
           onchange: async (e) => {
             const next = e.target.value;
-            if (!confirm(tr('{target}의 공개 범위를 "{visibility}"(으)로 바꿀까요?', { target: `${t.platform}/${t.account}`, visibility: VISIBILITY[next] ?? next }))) {
+            if (!confirm(tr('{target}의 공개 범위를 "{visibility}"(으)로 바꿀까요?', { target: targetName(t), visibility: VISIBILITY[next] ?? next }))) {
               e.target.value = t.goesPublicAt ? '' : (t.options.privacy ?? '');
               return;
             }
@@ -1421,7 +1446,8 @@ function targetRow(t) {
       )
     : null;
   const actions = h('div', { class: 'row-actions' }, visibility, retry, cancel, remove);
-  return h('div', { class: 'trow' }, h('span', { class: 'tname' }, `${t.platform}/${t.account}`), badge(STATE[t.state] ?? [t.state, 'info']), detail, actions);
+  // The ids stay on hover: the CLI takes them (fanout retry <post> youtube --account main).
+  return h('div', { class: 'trow' }, h('span', { class: 'tname', title: `${t.platform}/${t.account}` }, targetName(t)), badge(STATE[t.state] ?? [t.state, 'info']), detail, actions);
 }
 
 /** Post ids whose history panel is open, and their last event list; both survive board re-renders. */
@@ -1432,7 +1458,7 @@ function eventList(detail) {
   return h(
     'ul',
     { class: 'events' },
-    detail.targets.flatMap((t) => t.events.map((ev) => h('li', {}, `${fmtTime(ev.at)}  ${t.platform}  ${ev.from ?? '·'} → ${ev.to}${ev.detail ? `  (${ev.detail})` : ''}`))),
+    detail.targets.flatMap((t) => t.events.map((ev) => h('li', {}, `${fmtTime(ev.at)}  ${platformName(t.platform)}  ${ev.from ? stateName(ev.from) : '·'} → ${stateName(ev.to)}${ev.detail ? `  (${ev.detail})` : ''}`))),
   );
 }
 
@@ -2437,7 +2463,7 @@ function calendarPanel() {
               ? d.items.map((i) =>
                   h(
                     'div',
-                    { class: 'cal-item', title: i.targets.map((t) => `${t.platform}/${t.account}: ${t.state}`).join('\n') },
+                    { class: 'cal-item', title: i.targets.map((t) => `${targetName(t)}: ${stateName(t.state)}`).join('\n') },
                     h('span', { class: 'muted' }, `${i.time}${i.scheduled ? '*' : ''} `),
                     i.title,
                     h('span', { class: 'cal-targets' }, ' ' + i.targets.map((t) => `${ICON[t.state] ?? '⏳'}${t.platform}`).join(' ')),

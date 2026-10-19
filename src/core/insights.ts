@@ -88,6 +88,29 @@ export function validTimeZone(tz: string | undefined): string | undefined {
   }
 }
 
+/** An instant's date, time and UTC offset on a zone's clock (the local zone when none is given). */
+function wallClock(iso: string, timeZone?: string): Record<string, string> | undefined {
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return undefined;
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23', timeZoneName: 'longOffset' }).formatToParts(at);
+  return Object.fromEntries(parts.map((p) => [p.type, p.value]));
+}
+
+/** An ISO-8601 time with the zone's offset ("2026-10-20T09:00:00+09:00"), for agents and API clients. Unparseable text stays as it is. */
+export function isoInZone(iso: string, timeZone?: string): string {
+  const p = wallClock(iso, timeZone);
+  if (!p) return iso;
+  // "GMT+09:00"; UTC may come as a bare "GMT".
+  const offset = (p.timeZoneName ?? '').replace(/^GMT/, '') || '+00:00';
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}${offset}`;
+}
+
+/** "2026-10-20 09:00" on the terminal's clock. No comma, so the time reads back inside a translated message ("{visibility}, {time}에 게시"). */
+export function localTime(iso: string): string {
+  const p = wallClock(iso);
+  return p ? `${p.year}-${p.month}-${p.day} ${p.hour}:${p.minute}` : iso;
+}
+
 export function computeInsights(store: Store, now: Date, opts: { days?: number; platform?: string; timeZone?: string; locale?: string } = {}): Insights {
   const days = opts.days ?? 30;
   const since = new Date(now.getTime() - days * DAY_MS);

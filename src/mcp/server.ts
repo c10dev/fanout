@@ -121,6 +121,7 @@ const TOOLS = [
     title: 'Preview a post without uploading',
     description:
       'Show exactly which account and visibility each target will use, and every error/warning the upload would hit. ' +
+      'Per target, visibility says it in words (a scheduled time in ISO-8601 with the offset of FANOUT_TZ or the server\'s zone); privacy, publishAt (UTC) and mode say the same as fields. ' +
       'Always call this and show the result to the user before create_post.',
     inputSchema: POST_SCHEMA,
     annotations: { readOnlyHint: true, openWorldHint: false },

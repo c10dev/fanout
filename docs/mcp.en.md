@@ -57,7 +57,7 @@ or `"env": { "FANOUT_MCP_ROOTS": "/home/me/videos:/home/me/fanout-inbox" }` (pat
 |---|---|
 | `list_accounts` | Supported platforms, whether each app is set up, and the connected accounts |
 | `check_video` | Judges a local video per platform: uploads as is / needs a transcode / can't be posted. Where only a vertical fit is missing (a landscape video for Facebook Reels) it says `fittable: true` with a `hint` to set the target option `fit` (so do `preview_post` and `create_post`'s refusal) |
-| `preview_post` | Shows, without uploading, which account and visibility each target will use and every error and warning |
+| `preview_post` | Shows, without uploading, which account and visibility each target will use and every error and warning. Per target, `visibility` says it in words (a scheduled time in ISO-8601 with the offset of `FANOUT_TZ` or the server's zone), and `privacy`, `publishAt` (UTC) and `mode` say the same as fields |
 | `create_post` | Creates the post and starts uploading. Creates nothing if any target is blocked. With `firstComment`, a first comment from the same account once it's out (on X a reply, one more paid post). |
 | `retry_first_comment` | Post a failed first comment again. If it may already be there (`firstComment.state` is `sending` or `maybePosted`), only with `confirmedNotPosted: true` after the user checked. Refused once the post was removed (`canceled`) |
 | `add_to_post` | Posts an existing post's video to more platforms. Its description tells the agent to call it with `dryRun: true` first, show the result and wait for approval |
