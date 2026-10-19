@@ -354,6 +354,18 @@ describe('dashboard server', () => {
     const confirmed = await fetch(`${base}/api/targets/${maybe}/retry`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ confirmedNotPosted: true }) });
     assert.equal(confirmed.status, 200);
 
+    // Cancel works the same way: a target that may be live needs the user's word first.
+    const live = env.store.createPost({ mediaPath: '/v.mp4', title: 'maybe live', description: '', tags: [], captions: [], containsSyntheticMedia: false }, [{ platform: 'beta', account: 'main', options: {} }]);
+    const liveId = live.targets[0]!.id;
+    env.store.transition(liveId, 'uploading');
+    env.store.transition(liveId, 'failed', { errorCode: 'beta.maybe_posted' });
+    const cancelHeld = await fetch(`${base}/api/targets/${liveId}/cancel`, { method: 'POST', headers: auth });
+    assert.equal(cancelHeld.status, 409);
+    assert.equal(((await cancelHeld.json()) as { needsConfirm?: boolean }).needsConfirm, true);
+    const cancelled = await fetch(`${base}/api/targets/${liveId}/cancel`, { method: 'POST', headers: { ...auth, 'content-type': 'application/json' }, body: JSON.stringify({ confirmedNotPosted: true }) });
+    assert.equal(cancelled.status, 200);
+    assert.equal(env.store.getTarget(liveId)!.state, 'canceled');
+
     const detail = (await (await fetch(`${base}/api/posts/${created.post.id}`, { headers: auth })).json()) as {
       targets: Array<{ events: Array<{ to: string }> }>;
     };
