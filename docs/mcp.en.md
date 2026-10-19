@@ -21,6 +21,8 @@ Then, in Claude Code:
 /plugin install fanout@fanout
 ```
 
+The plugin registers `fanout mcp` without `--allow`, so an agent can pass any file path you can read. To open only your video folders, register the server by hand with `--allow` as below instead of the plugin.
+
 Connect your platform apps and accounts with the dashboard (`fanout serve`) or the CLI (`fanout setup`, `fanout connect`) before you ask Claude to post; that isn't done over MCP.
 
 ## Registering the server by hand

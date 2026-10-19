@@ -23,7 +23,7 @@ You need Node.js 24+ and `ffmpeg`/`ffprobe` (both included in the Docker image).
 npm install -g --allow-git=all github:c10dev/fanout
 ```
 
-npm 12 blocks installs from git by default, hence `--allow-git=all` (not needed on npm 11 and earlier). Not published to the npm registry yet.
+npm 12 blocks installs from git by default, hence `--allow-git=all` (not needed on npm 11 and earlier). Not published to the npm registry yet. npm may warn `install scripts blocked … fanout (prepare)`; `dist/` is already built, so it works as is. `fanout version` shows the installed version.
 
 **Docker**
 
@@ -31,7 +31,7 @@ npm 12 blocks installs from git by default, hence `--allow-git=all` (not needed 
 docker compose up -d
 ```
 
-The dashboard opens at http://127.0.0.1:8780/ and data lives in the `fanout-data` volume. The compose file publishes the port on the host's 127.0.0.1 only and sets `FANOUT_ASSUME_LOCAL=1`, which keeps the dashboard settings available inside the container. Don't set it if the port is reachable from other machines; use `FANOUT_DASHBOARD_TOKEN` instead. With it set, other containers on the same Docker network can also reach the dashboard without a token, so keep fanout on its own network as the compose file does.
+The dashboard opens at http://127.0.0.1:8780/ and data lives in the `fanout-data` volume. The compose file publishes the port on the host's 127.0.0.1 only and sets `FANOUT_ASSUME_LOCAL=1`, which keeps the dashboard settings available inside the container. Don't set it if the port is reachable from other machines; use `FANOUT_DASHBOARD_TOKEN` instead. With it set, other containers on the same Docker network can also reach the dashboard without a token, so keep fanout on its own network as the compose file does. To use another port, set `FANOUT_PORT` and publish the same port (`127.0.0.1:9000:9000`); the health check follows it.
 
 **From source**
 
@@ -63,7 +63,7 @@ The CLI and its logs speak Korean by default; set `FANOUT_LANG=en` for English (
 
 - **Web dashboard** (`fanout serve`): a sidebar of screens with their own addresses and Back/Forward. Drag-and-drop upload with per-platform verdicts and a draft kept in the browser, suggested posting times, a preview of exactly which account and visibility each post will use before anything uploads, a live status board with retry, per-platform reactions (views, likes, comments), a week calendar, unanswered comments with replies, performance insights, editing and deletion, remaining limits (uploads per day, posts per 24 hours, storage), and a settings dialog for app registration, account connection and checks. Light and dark, phone-sized screens included. Loopback-only by default, per-start API token, Host-header check against DNS rebinding. The dashboard follows your browser language (English or Korean) with a switch in the sidebar, and the server's messages (platform errors, preview warnings, checks, setup guides) follow it too.
 - **Watch folder** (`fanout watch <dir>`): drop videos into a folder and they're posted according to `fanout.watch.json`, with per-video overrides in a sidecar JSON.
-- **AI agents over MCP** (`fanout mcp`): tools `list_accounts`, `check_video`, `preview_post`, `create_post`, `add_to_post`, `get_post_status`, `get_post_stats`, `get_limits`, `get_post_comments`, `reply_to_comment`, `hide_comment`, `update_post`, `set_visibility`, `cancel_target`, `retry_target`. Register with `claude mcp add fanout -- fanout mcp`, or install the Claude Code plugin: `/plugin marketplace add c10dev/fanout`, then `/plugin install fanout@fanout`. See [docs/mcp.en.md](docs/mcp.en.md).
+- **AI agents over MCP** (`fanout mcp`): tools to check a video, preview and create posts, follow their status, reactions, comments (replies, hiding, first comments), calendar, insights and suggested times, and manage published posts (edit, visibility, cancel, retry): 20 in all, listed in [docs/mcp.en.md](docs/mcp.en.md). Register with `claude mcp add fanout -- fanout mcp`, or install the Claude Code plugin: `/plugin marketplace add c10dev/fanout`, then `/plugin install fanout@fanout`. See [docs/mcp.en.md](docs/mcp.en.md).
 - **CLI**: everything above from the terminal (`fanout help`).
 
 ## Platforms

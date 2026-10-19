@@ -20,12 +20,13 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=build /app/dist ./dist
 COPY package.json LICENSE ./
-ENV FANOUT_HOME=/data NODE_ENV=production
+# FANOUT_PORT: the port inside the container; publish the same one on the host (the Host check).
+ENV FANOUT_HOME=/data NODE_ENV=production FANOUT_PORT=8780
 RUN mkdir -p /data && chown node:node /data
 VOLUME /data
 USER node
 EXPOSE 8780
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s \
-  CMD node -e "fetch('http://127.0.0.1:8780/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+  CMD node -e "fetch('http://127.0.0.1:' + (process.env.FANOUT_PORT || 8780) + '/healthz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
 ENTRYPOINT ["node", "/app/dist/cli.js"]
-CMD ["serve", "--host", "0.0.0.0", "--port", "8780"]
+CMD ["serve", "--host", "0.0.0.0"]

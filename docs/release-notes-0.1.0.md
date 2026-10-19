@@ -2,7 +2,7 @@
 
 Draft for the GitHub release when v0.1.0 is tagged. The full list is in [CHANGELOG.md](../CHANGELOG.md) (Korean).
 
-fanout is a self-hosted, video-first uploader: one video, posted to YouTube, TikTok, Instagram Reels, Facebook Reels, X, Bluesky, Mastodon and PeerTube with your own platform accounts and developer apps. It runs as a CLI, a local web dashboard, an MCP server for AI agents, and a watch folder. No dependencies beyond Node.js 24 and ffmpeg.
+fanout is a self-hosted, video-first uploader: one video, posted to YouTube, TikTok, Instagram Reels, Facebook Reels, X, Bluesky, Mastodon and PeerTube with your own platform accounts and developer apps. It runs as a CLI, a local web dashboard, an MCP server for AI agents, and a watch folder. No dependencies beyond Node.js 24 and ffmpeg (24.0–24.1 also print experimental-feature warnings).
 
 ## Highlights
 
@@ -22,7 +22,7 @@ or `docker compose up -d` and open http://127.0.0.1:8780/. See the README for bo
 
 ## What was checked on real accounts
 
-YouTube (unlisted upload, reactions, comments), TikTok (inbox upload), Instagram and Facebook (connection and limits), and full flows on local PeerTube and Mastodon instances. X, Bluesky and the newer paths (first comment, trial reels, X Communities and others) are covered by HTTP-mocked tests; live checks are tracked in issue #116.
+On 2026-10-17: a YouTube unlisted upload from an unverified Google project (it stayed unlisted), a TikTok inbox upload, Instagram's connection and daily publishing limit, Facebook's connection, and full flows on local PeerTube 8.3 and Mastodon 4.7 instances. Much was added after that date. YouTube connections now also ask for the Analytics permission, which hasn't been checked against Google with a reconnected account yet. X, Bluesky and the newer paths (first comment, trial reels, X Communities and others) are covered by HTTP-mocked tests. The remaining live checks are tracked in issue #116.
 
 ## Know before you start
 
