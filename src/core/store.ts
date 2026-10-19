@@ -571,6 +571,11 @@ export class Store {
   }
 
   /** Stats readings of a target, oldest first. */
+  /** Only the readings that have views, only those two columns: what a chart needs. */
+  viewsHistory(id: string, sinceIso: string): Array<{ at: string; views: number }> {
+    return this.#db.prepare('SELECT at, views FROM stats_history WHERE target_id = ? AND at >= ? AND views IS NOT NULL ORDER BY at').all(id, sinceIso) as Array<{ at: string; views: number }>;
+  }
+
   statsHistory(id: string, sinceIso?: string): StatsPoint[] {
     const rows = this.#db
       .prepare('SELECT at, views, likes, comments, shares FROM stats_history WHERE target_id = ? AND at >= ? ORDER BY at')

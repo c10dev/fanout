@@ -64,7 +64,7 @@ async function api(path, opts = {}) {
   });
   const body = await res.json().catch(() => ({}));
   if (res.status === 401) loseSession();
-  if (!res.ok) throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { body });
+  if (!res.ok) throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { body, status: res.status });
   return body;
 }
 
@@ -832,6 +832,7 @@ async function uploadAsset(kind, file) {
     body: file,
   });
   const body = await res.json().catch(() => ({}));
+  if (res.status === 401) loseSession();
   if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
   return body.id;
 }
@@ -1195,8 +1196,11 @@ function statsLine(st, trend, series) {
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 /** Views over the recorded readings as a small line, with the same in words for screen readers. */
-function sparkline(series) {
-  if (!series || series.length < 2) return null;
+function sparkline(compact) {
+  // { start, points: [[seconds after start, views], …] } from the server.
+  if (!compact || compact.points?.length < 2) return null;
+  const t0ms = Date.parse(compact.start);
+  const series = compact.points.map(([s, views]) => ({ at: new Date(t0ms + s * 1000).toISOString(), views }));
   const W = 96;
   const H = 24;
   const values = series.map((p) => p.views);
@@ -1233,7 +1237,7 @@ function targetRow(t) {
   if (t.errorCode) detail.append(h('div', { class: 'err' }, `${t.errorCode}: ${t.errorMessage ?? ''}`));
   for (const w of t.warnings) detail.append(h('div', { class: 'warnline' }, `⚠ ${w}`));
   if (t.attempts > 1) detail.append(h('div', { class: 'muted' }, tr('시도 {n}회', { n: t.attempts })));
-  if (t.stats) detail.append(statsLine(t.stats, t.trend, t.viewsSeries));
+  if (t.stats) detail.append(statsLine(t.stats, t.trend, t.views30d));
   if (t.state === 'published' && t.statsCost) {
     detail.append(
       h(
@@ -1624,7 +1628,8 @@ function postCard({ post, targets }) {
     ? h('button', { class: 'small', type: 'button', onclick: () => toggleComments(post.id) }, openComments.has(post.id) ? tr('댓글 닫기') : tr('댓글'))
     : null;
   // Two or more to retry: one button for all of them, one after another, with what happened to each.
-  const retryable = targets.filter((t) => t.state === 'failed' || t.state === 'needs_reauth');
+  // Failed only: one waiting for a reconnect fails again until the account is reconnected.
+  const retryable = targets.filter((t) => t.state === 'failed');
   const retryStatus = h('span', { class: 'msg', role: 'status' });
   const retryAll =
     retryable.length >= 2
@@ -1641,7 +1646,8 @@ function postCard({ post, targets }) {
                 try {
                   await api(`/targets/${t.id}/retry`, { method: 'POST' });
                 } catch (err) {
-                  failed.push(`${t.platform}/${t.account}: ${err.message}`);
+                  // 409: no longer failed (retried from another button meanwhile), which is fine.
+                  if (err.status !== 409) failed.push(`${t.platform}/${t.account}: ${err.message}`);
                 }
               }
               if (failed.length) alert(failed.join('\n'));
@@ -1728,7 +1734,7 @@ async function refreshBoard() {
   } catch (err) {
     $('#board-updated').textContent = tr('갱신 실패: {error}', { error: err.message });
   }
-  boardTimer = setTimeout(refreshBoard, active ? 3000 : 15000);
+  if (!sessionLost) boardTimer = setTimeout(refreshBoard, active ? 3000 : 15000);
 }
 
 // ── Views and banner ─────────────────────────────────────────────
@@ -2372,10 +2378,6 @@ function calendarPanel() {
   load();
 }
 
-/**
- * Comments still waiting for a reply across recent posts. Loaded on request: each post read is a
- * platform call (and YouTube quota).
- */
 /** Under a waiting comment: reply here, or open the post on the board. */
 function inboxActions(i) {
   const row = h('div', { class: 'actions-inline' });
@@ -2392,7 +2394,7 @@ function inboxActions(i) {
     },
     tr('게시물에서 보기'),
   );
-  if (!i.canReply) return h('div', {}, row, toPost);
+  if (!i.canReply || repliedComments.has(`${i.targetId}:${i.comment.id}`)) return h('div', {}, h('div', { class: 'actions-inline' }, toPost));
   const open = h('button', { class: 'small', type: 'button' }, tr('답글'));
   const wrap = h('div', {}, row);
   open.addEventListener('click', () => {
@@ -2413,9 +2415,13 @@ function inboxActions(i) {
       try {
         await api(`/targets/${i.targetId}/reply`, { method: 'POST', body: JSON.stringify({ commentId: i.comment.id, text: text.value }) });
         repliedComments.add(`${i.targetId}:${i.comment.id}`);
-        // Answered: it no longer waits.
+        // Answered: it no longer waits. The reply button goes; "open the post" stays.
         wrap.closest('.comment')?.classList.add('answered');
-        box.replaceWith(h('div', { class: 'okline' }, tr('✓ 답글을 달았습니다')));
+        const done = h('div', { class: 'okline', role: 'status', tabindex: '-1' }, tr('✓ 답글을 달았습니다'));
+        box.replaceWith(done);
+        open.remove();
+        row.hidden = false;
+        done.focus();
       } catch (err) {
         message(status, err.message, false);
         send.disabled = false;
@@ -2429,6 +2435,10 @@ function inboxActions(i) {
   return wrap;
 }
 
+/**
+ * Comments still waiting for a reply across recent posts. Loaded on request: each post read is a
+ * platform call (and YouTube quota).
+ */
 function inboxPanel() {
   const box = $('#inbox');
   if (!box) return;
@@ -2447,7 +2457,7 @@ function inboxPanel() {
         ...r.items.map((i) =>
           h(
             'div',
-            { class: 'comment' },
+            { class: repliedComments.has(`${i.targetId}:${i.comment.id}`) ? 'comment answered' : 'comment' },
             h(
               'div',
               { class: 'comment-meta' },
@@ -2568,7 +2578,8 @@ async function init() {
     overview = await api('/overview');
   } catch (err) {
     showView('new', { replace: true });
-    banner(tr('대시보드에 연결할 수 없습니다: {error}', { error: err.message }), 'bad');
+    // A rejected token already shows the reload banner; keep its button.
+    if (!sessionLost) banner(tr('대시보드에 연결할 수 없습니다: {error}', { error: err.message }), 'bad');
     return;
   }
   renderAccounts();
