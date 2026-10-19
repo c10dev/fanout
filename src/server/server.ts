@@ -19,6 +19,7 @@ import type { PostInput, Target, TargetInput, TargetState } from '../core/types.
 import { isShort } from '../providers/youtube.ts';
 import { ACCOUNT_NAME } from '../core/store.ts';
 import { disconnectAccount, signInExpiry } from '../core/accounts.ts';
+import { computeCalendar } from '../core/calendar.ts';
 import { computeInsights, validTimeZone } from '../core/insights.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
@@ -300,6 +301,12 @@ export class Dashboard {
     if (method === 'GET' && parts[0] === 'comment-inbox' && !parts[1]) {
       const days = Number(url.searchParams.get('days') ?? 7);
       return send(res, 200, await commentInbox(this.#opts.ctx, this.#opts.providers, { days: days > 0 ? Math.min(days, 90) : 7 }));
+    }
+    if (method === 'GET' && parts[0] === 'calendar' && !parts[1]) {
+      const tz = url.searchParams.get('tz') || undefined;
+      if (tz && !validTimeZone(tz)) throw new HttpError(400, msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz }));
+      const locale = url.searchParams.get('lang') === 'en' ? 'en-US' : 'ko-KR';
+      return send(res, 200, computeCalendar(this.#opts.ctx.store, this.#opts.ctx.now(), { weeks: Number(url.searchParams.get('weeks') ?? 1) || 1, offset: Number(url.searchParams.get('offset') ?? 0) || 0, timeZone: tz, locale }));
     }
     if (method === 'GET' && parts[0] === 'insights' && !parts[1]) {
       const days = Number(url.searchParams.get('days') ?? 30);

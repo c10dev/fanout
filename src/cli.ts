@@ -27,6 +27,7 @@ import { isShort } from './providers/youtube.ts';
 import { currentLang, local, msg } from './core/i18n.ts';
 import { ACCOUNT_NAME } from './core/store.ts';
 import { disconnectAccount, signInExpiry, verifyDueAccounts } from './core/accounts.ts';
+import { computeCalendar } from './core/calendar.ts';
 import { computeInsights, validTimeZone } from './core/insights.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
@@ -320,6 +321,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout stats [postId] [--include-paid] [--history]  게시된 영상의 조회·좋아요·댓글과 24시간 변화 (X는 --include-paid일 때만)
   fanout limits [platform]               계정별 남은 게시 한도 (YouTube 하루 업로드, Instagram 24시간 게시, Bluesky·PeerTube 용량)
   fanout insights [platform] [--days 30] [--tz Asia/Seoul]   잘 되는 게시물·요일·시간 (기록된 반응 기준, API 호출 없음)
+  fanout calendar [--weeks 2] [--offset 0] [--tz Asia/Seoul]   주별 달력: 예약된 것과 올라간 것
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off,alert,expiring] [--format slack|discord|json]
   fanout notify test | off               상태 알림 (Slack·Discord·JSON webhook)
   fanout backup <폴더> [--without-key]    DB 스냅샷(+복호화 키) 백업 — 실행 중에도 안전
@@ -1061,6 +1063,28 @@ function cmdPrune(ctx: ProviderContext, args: Args): number {
   return 0;
 }
 
+/** Week by week: what goes out and what went out, from the store. */
+function cmdCalendar(ctx: ProviderContext, args: Args): number {
+  const tz = str(args, 'tz');
+  if (tz && !validTimeZone(tz)) throw new UsageError(msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz }));
+  const weeks = num(args, 'weeks') ?? 2;
+  if (!(weeks >= 1 && weeks <= 8)) throw new UsageError(msg('--weeks 는 1~8'));
+  const c = computeCalendar(ctx.store, ctx.now(), { weeks, offset: num(args, 'offset') ?? 0, timeZone: tz, locale: LOCALE() });
+  const icon: Partial<Record<string, string>> = { published: '✓', handed_off: '📲', failed: '✗', needs_reauth: '🔑', canceled: '–', removed: '🗑' };
+  say(msg('{from} ~ {to} ({timeZone} 기준)', { from: c.from, to: c.to, timeZone: c.timeZone }));
+  for (const d of c.days) {
+    if (!d.items.length) continue;
+    console.log(`\n${d.date} ${d.weekday}${d.today ? `  ← ${local(msg('오늘'))}` : ''}`);
+    for (const i of d.items) {
+      const targets = i.targets.map((t) => `${icon[t.state] ?? '⏳'}${t.platform}`).join(' ');
+      console.log(`  ${i.time}${i.scheduled ? '*' : ' '} ${printable(i.title).slice(0, 50).padEnd(50)} ${targets}  [${i.postId.slice(0, 8)}]`);
+    }
+  }
+  if (c.days.every((d) => !d.items.length)) say(msg('이 기간에 게시물이 없습니다'));
+  else say(msg('\n* 예약 시각 · ✓ 게시됨 · ⏳ 기다림/진행 중 · ✗ 실패'));
+  return 0;
+}
+
 /** What performs, from the recorded stats: per platform and account, and the best time to post once there's enough. */
 function cmdInsights(ctx: ProviderContext, args: Args): number {
   const days = num(args, 'days') ?? 30;
@@ -1227,6 +1251,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdLimits(ctx, deps, args);
       case 'insights':
         return cmdInsights(ctx, args);
+      case 'calendar':
+        return cmdCalendar(ctx, args);
       case 'hide-comment':
         return await cmdHideComment(ctx, deps, args);
       case 'visibility':

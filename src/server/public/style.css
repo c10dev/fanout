@@ -277,3 +277,10 @@ details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1;
 .insight { margin: 0.75rem 0; }
 .insight h3 { font-size: 1rem; margin: 0 0 0.25rem; }
 .insight ol { margin: 0.25rem 0 0.5rem 1.25rem; padding: 0; }
+.calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 0.5rem 0; }
+.cal-day { border: 0.5px solid var(--border, #ddd); border-radius: 8px; padding: 6px; min-height: 64px; font-size: 13px; }
+.cal-day.today { border-color: currentColor; }
+.cal-date { font-size: 12px; opacity: 0.8; margin-bottom: 4px; }
+.cal-item { margin: 2px 0; overflow-wrap: anywhere; }
+.cal-targets { font-size: 12px; }
+@media (max-width: 720px) { .calendar { grid-template-columns: 1fr; } }
