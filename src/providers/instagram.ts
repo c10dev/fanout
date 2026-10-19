@@ -131,7 +131,7 @@ export const instagram: Provider = {
     else if (tags.length) issues.push({ severity: 'warning', code: 'user_tags', message: msg('Instagram은 없는 사용자 이름이 하나라도 있으면 게시 자체를 거절합니다 — 철자를 확인하세요') });
     if (o.paidPartnership) issues.push({ severity: 'warning', code: 'paid_partnership', message: msg('Instagram 유료 파트너십 표시는 릴스에서 되는지 아직 확인 전입니다 — 올린 뒤 앱에서 라벨을 확인하세요') });
     const ratio = media.video.width / media.video.height;
-    if (Math.abs(ratio - 9 / 16) > 0.02) {
+    if (Math.abs(ratio - 9 / 16) > 0.02 && !(target.options as { fit?: string }).fit) {
       issues.push({ severity: 'warning', code: 'aspect', message: msg('Instagram Reels 권장 화면비는 9:16 (현재 {width}x{height}) — 잘리거나 여백이 생길 수 있습니다', { width: media.video.width, height: media.video.height }) });
     }
     if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: msg('Instagram은 로컬 썸네일 파일을 받지 않습니다 — thumbOffsetMs로 커버 프레임을 고르세요') });

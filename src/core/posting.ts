@@ -2,10 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { ProviderError } from './errors.ts';
 import { isStaleOwner } from './lease.ts';
-import { checkMedia, type MediaInfo, type Violation } from './media.ts';
+import { checkMedia, FITS, type MediaInfo, type Violation } from './media.ts';
 import { notifyEvent } from './notify.ts';
 import { isTerminal } from './state.ts';
-import type { Provider, ProviderContext } from './provider.ts';
+import { targetSpec, type Provider, type ProviderContext } from './provider.ts';
 import type { Store } from './store.ts';
 import { FIND_HANDED_OFF_DAYS, statsTrend } from './stats.ts';
 import type { Comment, Post, PostInput, PostStats, StatsTrend, Target, TargetInput } from './types.ts';
@@ -126,7 +126,9 @@ export function previewPost(
     if (!provider) return { ...base, verdict: 'blocked' as const, errors: [msg('알 수 없는 플랫폼: {platform}', { platform: t.platform })], warnings: [], transcode: [] };
     const target: Target = { id: 'preview', postId: post.id, platform: t.platform, account: t.account, options: t.options, state: 'queued', warnings: [], attempts: 0, updatedAt: post.createdAt };
     const issues = provider.validate(post, target, media, account ?? undefined);
-    const violations = checkMedia(media, provider.specFor?.(post, target) ?? provider.spec);
+    const fit = (t.options as { fit?: unknown }).fit;
+    if (fit !== undefined && !FITS.includes(fit as never)) issues.push({ severity: 'error', code: 'fit', message: msg('fit은 pad 또는 crop') });
+    const violations = checkMedia(media, targetSpec(provider, post, target));
     const errors = [...issues.filter((i) => i.severity === 'error').map((i) => i.message), ...violations.filter((v) => !v.fixable).map((v) => v.message)];
     if (!account) errors.push(msg('연결되지 않은 계정: {platform}/{account}', { platform: t.platform, account: t.account }));
     return {

@@ -108,12 +108,14 @@ const OPTION_FORMS = {
         opt(tr('제목·설명 언어 (예: ko)'), h('input', { type: 'text', name: 'defaultLanguage', autocomplete: 'off' })),
         opt(tr('라이선스'), select('license', [['', tr('표준 YouTube 라이선스')], ['creativeCommon', tr('크리에이티브 커먼즈 - 저작자 표시')]])),
         opt(tr('촬영일 (선택)'), h('input', { type: 'date', name: 'recordingDate' })),
+        opt(tr('세로 9:16으로 맞추기 (Shorts)'), select('fit', [['', tr('그대로')], ['pad', tr('흐린 배경으로 채우기')], ['crop', tr('가운데 자르기')]])),
         h('div', { class: 'choices' }, checkbox('embeddable', tr('퍼가기 허용'), true), checkbox('publicStatsViewable', tr('확장 통계 공개 (조회수·좋아요는 늘 공개)'), true)),
         localizationRows(),
       ),
     ),
   ],
   tiktok: () => [
+    opt(tr('세로 9:16으로 맞추기'), select('fit', [['', tr('그대로')], ['pad', tr('흐린 배경으로 채우기')], ['crop', tr('가운데 자르기')]])),
     group(tr('게시 방식'), radios('mode', [['inbox', tr('TikTok 앱 수신함으로 보내기'), true], ['direct', tr('바로 게시 (Direct Post)')]]), true),
     h('p', { class: 'note', 'data-when': 'inbox' }, tr('업로드 후 TikTok 앱 알림에서 캡션과 공개 범위를 정해 게시를 마무리합니다.')),
     opt(tr('공개 범위'), select('privacyLevel', [['PUBLIC_TO_EVERYONE', tr('모두')], ['MUTUAL_FOLLOW_FRIENDS', tr('맞팔로우 친구')], ['FOLLOWER_OF_CREATOR', tr('팔로워')], ['SELF_ONLY', tr('나만 보기')]], { placeholder: tr('선택하세요') })),
@@ -125,6 +127,7 @@ const OPTION_FORMS = {
     h('p', { class: 'note' }, tr('심사 전 앱은 비공개 계정에 "나만 보기"로만 바로 게시할 수 있습니다.')),
   ],
   instagram: () => [
+    opt(tr('세로 9:16으로 맞추기'), select('fit', [['', tr('그대로')], ['pad', tr('흐린 배경으로 채우기')], ['crop', tr('가운데 자르기')]])),
     checkbox('shareToFeed', tr('프로필 피드에도 표시'), true),
     opt(tr('캡션 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
     opt(tr('공동 작업자 (선택, 쉼표로 구분, 3명까지)'), h('input', { type: 'text', name: 'collaborators', autocomplete: 'off', placeholder: 'user1, user2' })),
@@ -136,6 +139,7 @@ const OPTION_FORMS = {
     opt(tr('장소 페이지 ID (선택)'), h('input', { type: 'text', name: 'locationId', autocomplete: 'off', inputmode: 'numeric' })),
   ],
   facebook: () => [
+    opt(tr('세로 9:16으로 맞추기'), select('fit', [['', tr('그대로')], ['pad', tr('흐린 배경으로 채우기')], ['crop', tr('가운데 자르기')]])),
     opt(tr('설명 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
     opt(tr('릴스 제목 (선택)'), h('input', { type: 'text', name: 'title', autocomplete: 'off' })),
     checkbox('draft', tr('게시하지 않고 초안으로 저장 (Meta Business Suite에서 마무리)')),
@@ -201,13 +205,16 @@ function readOptions(platform, body) {
         publicStatsViewable: on('publicStatsViewable') ? undefined : false,
         localizations: readLocalizations(body),
         recordingDate: val('recordingDate').value || undefined,
+        fit: val('fit').value || undefined,
       };
     }
     case 'tiktok': {
       const mode = checked('mode');
-      if (mode === 'inbox') return { mode };
+      const fit = val('fit').value || undefined;
+      if (mode === 'inbox') return { mode, fit };
       return {
         mode,
+        fit,
         privacyLevel: val('privacyLevel').value || undefined,
         allowComment: on('allowComment'),
         allowDuet: on('allowDuet'),
@@ -228,11 +235,12 @@ function readOptions(platform, body) {
         thumbOffsetMs: seconds('coverSec'),
         trialReel: val('trialReel').value || undefined,
         paidPartnership: on('paidPartnership') || undefined,
+        fit: val('fit').value || undefined,
         userTags: text('userTags')?.split(',').map((u) => u.trim()).filter(Boolean),
         locationId: text('locationId'),
       };
     case 'facebook':
-      return { caption: text('caption'), title: text('title'), draft: on('draft') || undefined, collaborators: text('collaborators')?.split(',').map((p) => p.trim()).filter(Boolean), placeId: text('placeId') };
+      return { caption: text('caption'), title: text('title'), draft: on('draft') || undefined, fit: val('fit').value || undefined, collaborators: text('collaborators')?.split(',').map((p) => p.trim()).filter(Boolean), placeId: text('placeId') };
     case 'x':
       return { text: text('text'), replySettings: val('replySettings').value || undefined, paidPartnership: on('paidPartnership') || undefined, alt: text('alt'), tagUsers: text('tagUsers')?.split(',').map((u) => u.trim()).filter(Boolean), communityId: text('communityId') };
     case 'mastodon':

@@ -4,7 +4,7 @@ import { ProviderError } from './errors.ts';
 import { sleep } from './http.ts';
 import { isStaleOwner, PROCESS_OWNER } from './lease.ts';
 import { checkMedia, ensureVariant, fileHash, probe, type MediaInfo } from './media.ts';
-import type { Provider, ProviderContext, PublishOutcome } from './provider.ts';
+import { targetSpec, type Provider, type ProviderContext, type PublishOutcome } from './provider.ts';
 import { withTimeout } from './posting.ts';
 import { isTerminal } from './state.ts';
 import type { Target } from './types.ts';
@@ -118,7 +118,7 @@ async function stepClaimed(deps: RunnerDeps, targetId: string): Promise<Target> 
     }
     const probeFn = deps.probe ?? probe;
     const media = await probeFn(post.mediaPath);
-    const spec = provider.specFor?.(post, target) ?? provider.spec;
+    const spec = targetSpec(provider, post, target);
 
     if (target.state === 'queued') {
       const issues = provider.validate(post, target, media, account);

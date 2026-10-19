@@ -49,6 +49,15 @@ export interface MediaSpec {
   minShortEdge?: number;
   /** width / height */
   aspect?: { min: number; max: number };
+  /** Make a video that isn't vertical 9:16: 'pad' (blurred fill around it) or 'crop' (the centre). */
+  fit?: 'pad' | 'crop';
+}
+
+export const FITS = ['pad', 'crop'] as const;
+
+/** Vertical 9:16, give or take a little (1080x1920, 720x1280, phone videos a few pixels off). */
+export function isVertical(width: number, height: number): boolean {
+  return height > 0 && Math.abs(width / height - 9 / 16) <= 0.02;
 }
 
 export interface Violation {
@@ -140,7 +149,12 @@ export function checkMedia(info: MediaInfo, spec: MediaSpec): Violation[] {
   if (spec.maxDurationSec !== undefined && info.durationSec > spec.maxDurationSec) {
     out.push({ code: 'duration_long', fixable: false, message: msg('길이 {info}s > 최대 {maxDurationSec}s', { info: info.durationSec.toFixed(1), maxDurationSec: spec.maxDurationSec }) });
   }
-  if (spec.aspect && (ratio < spec.aspect.min - 0.01 || ratio > spec.aspect.max + 0.01)) {
+  // A fit makes it 9:16, which every vertical platform takes: nothing about the shape is in the way then.
+  const fitting = spec.fit !== undefined && !isVertical(video.width, video.height);
+  if (fitting) {
+    out.push({ code: 'fit', fixable: true, message: spec.fit === 'crop' ? msg('세로 9:16으로 가운데를 잘라 맞춥니다') : msg('세로 9:16으로 맞추고 남는 곳은 흐린 화면으로 채웁니다') });
+  }
+  if (!fitting && spec.aspect && (ratio < spec.aspect.min - 0.01 || ratio > spec.aspect.max + 0.01)) {
     out.push({
       code: 'aspect',
       fixable: false,
@@ -201,7 +215,17 @@ export function transcodeArgs(info: MediaInfo, spec: MediaSpec, output: string):
   const filters: string[] = [];
 
   const longEdge = Math.max(info.video.width, info.video.height);
-  if (spec.maxLongEdge !== undefined && longEdge > spec.maxLongEdge) {
+  if (spec.fit && !isVertical(info.video.width, info.video.height)) {
+    // 1080x1920, or smaller when the platform caps the long edge lower; even sizes for H.264.
+    const H = Math.min(1920, spec.maxLongEdge ?? 1920);
+    const W = Math.round((H * 9) / 16 / 2) * 2;
+    const cover = `scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H}`;
+    filters.push(
+      spec.fit === 'crop'
+        ? `${cover},setsar=1`
+        : `split[bg][fg];[bg]${cover},boxblur=20:2[blur];[fg]scale=${W}:${H}:force_original_aspect_ratio=decrease[sharp];[blur][sharp]overlay=(W-w)/2:(H-h)/2,setsar=1`,
+    );
+  } else if (spec.maxLongEdge !== undefined && longEdge > spec.maxLongEdge) {
     const scale = spec.maxLongEdge / longEdge;
     const w = Math.round((info.video.width * scale) / 2) * 2;
     const h = Math.round((info.video.height * scale) / 2) * 2;
