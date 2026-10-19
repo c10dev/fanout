@@ -32,6 +32,9 @@ describe('graph errors', () => {
   it('classifies token, rate-limit and daily-limit codes', () => {
     assert.equal(graphError(400, { error: { code: 190, message: 'expired' } }).kind, 'auth');
     assert.equal(graphError(400, { error: { code: 4 } }).kind, 'retryable');
+    // Seen live: a trial reel from an account below Instagram's follower requirement.
+    assert.equal(graphError(400, { error: { code: 10, error_subcode: 2207081, message: 'not eligible' } }).kind, 'rejected');
+    assert.equal(graphError(400, { error: { code: 10, message: 'no permission' } }).kind, 'auth');
     assert.equal(graphError(400, { error: { code: 9, error_subcode: 2207042 } }).platformCode, '9/2207042');
   });
 });

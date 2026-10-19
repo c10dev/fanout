@@ -81,6 +81,10 @@ export function graphError(status: number, body: GraphError | undefined): Provid
   if (code === 4 || code === 17 || code === 32 || code === 613 || code === 2) kind = 'retryable';
   // 9: IG publishing limit reached for the day.
   if (code === 9) kind = 'rejected';
+  // 2207xxx: Instagram's content-publishing refusals, whatever the code beside them (a trial reel
+  // from an account below the follower requirement comes as 10/2207081): about the post or the
+  // account's eligibility, not the token, so reconnecting wouldn't help.
+  if (e?.error_subcode !== undefined && e.error_subcode >= 2207000 && e.error_subcode < 2208000) kind = 'rejected';
   const platformCode = code !== undefined ? `${code}${e?.error_subcode ? `/${e.error_subcode}` : ''}` : undefined;
   return new ProviderError(kind, `meta.${code ?? `http_${status}`}`, e?.error_user_msg ?? e?.message ?? `Graph API HTTP ${status}`, platformCode);
 }
