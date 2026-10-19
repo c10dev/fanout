@@ -350,7 +350,7 @@ export class Store {
   }
 
   /** Posts whose time (its schedule, or when it was made) falls in [from, to), earliest first. */
-  postsBetween(fromIso: string, toIso: string, limit = 500): Post[] {
+  postsBetween(fromIso: string, toIso: string, limit = 2000): Post[] {
     const rows = this.#db
       .prepare(
         `SELECT body FROM posts WHERE coalesce(json_extract(body, '$.scheduledAt'), created_at) >= ? AND coalesce(json_extract(body, '$.scheduledAt'), created_at) < ?
@@ -539,6 +539,14 @@ export class Store {
     return Boolean(
       this.#db.prepare('SELECT 1 FROM targets WHERE platform = ? AND account = ? AND remote_id = ? AND id != ? LIMIT 1').get(platform, account, remoteId, exceptId),
     );
+  }
+
+  /** Targets that failed since `sinceIso`, with their post's title (for the weekly digest). */
+  failedSince(sinceIso: string): Array<{ platform: string; account: string; title: string }> {
+    const rows = this.#db
+      .prepare(`SELECT t.platform, t.account, json_extract(p.body, '$.title') AS title FROM targets t JOIN posts p ON p.id = t.post_id WHERE t.state = 'failed' AND t.updated_at >= ? ORDER BY t.updated_at DESC`)
+      .all(sinceIso) as Array<{ platform: string; account: string; title: string }>;
+    return rows;
   }
 
   /** Every published target (optionally of one platform), e.g. for insights. */

@@ -48,3 +48,20 @@ describe('weekly digest', () => {
     assert.equal(buildDigest(ctx, providerMap(), 'UTC').week, '2026-W44');
   });
 });
+
+describe('digest through FANOUT_WEBHOOK_URL', () => {
+  it('FANOUT_WEBHOOK_EVENTS can pick it', async () => {
+    const { notifyConfig } = await import('../src/core/notify.ts');
+    const { ctx } = makeCtx();
+    process.env.FANOUT_WEBHOOK_URL = 'https://hooks.example/env';
+    process.env.FANOUT_WEBHOOK_EVENTS = 'failed, digest, nonsense';
+    try {
+      assert.deepEqual(notifyConfig(ctx), { url: 'https://hooks.example/env', events: ['failed', 'digest'] });
+      delete process.env.FANOUT_WEBHOOK_EVENTS;
+      assert.deepEqual(notifyConfig(ctx), { url: 'https://hooks.example/env' });
+    } finally {
+      delete process.env.FANOUT_WEBHOOK_URL;
+      delete process.env.FANOUT_WEBHOOK_EVENTS;
+    }
+  });
+});

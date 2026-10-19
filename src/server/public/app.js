@@ -940,6 +940,7 @@ async function post(form) {
     renderMedia();
     renderTargets();
     refreshBoard();
+    reloadCalendar?.();
   } catch (err) {
     $('#form-error').textContent = err.message;
     button.disabled = false;
@@ -1951,6 +1952,7 @@ function insightsPanel() {
   const box = $('#insights');
   if (!box) return;
   const body = h('div', {}, h('p', { class: 'muted' }, tr('불러오는 중…')));
+  const suggestBox = h('div', {});
   const days = h('select', { 'aria-label': tr('기간') }, [7, 30, 90].map((d) => h('option', { value: d, selected: d === 30 }, tr('최근 {days}일', { days: d }))));
   const fmt = (n) => (n === undefined || n === null ? '-' : Number(n).toLocaleString(LOCALE));
   const load = async () => {
@@ -1975,6 +1977,17 @@ function insightsPanel() {
           ),
         ),
         h('p', { class: 'muted' }, tr('요일·시간은 {timeZone} 기준, 기록된 반응으로만 계산합니다', { timeZone: r.timeZone })),
+      );
+    } catch (err) {
+      body.replaceChildren(h('p', { class: 'form-error' }, err.message));
+    }
+  };
+  // Suggestions read the originals (ffprobe), so they load on request.
+  const loadSuggestions = async (button) => {
+    button.disabled = true;
+    try {
+      const r = await api(`/insights?days=${days.value}&lang=${LANG}&suggestions=1`);
+      suggestBox.replaceChildren(
         ...(r.suggestions?.length
           ? [
               h('h3', {}, tr('다른 곳에도 올려 볼 만한 게시물')),
@@ -1983,6 +1996,7 @@ function insightsPanel() {
                   'div',
                   { class: 'insight' },
                   h('p', {}, sg.title, h('span', { class: 'muted' }, ` · ${tr('{platform}에서 조회 {views}', { platform: sg.platform, views: fmt(sg.views) })} → ${sg.targets.map((t) => `${t.platform}/${t.account}`).join(', ')}`)),
+                  sg.needsChoices?.length ? h('p', { class: 'muted' }, sg.needsChoices.join(' · ')) : null,
                   h(
                     'button',
                     {
@@ -1998,15 +2012,25 @@ function insightsPanel() {
                 ),
               ),
             ]
-          : []),
+          : [h('p', { class: 'muted' }, tr('지금은 제안할 게시물이 없습니다'))]),
       );
     } catch (err) {
-      body.replaceChildren(h('p', { class: 'form-error' }, err.message));
+      suggestBox.replaceChildren(h('p', { class: 'form-error' }, err.message));
+    } finally {
+      button.disabled = false;
     }
   };
-  days.addEventListener('change', load);
+  days.addEventListener('change', () => {
+    suggestBox.replaceChildren();
+    load();
+  });
   reloadInsights = load;
-  box.replaceChildren(h('div', { class: 'panel-head' }, h('h2', {}, tr('성과 요약')), days), body);
+  box.replaceChildren(
+    h('div', { class: 'panel-head' }, h('h2', {}, tr('성과 요약')), days),
+    body,
+    h('button', { class: 'small', type: 'button', onclick: (e) => loadSuggestions(e.target) }, tr('다른 곳에도 올려 볼 게시물 찾기')),
+    suggestBox,
+  );
   load();
 }
 

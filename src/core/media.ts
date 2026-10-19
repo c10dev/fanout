@@ -124,13 +124,25 @@ export function parseProbe(path: string, probe: ProbeOutput): MediaInfo {
   };
 }
 
+const probeCache = new Map<string, MediaInfo>();
+
 export async function probe(path: string): Promise<MediaInfo> {
   // The usual case (an original pruned or moved away) says so, instead of ffprobe's command line.
   if (!existsSync(path)) throw new ProviderError('rejected', 'media.missing', msg('영상 파일이 없습니다: {path}', { path }));
+  // The same file version probes the same: asked again (insights, previews), it costs nothing.
+  const st = statSync(path);
+  const key = `${path}:${st.ino}:${st.size}:${st.mtimeMs}`;
+  const cached = probeCache.get(key);
+  if (cached) return cached;
+  // A file on a stalled network share must not hang the caller (the dashboard, MCP) for good.
   const { stdout } = await run('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', path], {
     maxBuffer: 16 * 1024 * 1024,
+    timeout: 60_000,
   });
-  return parseProbe(path, JSON.parse(stdout) as ProbeOutput);
+  const info = parseProbe(path, JSON.parse(stdout) as ProbeOutput);
+  if (probeCache.size > 500) probeCache.clear();
+  probeCache.set(key, info);
+  return info;
 }
 
 // ── Spec check ─────────────────────────────────────────────────────

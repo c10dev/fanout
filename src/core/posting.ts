@@ -551,15 +551,23 @@ export interface CrossPostSuggestion {
   /** Views where it did best. */
   views: number;
   platform: string;
-  /** Connected accounts it hasn't gone to, whose rules the video meets (converted if need be). */
-  targets: Array<{ platform: string; account: string; transcode: boolean }>;
+  /** Connected accounts it hasn't gone to, whose rules the post and video meet (converted if need be). */
+  targets: Array<{ platform: string; account: string; transcode: boolean; vertical?: boolean }>;
+  /** Choices the add still needs on some platform (e.g. YouTube visibility), named by validate. */
+  needsChoices: string[];
   command: string;
 }
 
+/** Validate codes that only mean "pick this on the add", not "this post can't go there". */
+const CHOICE_CODES = new Set(['privacy', 'made_for_kids', 'visibility', 'music_consent', 'schedule_privacy']);
+/** States after which the user meant it to be gone from there (or it's still going): no suggestion. */
+const SETTLED_STATES: ReadonlySet<Target['state']> = new Set([...COVERING_STATES, 'removed', 'canceled']);
+
 /**
- * Top posts of the last `days` that could also go where they haven't: connected accounts not on the
- * post, whose media rules the original meets (as is or after conversion). Only posts whose original
- * is still there (`fanout add` needs it). Suggestions only: nothing is posted.
+ * Top posts of the last `days` that could also go where they haven't: connected accounts (with their
+ * app set up and access not refused) not on the post, whose rules the post and the original video
+ * meet — as is, after conversion, or with a vertical fit. Only posts whose original is still there
+ * (`fanout add` needs it). Suggestions only: nothing is posted.
  */
 export async function suggestCrossPosts(
   ctx: ProviderContext,
@@ -572,15 +580,20 @@ export async function suggestCrossPosts(
   for (const g of insights.groups) {
     for (const t of g.top) if ((best.get(t.postId)?.views ?? -1) < t.views) best.set(t.postId, { title: t.title, views: t.views, platform: g.platform });
   }
-  const accounts = ctx.store.listAccounts();
+  const accounts = ctx.store.listAccounts().filter((a) => {
+    const p = providers.get(a.platform);
+    if (!p || !appReady(ctx.store, p)) return false;
+    const c = ctx.store.getAccount(a.platform, a.name)?.credentials as { authFailedAt?: number; forgottenAt?: number } | undefined;
+    return Boolean(c) && c!.authFailedAt === undefined && c!.forgottenAt === undefined;
+  });
   const out: CrossPostSuggestion[] = [];
   for (const [postId, b] of [...best.entries()].sort((x, y) => y[1].views - x[1].views)) {
     if (out.length >= (opts.max ?? 5)) break;
     const post = ctx.store.getPost(postId);
     if (!post || !existsSync(post.mediaPath)) continue;
     const onPost = ctx.store.targetsForPost(postId);
-    const covered = (platform: string, account: string) => onPost.some((t) => t.platform === platform && t.account === account && (COVERING_STATES.has(t.state) || (t.state === 'failed' && mayBeLive(t))));
-    const open = accounts.filter((a) => providers.has(a.platform) && !covered(a.platform, a.name));
+    const settled = (platform: string, account: string) => onPost.some((t) => t.platform === platform && t.account === account && (SETTLED_STATES.has(t.state) || (t.state === 'failed' && mayBeLive(t))));
+    const open = accounts.filter((a) => !settled(a.platform, a.name));
     if (!open.length) continue;
     let media: MediaInfo;
     try {
@@ -588,16 +601,38 @@ export async function suggestCrossPosts(
     } catch {
       continue;
     }
-    const verdicts = new Map(assessMedia(media, open.map((a) => providers.get(a.platform)!)).map((v) => [v.platform, v.verdict]));
-    const targets = open.filter((a) => verdicts.get(a.platform) !== 'blocked').map((a) => ({ platform: a.platform, account: a.name, transcode: verdicts.get(a.platform) === 'transcode' }));
+    const targets: CrossPostSuggestion['targets'] = [];
+    const choices = new Set<string>();
+    for (const a of open) {
+      const provider = providers.get(a.platform)!;
+      // What `fanout add` would run: the post's own text and the platform's rules (TikTok defaults to inbox).
+      const check = (options: Record<string, unknown>) => {
+        const target: Target = { id: 'suggest', postId, platform: a.platform, account: a.name, options, state: 'queued', warnings: [], attempts: 0, updatedAt: post.createdAt };
+        const errors = provider.validate(post, target, media, ctx.store.getAccount(a.platform, a.name)).filter((i) => i.severity === 'error');
+        const media_ = checkMedia(media, targetSpec(provider, post, target));
+        return { hard: errors.filter((e) => !CHOICE_CODES.has(e.code)), choices: errors.filter((e) => CHOICE_CODES.has(e.code)), blocked: media_.some((v) => !v.fixable), transcode: media_.length > 0 };
+      };
+      const base = a.platform === 'tiktok' ? { mode: 'inbox' } : {};
+      let r = check(base);
+      let vertical = false;
+      // A landscape video stopped only by the shape can go with a vertical fit.
+      if (r.blocked && !r.hard.length) {
+        const fitted = check({ ...base, fit: 'pad' });
+        if (!fitted.blocked) [r, vertical] = [fitted, true];
+      }
+      if (r.blocked || r.hard.length) continue;
+      for (const c of r.choices) choices.add(c.message);
+      targets.push({ platform: a.platform, account: a.name, transcode: r.transcode, ...(vertical ? { vertical: true } : {}) });
+    }
     if (!targets.length) continue;
     // A bare platform means main, or its only account (as `fanout add` reads it).
     const plain = (platform: string, account: string) => {
-      const names = accounts.filter((a) => a.platform === platform).map((a) => a.name);
+      const names = accounts.filter((x) => x.platform === platform).map((x) => x.name);
       return account === 'main' || (names.length === 1 && !names.includes('main'));
     };
     const to = targets.map((t) => (plain(t.platform, t.account) ? t.platform : `${t.platform}:${t.account}`)).join(',');
-    out.push({ postId, title: b.title, views: b.views, platform: b.platform, targets, command: `fanout add ${postId.slice(0, 8)} --to ${to}` });
+    const fit = targets.some((t) => t.vertical) ? ' --vertical pad' : '';
+    out.push({ postId, title: b.title, views: b.views, platform: b.platform, targets, needsChoices: [...choices], command: `fanout add ${postId.slice(0, 8)} --to ${to}${fit}` });
   }
   return out;
 }

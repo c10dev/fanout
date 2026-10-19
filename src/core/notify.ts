@@ -79,7 +79,12 @@ const sameSet = (a: readonly string[], b: readonly string[]) => a.length === b.l
 /** The webhook to use: FANOUT_WEBHOOK_URL overrides what `fanout notify set` saved. Invalid ones are ignored. */
 export function notifyConfig(ctx: ProviderContext): NotifyConfig | undefined {
   const env = process.env.FANOUT_WEBHOOK_URL;
-  if (env) return validWebhookUrl(env) ? { url: env } : undefined;
+  if (env) {
+    if (!validWebhookUrl(env)) return undefined;
+    // FANOUT_WEBHOOK_EVENTS picks events for it (e.g. to get the weekly digest); unknown ones are dropped.
+    const events = process.env.FANOUT_WEBHOOK_EVENTS?.split(',').map((e) => e.trim()).filter((e): e is NotifyEvent => KNOWN_EVENTS.includes(e as NotifyEvent));
+    return events?.length ? { url: env, events } : { url: env };
+  }
   const saved = ctx.store.getApp<NotifyConfig>('notify');
   if (!saved?.url || !validWebhookUrl(saved.url)) return undefined;
   // A list that is just the old default means "the default", which now includes the new events.

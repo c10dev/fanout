@@ -25,10 +25,7 @@ export function buildDigest(ctx: ProviderContext, providers: Map<string, Provide
   const tz = validTimeZone(timeZone) ?? validTimeZone(process.env.FANOUT_TZ) ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
   const now = ctx.now();
   const insights = computeInsights(ctx.store, now, { days: 7, timeZone: tz });
-  const since = now.getTime() - 7 * 86_400_000;
-  const failed = ctx.store
-    .listPosts(500)
-    .flatMap((p) => ctx.store.targetsForPost(p.id).filter((t) => t.state === 'failed' && Date.parse(t.updatedAt) >= since).map((t) => ({ title: p.title, platform: t.platform, account: t.account })));
+  const failed = ctx.store.failedSince(new Date(now.getTime() - 7 * 86_400_000).toISOString());
   const expiring = ctx.store
     .listAccounts()
     .map((a) => ({ platform: a.platform, account: a.name, expiry: signInExpiry(ctx, providers, a.platform, a.name) }))
@@ -50,9 +47,10 @@ export function buildDigest(ctx: ProviderContext, providers: Map<string, Provide
 export function sendWeeklyDigest(ctx: ProviderContext, providers: Map<string, Provider>): boolean {
   const config = notifyConfig(ctx);
   if (!config || !(config.events ?? DEFAULT_EVENTS).includes('digest')) return false;
-  const digest = buildDigest(ctx, providers);
-  const last = ctx.store.getApp<{ week?: string }>('notify-digest')?.week;
-  if (last === digest.week) return false;
+  // This week's already gone: nothing to build.
+  const tz = validTimeZone(process.env.FANOUT_TZ) ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (ctx.store.getApp<{ week?: string }>('notify-digest')?.week === isoWeek(ctx.now(), tz)) return false;
+  const digest = buildDigest(ctx, providers, tz);
   // Marked first: a webhook that is down loses one digest rather than sending it every few hours.
   ctx.store.setApp('notify-digest', { week: digest.week });
   notifyEvent(ctx, 'digest', digest.text, { week: digest.week, ...digest.data });
