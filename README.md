@@ -25,6 +25,8 @@
 npm install -g --allow-git=all github:c10dev/fanout
 ```
 
+이 명령은 `main`(다음 릴리스 전 최신)을 설치합니다. 릴리스 그대로 쓰려면 태그를 붙이세요: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`.
+
 npm 12부터 git 저장소에서 설치하는 것이 기본으로 막혀 있어 `--allow-git=all`이 필요합니다(npm 11 이하는 없어도 됩니다). 설치 중 `install scripts blocked … fanout (prepare)` 경고가 나와도 `dist/`는 만들어져 있어 그대로 쓰면 됩니다. `fanout version`으로 설치된 버전을 확인합니다. 설치하면 `fanout` 명령이 생깁니다. 아래 예시의 `node src/cli.ts`를 `fanout`으로 바꿔 쓰면 됩니다.
 
 **Docker**
@@ -91,10 +93,13 @@ node src/cli.ts status
 
 ## 로드맵
 
-- Threads(공개 URL 필요), LinkedIn(개인 계정 게시는 셀프서비스 API로 되는지 실제 확인 필요)
-- TikTok: 심사를 통과한 앱 연결 모드, Upload-Post·Ayrshare 어댑터
-- 네이버 클립 실험 플러그인 (별도 저장소, 사용자가 직접 로그인한 브라우저 프로필만 사용)
-- 여러 대상을 위한 Postgres 큐(pg-boss) 옵션
+새 플랫폼보다 지금 지원하는 플랫폼을 깊게 만듭니다. 계획은 [GitHub 밀스톤](https://github.com/c10dev/fanout/milestones)에 있습니다.
+
+- 게시 전에 막히는 일 줄이기: Meta 토큰 권한 미리 확인, 가로 영상을 Facebook 릴스 세로로 맞추기, 플랫폼별 한도를 플랫폼이 세는 방식대로 세기
+- 게시 뒤: Instagram 게시물 삭제, YouTube·Instagram 반응 지표 더하기, 다시 연결한 뒤 기다리던 게시 이어 가기
+- 운영: 안전한 종료·업그레이드, 스키마 버전 관리, 자체 호스팅 안내
+- TikTok: 심사를 통과한 앱으로 바로 게시하는 모드
+- 실제 계정으로 확인할 것들은 [#116](https://github.com/c10dev/fanout/issues/116)에 모아 둡니다
 
 플랫폼별 수치(쿼터·한도·사양)는 2026년 10월 기준 공식 문서를 따랐고, 각 provider 파일 상단에 문서 링크가 있습니다.
 

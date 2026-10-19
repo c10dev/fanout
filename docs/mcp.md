@@ -14,6 +14,8 @@
 npm install -g --allow-git=all github:c10dev/fanout
 ```
 
+이 명령은 `main`(다음 릴리스 전 최신)을 설치합니다. 릴리스 그대로 쓰려면 태그를 붙이세요: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`.
+
 그다음 Claude Code에서:
 
 ```

@@ -23,6 +23,8 @@ You need Node.js 24+ and `ffmpeg`/`ffprobe` (both included in the Docker image).
 npm install -g --allow-git=all github:c10dev/fanout
 ```
 
+This installs `main` (the latest, ahead of the next release). For the release as tagged, add the tag: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`.
+
 npm 12 blocks installs from git by default, hence `--allow-git=all` (not needed on npm 11 and earlier). Not published to the npm registry yet. npm may warn `install scripts blocked … fanout (prepare)`; `dist/` is already built, so it works as is. `fanout version` shows the installed version.
 
 **Docker**
@@ -81,9 +83,13 @@ The CLI and its logs speak Korean by default; set `FANOUT_LANG=en` for English (
 
 ## Roadmap
 
-- Threads (needs a public media URL), LinkedIn (member posting needs a live check of the self-serve APIs)
-- TikTok: bring-your-own audited app mode; Upload-Post / Ayrshare adapters
-- Experimental Naver Clip plugin (separate repo, only the user's own logged-in browser profile)
+Depth on the platforms fanout supports comes before new platforms. The plan is in the [GitHub milestones](https://github.com/c10dev/fanout/milestones).
+
+- Fewer surprises before posting: check Meta token permissions up front, fit landscape video to vertical for Facebook Reels, count platform limits the way each platform counts them
+- After posting: delete Instagram posts, more YouTube and Instagram metrics, pick up waiting posts after a reconnect
+- Operations: safe shutdown and upgrades, schema versions, a self-hosting guide
+- TikTok: direct posting with an audited app
+- Checks that need real accounts are collected in [#116](https://github.com/c10dev/fanout/issues/116)
 
 ## Contributing
 

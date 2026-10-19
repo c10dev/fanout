@@ -2,3 +2,4 @@ node_modules/
 .fanout/
 *.log
 dist/
+*.patch

@@ -14,6 +14,8 @@ Install fanout first (Node.js 24+ and ffmpeg), so that `fanout` is on the PATH:
 npm install -g --allow-git=all github:c10dev/fanout
 ```
 
+This installs `main` (the latest, ahead of the next release). For the release as tagged, add the tag: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`.
+
 Then, in Claude Code:
 
 ```
