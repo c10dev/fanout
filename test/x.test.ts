@@ -7,6 +7,7 @@ import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
 import { retryTarget, withTimeout } from '../src/core/posting.ts';
+import { translate } from '../src/core/i18n.ts';
 import { SEGMENT, subtitleLanguage, tweetText, weightedLength, x, xPostBody } from '../src/providers/x.ts';
 import { fakeMedia, json, makeCtx, mockFetch, slowFetch, tempFile } from './helpers.ts';
 
@@ -37,15 +38,26 @@ describe('x text', () => {
   });
 
   it('posts with the AI disclosure, paid partnership and reply setting asked for', () => {
-    assert.deepEqual(xPostBody(post(), {}, 'M1'), { text: tweetText(post(), {}), media: { media_ids: ['M1'] } });
+    assert.deepEqual(xPostBody(post(), {}, 'M1'), { text: tweetText(post(), {}), media: { media_ids: ['M1'], title: '영상', description: '설명' } });
     assert.deepEqual(xPostBody(post({ containsSyntheticMedia: true }), { paidPartnership: true, replySettings: 'following' }, 'M1'), {
       text: tweetText(post(), {}),
-      media: { media_ids: ['M1'] },
+      media: { media_ids: ['M1'], title: '영상', description: '설명' },
       made_with_ai: true,
       paid_partnership: true,
       reply_settings: 'following',
     });
     assert.ok(x.validate(post(), target({ replySettings: 'everyone' as never }), fakeMedia()).some((i) => i.code === 'reply_settings'));
+  });
+
+  it('puts the post title and description on the video card, trimmed, and leaves out what is empty', () => {
+    const media = (p: Partial<Post>, o: Record<string, unknown> = {}) => xPostBody(post(p), o, 'M1').media;
+    assert.deepEqual(media({ title: '  제목 ', description: ' 긴 설명\n둘째 줄 ' }), { media_ids: ['M1'], title: '제목', description: '긴 설명\n둘째 줄' });
+    assert.deepEqual(media({ description: '  ' }), { media_ids: ['M1'], title: '영상' });
+    assert.deepEqual(media({ title: '', description: '' }), { media_ids: ['M1'] });
+    // A custom X text changes only the post's text: the card keeps what the creator approved.
+    const custom = xPostBody(post(), { text: '다른 글' }, 'M1');
+    assert.deepEqual([custom.text, custom.media], ['다른 글', { media_ids: ['M1'], title: '영상', description: '설명' }]);
+    assert.deepEqual(xPostBody(post(), {}, 'M1', 'P1', ['42'], false).media, { media_ids: ['M1'], preview_media_id: 'P1', tagged_user_ids: ['42'] });
   });
 
   it('stops a long post before the upload when the account is known to have no Premium', () => {
@@ -125,7 +137,7 @@ describe('x upload', () => {
     state = 'succeeded';
     const out = await x.poll({ ctx, post: post(), target: t, account });
     assert.deepEqual([out.state, out.remoteUrl], ['published', 'https://x.com/me/status/T1']);
-    assert.deepEqual(JSON.parse(String(calls.find((c) => c.url.endsWith('/2/tweets'))!.body)), { text: '영상\n\n설명\n\n#fanout', media: { media_ids: ['M1'] } });
+    assert.deepEqual(JSON.parse(String(calls.find((c) => c.url.endsWith('/2/tweets'))!.body)), { text: '영상\n\n설명\n\n#fanout', media: { media_ids: ['M1'], title: '영상', description: '설명' } });
 
     // A 503 leaves the outcome unknown: the next poll must not post again.
     tweetStatus = 503;
@@ -316,7 +328,8 @@ describe('x alt text and subtitles', () => {
     metadata = 401;
     const id2 = mk();
     await assert.rejects(x.poll({ ctx, post: post(), target: { ...store.getTarget(id2)!, remoteId: 'M1', resume: { mediaId: 'M1' } }, account }), (e: ProviderError) => e.kind === 'auth');
-    assert.equal(calls.filter((c) => c.url.endsWith('/2/tweets')).length, 2);
+    // The first 400 was sent once more without the card text, then the retry posted: three in all.
+    assert.equal(calls.filter((c) => c.url.endsWith('/2/tweets')).length, 3);
     assert.deepEqual((store.getTarget(id2)!.resume as { extras?: string[] }).extras, [], 'tried again after reconnecting');
   });
 
@@ -379,13 +392,77 @@ describe('x thumbnail', () => {
     assert.deepEqual(JSON.parse(String(calls.find((c) => c.url.endsWith('/initialize'))!.body)), { media_type: 'image/png', total_bytes: 4, media_category: 'tweet_image' });
     assert.deepEqual(bodies.map((b) => b.media.preview_media_id), ['P1', undefined], 'refused, then once more without it');
     assert.equal(out.state, 'published');
-    assert.match(out.warnings![0]!, /썸네일을 받지 않아/);
+    assert.match(out.warnings![0]!, /받지 않아 썸네일 \/ 카드 제목 \/ 카드 설명 없이/);
 
     refusePreview = false;
     bodies.length = 0;
     const ok = await run();
-    assert.deepEqual([bodies.length, bodies[0]!.media], [1, { media_ids: ['M1'], preview_media_id: 'P1' }]);
+    assert.deepEqual([bodies.length, bodies[0]!.media], [1, { media_ids: ['M1'], preview_media_id: 'P1', title: '영상', description: '설명' }]);
     assert.equal(ok.warnings, undefined);
+  });
+});
+
+describe('x video card', () => {
+  const tweets = (status: (body: Record<string, any>) => number) => {
+    const bodies: Array<Record<string, any>> = [];
+    const { fetch } = mockFetch([
+      ['GET', '/2/media/upload?', () => json({ data: { id: 'M1', processing_info: { state: 'succeeded' } } })],
+      ['GET', '/2/users/by?', () => json({ data: [{ id: '42', username: 'alice' }] })],
+      ['POST', '/2/tweets', (c) => {
+        const body = JSON.parse(String(c.body));
+        bodies.push(body);
+        const code = status(body);
+        return code === 201 ? json({ data: { id: `T${bodies.length}` } }, 201) : json({ detail: code === 400 ? 'Invalid media.title' : 'Forbidden' }, code);
+      }],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    const poll = (p: Post, options: Record<string, unknown> = {}) => {
+      const id = store.createPost(p, [{ platform: 'x', account: 'main', options }]).targets[0]!.id;
+      return { id, out: x.poll({ ctx, post: p, target: { ...store.getTarget(id)!, remoteId: 'M1', resume: { mediaId: 'M1', finalized: true } }, account }) };
+    };
+    const again = (p: Post, id: string) => x.poll({ ctx, post: p, target: { ...store.getTarget(id)!, remoteId: 'M1' }, account });
+    return { bodies, poll, again, store };
+  };
+
+  it('a clear 400 on a body with card text is sent once more without it, and says what was dropped', async () => {
+    const { bodies, poll } = tweets((b) => (b.media.title ? 400 : 201));
+    const out = await poll(post(), { tagUsers: ['alice'] }).out;
+    assert.equal(out.state, 'published');
+    assert.deepEqual(bodies.map((b) => b.media), [
+      { media_ids: ['M1'], title: '영상', description: '설명', tagged_user_ids: ['42'] },
+      { media_ids: ['M1'], tagged_user_ids: ['42'] },
+    ]);
+    assert.equal(bodies[1]!.text, bodies[0]!.text, 'only the card text is dropped');
+    const warning = 'X가 게시물을 받지 않아 카드 제목 / 카드 설명 없이 다시 올렸습니다: X: Invalid media.title';
+    assert.deepEqual(out.warnings, [warning]);
+    assert.equal(translate(warning, 'en'), 'X refused the post, so it went up again without the card title / card description: X: Invalid media.title');
+  });
+
+  it('resends at most once, and a refused resend leaves no warning behind for the retry', async () => {
+    let refuse = true;
+    const { bodies, poll, again, store } = tweets(() => (refuse ? 400 : 201));
+    const p = post({ description: ' ' });
+    const { id, out } = poll(p);
+    await assert.rejects(out, (e: ProviderError) => e.code === 'x.http_400');
+    assert.deepEqual(bodies.map((b) => b.media), [{ media_ids: ['M1'], title: '영상' }, { media_ids: ['M1'] }]);
+    const resume = store.getTarget(id)!.resume as { posting?: boolean; extraWarnings?: string[] };
+    assert.deepEqual([resume.posting, resume.extraWarnings ?? []], [false, []], 'nothing was posted, so a retry is safe');
+    // The retry sends the card text again, and goes up without a stale "dropped" warning.
+    refuse = false;
+    const ok = await again(p, id);
+    assert.deepEqual([ok.state, ok.warnings, bodies.length, bodies[2]!.media], ['published', undefined, 3, { media_ids: ['M1'], title: '영상' }]);
+  });
+
+  it('a failure other than a clear 400 is not sent again', async () => {
+    for (const code of [403, 503]) {
+      const { bodies, poll } = tweets(() => code);
+      await assert.rejects(poll(post()).out, (e: ProviderError) => e.code === `x.http_${code}`);
+      assert.equal(bodies.length, 1, `HTTP ${code}`);
+    }
+    // A 400 on a body with nothing to drop would only repeat itself.
+    const { bodies, poll } = tweets(() => 400);
+    await assert.rejects(poll(post({ title: ' ', description: '' })).out, (e: ProviderError) => e.code === 'x.http_400');
+    assert.equal(bodies.length, 1);
   });
 });
 
@@ -404,7 +481,7 @@ describe('x people tags', () => {
     const { targets } = store.createPost(post(), [{ platform: 'x', account: 'main', options: { tagUsers: ['@alice', 'ghost'] } }]);
     const out = await x.poll({ ctx, post: post(), target: { ...store.getTarget(targets[0]!.id)!, remoteId: 'M1', resume: { mediaId: 'M1', finalized: true } }, account });
     assert.equal(new URL(calls.find((c) => c.url.includes('/2/users/by'))!.url).searchParams.get('usernames'), 'alice,ghost');
-    assert.deepEqual(bodies[0]!.media, { media_ids: ['M1'], tagged_user_ids: ['42'] });
+    assert.deepEqual(bodies[0]!.media, { media_ids: ['M1'], title: '영상', description: '설명', tagged_user_ids: ['42'] });
     assert.match(out.warnings![0]!, /ghost/);
     // A passing failure of the lookup waits for the next check instead of dropping the tags.
     const busy = mockFetch([
