@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 import { fanoutHome, openContext, stderrLogger } from './core/context.ts';
 import { restoreBackup, RestoreError } from './core/restore.ts';
-import { DEFAULT_EVENTS, detectFormat, flushNotifications, notifyConfig, send, validWebhookUrl, type NotifyConfig } from './core/notify.ts';
+import { DEFAULT_EVENTS, detectFormat, flushNotifications, KNOWN_EVENTS, notifyConfig, send, validWebhookUrl, type NotifyConfig, type NotifyEvent } from './core/notify.ts';
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, watchAccount, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
@@ -26,7 +26,7 @@ import { DEFAULT_STATS_EVERY_MS, Worker } from './core/worker.ts';
 import { isShort } from './providers/youtube.ts';
 import { currentLang, local, msg } from './core/i18n.ts';
 import { ACCOUNT_NAME } from './core/store.ts';
-import { disconnectAccount, verifyDueAccounts } from './core/accounts.ts';
+import { disconnectAccount, signInExpiry, verifyDueAccounts } from './core/accounts.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
 
@@ -313,7 +313,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout hide-comment <postId> <platform> <commentId> [--show] [--account main]   댓글 숨기기 (YouTube·Instagram·Facebook, --show로 되돌림)
   fanout stats [postId] [--include-paid] [--history]  게시된 영상의 조회·좋아요·댓글과 24시간 변화 (X는 --include-paid일 때만)
   fanout limits [platform]               계정별 남은 게시 한도 (YouTube 하루 업로드, Instagram 24시간 게시, Bluesky·PeerTube 용량)
-  fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off] [--format slack|discord|json]
+  fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off,alert,expiring] [--format slack|discord|json]
   fanout notify test | off               상태 알림 (Slack·Discord·JSON webhook)
   fanout backup <폴더> [--without-key]    DB 스냅샷(+복호화 키) 백업 — 실행 중에도 안전
   fanout restore <백업 폴더> [--yes]      백업으로 되돌리기 (먼저 검사, 지금 데이터는 따로 보관)
@@ -871,8 +871,8 @@ async function cmdNotify(ctx: ProviderContext, args: Args): Promise<number> {
   if (sub === 'set') {
     const url = args.positionals[2];
     if (!url || !validWebhookUrl(url)) throw new UsageError(msg('fanout notify set <올바른 https://… webhook URL>'));
-    const events = str(args, 'events')?.split(',').map((e) => e.trim()) as TargetState[] | undefined;
-    const known: readonly string[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed'];
+    const events = str(args, 'events')?.split(',').map((e) => e.trim()) as NotifyEvent[] | undefined;
+    const known: readonly string[] = KNOWN_EVENTS;
     if (events?.some((e) => !known.includes(e))) throw new UsageError(msg('--events 는 {known} 중에서', { known: known.join(', ') }));
     const format = str(args, 'format') as NotifyConfig['format'];
     if (format && !['slack', 'discord', 'json'].includes(format)) throw new UsageError(msg('--format 은 slack, discord, json'));
@@ -1125,7 +1125,12 @@ export async function main(argv: string[]): Promise<number> {
         return 0;
       }
       case 'accounts':
-        for (const a of ctx.store.listAccounts()) console.log(`${`${a.platform}/${a.name}`.padEnd(20)} ${JSON.stringify(a.profile)}`);
+        for (const a of ctx.store.listAccounts()) {
+          const expiry = signInExpiry(ctx, deps.providers, a.platform, a.name);
+          const when = expiry ? new Date(expiry.expiresAt).toISOString().slice(0, 10) : '';
+          const note = expiry?.soon ? '  ⚠ ' + local(msg('로그인 만료 {when} — 다시 연결하세요', { when })) : '';
+          console.log(`${`${a.platform}/${a.name}`.padEnd(20)} ${JSON.stringify(a.profile)}${note}`);
+        }
         return 0;
       case 'disconnect': {
         const [, platform, name] = args.positionals;

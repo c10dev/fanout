@@ -587,6 +587,10 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     return creatorIssues(await creatorInfo(ctx, await tiktok.refresh(ctx, account)), opts, media.durationSec);
   },
 
+  signInExpiresAt(account) {
+    return creds(account).refreshExpiresAt;
+  },
+
   async doctor({ ctx, account, live }): Promise<DoctorCheck[]> {
     const checks: DoctorCheck[] = [];
     try {

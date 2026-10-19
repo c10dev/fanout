@@ -5,6 +5,7 @@
 
 import { ProviderError } from './errors.ts';
 import { msg } from './i18n.ts';
+import { notifyEvent } from './notify.ts';
 import type { Provider, ProviderContext } from './provider.ts';
 import type { Account } from './store.ts';
 
@@ -123,4 +124,38 @@ export async function verifyDueAccounts(ctx: ProviderContext, providers: Map<str
     }
   }
   return checked;
+}
+
+/** Warn this long before a sign-in ends (YouTube in "Testing" ends after 7 days, so always). */
+export const EXPIRY_WARN_MS = 14 * DAY_MS;
+
+/** When an account's sign-in ends, if its platform says (refresh token lifetimes), and whether that's soon. */
+export function signInExpiry(ctx: ProviderContext, providers: Map<string, Provider>, platform: string, name: string): { expiresAt: number; soon: boolean } | undefined {
+  const provider = providers.get(platform);
+  const account = provider?.signInExpiresAt ? ctx.store.getAccount(platform, name) : undefined;
+  const expiresAt = account ? provider!.signInExpiresAt!(account) : undefined;
+  if (expiresAt === undefined || !Number.isFinite(expiresAt)) return undefined;
+  return { expiresAt, soon: expiresAt - ctx.now().getTime() < EXPIRY_WARN_MS };
+}
+
+/**
+ * Tell the owner once (log and webhook) about each sign-in ending within two weeks, so a scheduled
+ * post doesn't fail on it. The mark is the expiry it warned about: a reconnect gives a new one.
+ */
+export async function warnExpiringAccounts(ctx: ProviderContext, providers: Map<string, Provider>): Promise<number> {
+  let warned = 0;
+  for (const { platform, name } of ctx.store.listAccounts()) {
+    const expiry = signInExpiry(ctx, providers, platform, name);
+    const account = ctx.store.getAccount(platform, name);
+    if (!expiry?.soon || !account || (account.credentials as { expiryWarnedFor?: number }).expiryWarnedFor === expiry.expiresAt) continue;
+    const when = new Date(expiry.expiresAt).toISOString().slice(0, 16).replace('T', ' ');
+    const text = expiry.expiresAt <= ctx.now().getTime()
+      ? msg('🔑 {platform}/{name} 로그인이 만료됐습니다 ({when} UTC) — fanout connect {platform} 로 다시 연결하세요', { platform, name, when })
+      : msg('🔑 {platform}/{name} 로그인이 {when} UTC에 만료됩니다 — 그 전에 fanout connect {platform} 로 다시 연결하세요', { platform, name, when });
+    ctx.log.warn(text);
+    notifyEvent(ctx, 'expiring', text, { platform, account: name, expiresAt: new Date(expiry.expiresAt).toISOString() });
+    ctx.store.saveAccountIf({ ...account, credentials: { ...account.credentials, expiryWarnedFor: expiry.expiresAt } }, (stored) => grant(stored.credentials) === grant(account.credentials));
+    warned++;
+  }
+  return warned;
 }

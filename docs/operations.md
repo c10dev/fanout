@@ -40,7 +40,8 @@ fanout notify off
 대시보드 설정 탭의 "알림" 카드에서도 같은 설정을 할 수 있습니다(127.0.0.1 전용).
 
 - Slack·Discord webhook 주소는 알아보고 그 형식으로 보냅니다. 그 밖의 주소에는 `{ event, state, platform, account, postId, targetId, title, url, error, text }` JSON을 보냅니다.
-- 기본으로 알리는 상태: 게시됨, 앱에서 마무리 필요(TikTok 수신함), 실패, 재연결 필요.
+- 기본으로 알리는 것: 게시됨, 앱에서 마무리 필요(TikTok 수신함), 실패, 재연결 필요, 그리고 `alert`(게시된 뒤 생긴 문제, 예: Meta 저작권 검사로 음소거·차단)와 `expiring`(계정 로그인이 2주 안에 만료, 예: YouTube 동의 화면이 "Testing"이면 7일, TikTok은 약 1년). `removed`는 `--events`로 고를 때만. 예전에 `--events`를 직접 골라 저장했다면 `alert`·`expiring`은 다시 골라야 받습니다.
+- `alert`와 `expiring`은 같은 일에 한 번만 보냅니다(만료는 재연결로 만료일이 바뀌면 다시). 만료 예정은 `fanout accounts`와 대시보드 설정 탭의 계정 옆에도 표시됩니다.
 - webhook 주소는 암호화해서 저장합니다. 환경 변수 `FANOUT_WEBHOOK_URL`이 있으면 그쪽을 씁니다.
 - 알림은 5초 안에 보내지 못하면 포기하고 경고만 남깁니다. 업로드를 막거나 늦추지 않습니다.
 
