@@ -24,6 +24,21 @@ export function statsTrend(store: Store, targetId: string, now: Date, hours = 24
   return trend;
 }
 
+/**
+ * Recorded view counts of a target over the last `days`, thinned to at most `max` points spread
+ * evenly (the latest always kept), for a small chart. Undefined until there are two readings.
+ */
+export function viewsSeries(store: Store, targetId: string, now: Date, days = 30, max = 24): Array<{ at: string; views: number }> | undefined {
+  const points = store
+    .statsHistory(targetId, new Date(now.getTime() - days * 86_400_000).toISOString())
+    .filter((p): p is typeof p & { views: number } => typeof p.views === 'number')
+    .map((p) => ({ at: p.at, views: p.views }));
+  if (points.length < 2) return undefined;
+  if (points.length <= max) return points;
+  const step = (points.length - 1) / (max - 1);
+  return Array.from({ length: max }, (_, i) => points[Math.round(i * step)]!);
+}
+
 export interface AutoStatsOptions {
   /** Re-read a target's stats once they are this old. */
   everyMs: number;

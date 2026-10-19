@@ -14,7 +14,7 @@ import type { Provider, ProviderContext } from '../core/provider.ts';
 import type { RunnerDeps } from '../core/runner.ts';
 import { Worker } from '../core/worker.ts';
 import { isTerminal } from '../core/state.ts';
-import { statsTrend } from '../core/stats.ts';
+import { statsTrend, viewsSeries } from '../core/stats.ts';
 import type { PostInput, Target, TargetInput, TargetState } from '../core/types.ts';
 import { isShort } from '../providers/youtube.ts';
 import { ACCOUNT_NAME } from '../core/store.ts';
@@ -970,6 +970,7 @@ export class Dashboard {
       visibilities: t.state === 'published' && provider?.setVisibility ? provider.visibilities : undefined,
       goesPublicAt: this.#goesPublicAt(t),
       trend: t.stats ? statsTrend(this.#opts.ctx.store, t.id, this.#opts.ctx.now()) : undefined,
+      viewsSeries: t.stats ? viewsSeries(this.#opts.ctx.store, t.id, this.#opts.ctx.now()) : undefined,
     };
   }
 }

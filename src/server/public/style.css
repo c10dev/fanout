@@ -306,6 +306,7 @@ body.modal-open { overflow: hidden; }
 .reply-box .note { margin: 0; }
 .reply-box textarea:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
 .stats .up { color: var(--ok); font-size: 12px; }
+.stats .spark { color: var(--accent); vertical-align: middle; flex: none; }
 .stats .down { color: var(--bad); font-size: 12px; }
 .add-banner { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; background: var(--bg); border: 1px solid var(--accent); border-radius: var(--radius-control); padding: 8px 10px; margin-bottom: 10px; font-size: 14px; }
 #board-search { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-control); padding: 4px 8px; min-width: 0; flex: 1 1 200px; max-width: 320px; }

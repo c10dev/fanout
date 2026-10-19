@@ -139,3 +139,22 @@ describe('stats window', () => {
     assert.equal(await refreshDueStats(env.ctx, providerMap(), async () => void calls++, { everyMs: 6 * 3600_000 }), 1);
   });
 });
+
+describe('views series for the chart', () => {
+  it('needs two readings, keeps the latest, and thins to the limit evenly', async () => {
+    const { viewsSeries } = await import('../src/core/stats.ts');
+    const now = new Date('2026-10-19T00:00:00Z');
+    const env = makeCtx(undefined, () => now);
+    const { targets } = env.store.createPost({ mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false }, [{ platform: 'youtube', account: 'main', options: {} }]);
+    const id = targets[0]!.id;
+    const at = (h: number) => new Date(now.getTime() - h * 3600_000).toISOString();
+    env.store.recordStats(id, { fetchedAt: at(10), views: 5 });
+    assert.equal(viewsSeries(env.store, id, now), undefined);
+    for (let i = 0; i < 100; i++) env.store.recordStats(id, { fetchedAt: at(600 - i * 6), views: i * 10 });
+    env.store.recordStats(id, { fetchedAt: at(1), likes: 3 }); // no views: left out
+    const s = viewsSeries(env.store, id, now, 30, 24)!;
+    assert.equal(s.length, 24);
+    assert.equal(s.at(-1)!.views, 990, 'the latest reading with views');
+    assert.ok(s.every((p, i) => i === 0 || Date.parse(p.at) > Date.parse(s[i - 1]!.at)), 'in time order');
+  });
+});
