@@ -77,3 +77,35 @@ describe('insights', () => {
     assert.deepEqual(r.groups.map((g) => `${g.platform}:${g.top.map((p) => p.title).join(',')}`), ['youtube:yt']);
   });
 });
+
+describe('cross-post suggestions', () => {
+  it('suggests connected accounts a top post hasn\'t gone to, if the video fits them, with the add command', async () => {
+    const { suggestCrossPosts } = await import('../src/core/posting.ts');
+    const { providerMap } = await import('../src/providers/index.ts');
+    const { fakeMedia, tempFile } = await import('./helpers.ts');
+    let clock = Date.parse('2026-10-10T00:00:00Z');
+    const env = makeCtx(undefined, () => new Date(clock));
+    for (const [platform, name] of [['youtube', 'main'], ['tiktok', 'mainmain'], ['facebook', 'main'], ['x', 'main']] as const) {
+      env.store.saveAccount({ platform, name, credentials: {}, profile: {} });
+    }
+    const video = tempFile(10);
+    const { targets } = env.store.createPost({ ...POST('hit'), mediaPath: video }, [{ platform: 'youtube', account: 'main', options: {} }, { platform: 'x', account: 'main', options: {} }]);
+    env.store.transition(targets[0]!.id, 'uploading');
+    env.store.transition(targets[0]!.id, 'published', { remoteId: 'V' });
+    env.store.saveStats(targets[0]!.id, { fetchedAt: new Date(clock).toISOString(), views: 5000 });
+    env.store.transition(targets[1]!.id, 'uploading');
+    env.store.transition(targets[1]!.id, 'failed', { errorCode: 'x.http_402' });
+    // A landscape 2-minute video: TikTok takes it, Facebook Reels (9:16, ≤90 s) doesn't; X failed cleanly, so it's open again.
+    const probe = async () => fakeMedia({ durationSec: 120 }, { width: 1920, height: 1080 });
+    clock = Date.parse('2026-10-19T00:00:00Z');
+    const s = await suggestCrossPosts(env.ctx, providerMap(), { days: 30, probe });
+    assert.equal(s.length, 1);
+    assert.deepEqual(s[0]!.targets.map((t) => `${t.platform}/${t.account}`).sort(), ['tiktok/mainmain', 'x/main']);
+    assert.match(s[0]!.command, /^fanout add [0-9a-f]{8} --to (tiktok,x|x,tiktok)$/);
+
+    // Once the original is cleaned up, `fanout add` can't work: no suggestion.
+    const { rmSync } = await import('node:fs');
+    rmSync(video);
+    assert.deepEqual(await suggestCrossPosts(env.ctx, providerMap(), { days: 30, probe }), []);
+  });
+});

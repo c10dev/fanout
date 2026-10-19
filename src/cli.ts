@@ -10,7 +10,7 @@ import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, watchAccount, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
 import { extractFrame, fileHash, probe, withCoverMoment } from './core/media.ts';
-import { accountLabel, addTargets, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, describePrior, editPost, fetchComments, hideComment, MaybeLiveError, planAddTargets, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, visibilityLabel, withTimeout } from './core/posting.ts';
+import { accountLabel, addTargets, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, describePrior, editPost, fetchComments, hideComment, MaybeLiveError, planAddTargets, priorPosts, refreshStats, removeTarget, replyToComment, retryTarget, suggestCrossPosts, visibilityLabel, withTimeout } from './core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from './core/prune.ts';
 import type { DoctorCheck, Limit, Provider, ProviderContext } from './core/provider.ts';
 import { readLimits } from './core/limits.ts';
@@ -1086,7 +1086,7 @@ function cmdCalendar(ctx: ProviderContext, args: Args): number {
 }
 
 /** What performs, from the recorded stats: per platform and account, and the best time to post once there's enough. */
-function cmdInsights(ctx: ProviderContext, args: Args): number {
+async function cmdInsights(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const days = num(args, 'days') ?? 30;
   if (!(days > 0 && days <= 365)) throw new UsageError(msg('--days 는 1~365'));
   const tz = str(args, 'tz');
@@ -1105,6 +1105,17 @@ function cmdInsights(ctx: ProviderContext, args: Args): number {
     if (g.bestWeekday) say(msg('  잘 되는 요일: {label} (하루 뒤 조회 중앙값 {views} · 게시물 수 {posts})', { label: g.bestWeekday.label, views: fmt(g.bestWeekday.medianViews), posts: g.bestWeekday.posts }));
     if (g.bestHours) say(msg('  잘 되는 시간: {label} (하루 뒤 조회 중앙값 {views} · 게시물 수 {posts})', { label: g.bestHours.label, views: fmt(g.bestHours.medianViews), posts: g.bestHours.posts }));
     if (g.note) say('  ' + local(g.note));
+  }
+  // Where the best ones haven't gone yet (accounts connected here, rules met).
+  const suggestions = args.positionals[1] ? [] : await suggestCrossPosts(ctx, deps.providers, { days });
+  if (suggestions.length) {
+    say(msg('\n다른 곳에도 올려 볼 만한 게시물'));
+    for (const s of suggestions) {
+      const where = local(msg('{platform}에서 조회 {views}', { platform: s.platform, views: fmt(s.views) }));
+      const converted = s.targets.some((t) => t.transcode) ? '  ' + local(msg('(일부는 변환 후 업로드)')) : '';
+      console.log(`  "${printable(s.title).slice(0, 40)}"  ` + where);
+      console.log(`    ${s.command}` + converted);
+    }
   }
   return 0;
 }
@@ -1250,7 +1261,7 @@ export async function main(argv: string[]): Promise<number> {
       case 'limits':
         return await cmdLimits(ctx, deps, args);
       case 'insights':
-        return cmdInsights(ctx, args);
+        return await cmdInsights(ctx, deps, args);
       case 'calendar':
         return cmdCalendar(ctx, args);
       case 'hide-comment':

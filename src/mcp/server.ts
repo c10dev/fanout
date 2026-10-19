@@ -3,7 +3,7 @@ import { extname, isAbsolute, join, resolve, sep } from 'node:path';
 import { createInterface } from 'node:readline';
 import type { Readable, Writable } from 'node:stream';
 import { extractFrame, fileHash, probe as realProbe, withCoverMoment, type MediaInfo } from '../core/media.ts';
-import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, editPost, fetchComments, hideComment, planAddTargets, previewPost, refreshStats, replyToComment, retryTarget, type TargetPreview } from '../core/posting.ts';
+import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, editPost, fetchComments, hideComment, planAddTargets, previewPost, refreshStats, replyToComment, retryTarget, suggestCrossPosts, type TargetPreview } from '../core/posting.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import { isTerminal } from '../core/state.ts';
 import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.ts';
@@ -168,7 +168,7 @@ const TOOLS = [
     title: 'Get insights',
     description:
       'What performs, from the reactions fanout already recorded (no platform calls): per platform and account over the last N days, posts, total/median views, likes per 100 views, top posts, ' +
-      'and the weekday and 3-hour block whose posts had the most views a day later (only with enough posts).',
+      'and the weekday and 3-hour block whose posts had the most views a day later (only with enough posts). `suggestions`: top posts that could also go to connected accounts they haven\'t gone to (rules met), with the add command; suggest them, never add without the user.',
     inputSchema: { type: 'object', properties: { days: { type: 'number', description: 'default 30' }, platform: { type: 'string' }, timeZone: { type: 'string', description: 'IANA zone for weekdays and hours, e.g. Asia/Seoul (default: FANOUT_TZ or the server\'s)' } } },
     annotations: { readOnlyHint: true, openWorldHint: false },
   },
@@ -459,7 +459,8 @@ export class McpServer {
       case 'get_insights': {
         const days = typeof args.days === 'number' && args.days > 0 ? Math.min(args.days, 365) : 30;
         if (typeof args.timeZone === 'string' && args.timeZone && !validTimeZone(args.timeZone)) throw new ToolError(msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz: args.timeZone }));
-        return { ...computeInsights(store, this.#deps.ctx.now(), { days, platform: typeof args.platform === 'string' ? args.platform : undefined, locale: currentLang() === 'en' ? 'en-US' : 'ko-KR', timeZone: typeof args.timeZone === 'string' ? args.timeZone : undefined }) };
+        const suggestions = await suggestCrossPosts(this.#deps.ctx, providers, { days });
+        return { suggestions, ...computeInsights(store, this.#deps.ctx.now(), { days, platform: typeof args.platform === 'string' ? args.platform : undefined, locale: currentLang() === 'en' ? 'en-US' : 'ko-KR', timeZone: typeof args.timeZone === 'string' ? args.timeZone : undefined }) };
       }
       case 'get_limits':
         return { accounts: await readLimits(this.#deps.ctx, providers, typeof args.platform === 'string' ? args.platform : undefined) };

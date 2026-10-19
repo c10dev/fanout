@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { extname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { extractFrame, fileHash, probe as realProbe, withCoverMoment, type MediaInfo } from '../core/media.ts';
-import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, editPost, fetchComments, hideComment, MaybeLiveError, planAddTargets, previewPost, refreshStats, removeTarget, replyToComment, retryTarget, withTimeout } from '../core/posting.ts';
+import { accountLabel, addTargets, appReady, assessMedia, cancelTarget, changeVisibility, commentInbox, createScheduledPost, editPost, fetchComments, hideComment, MaybeLiveError, planAddTargets, previewPost, refreshStats, removeTarget, replyToComment, retryTarget, suggestCrossPosts, withTimeout } from '../core/posting.ts';
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import { msg, translate, translateDeep, type Lang } from '../core/i18n.ts';
@@ -313,7 +313,9 @@ export class Dashboard {
       const locale = url.searchParams.get('lang') === 'en' ? 'en-US' : 'ko-KR';
       const tz = url.searchParams.get('tz') || undefined;
       if (tz && !validTimeZone(tz)) throw new HttpError(400, msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz }));
-      return send(res, 200, computeInsights(this.#opts.ctx.store, this.#opts.ctx.now(), { days: days > 0 ? Math.min(days, 365) : 30, locale, timeZone: tz }));
+      const window = days > 0 ? Math.min(days, 365) : 30;
+      const suggestions = await suggestCrossPosts(this.#opts.ctx, this.#opts.providers, { days: window, probe: this.#opts.probe });
+      return send(res, 200, { ...computeInsights(this.#opts.ctx.store, this.#opts.ctx.now(), { days: window, locale, timeZone: tz }), suggestions });
     }
     if (method === 'GET' && parts[0] === 'limits' && !parts[1]) return send(res, 200, { accounts: await readLimits(this.#opts.ctx, this.#opts.providers, url.searchParams.get('platform') ?? undefined) });
     if (parts[0] === 'presets') return send(res, 200, await this.#presets(method, parts[1] ? decode(parts[1]) : undefined, req));

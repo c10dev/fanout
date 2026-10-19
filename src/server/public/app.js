@@ -1975,6 +1975,30 @@ function insightsPanel() {
           ),
         ),
         h('p', { class: 'muted' }, tr('요일·시간은 {timeZone} 기준, 기록된 반응으로만 계산합니다', { timeZone: r.timeZone })),
+        ...(r.suggestions?.length
+          ? [
+              h('h3', {}, tr('다른 곳에도 올려 볼 만한 게시물')),
+              ...r.suggestions.map((sg) =>
+                h(
+                  'div',
+                  { class: 'insight' },
+                  h('p', {}, sg.title, h('span', { class: 'muted' }, ` · ${tr('{platform}에서 조회 {views}', { platform: sg.platform, views: fmt(sg.views) })} → ${sg.targets.map((t) => `${t.platform}/${t.account}`).join(', ')}`)),
+                  h(
+                    'button',
+                    {
+                      class: 'small',
+                      type: 'button',
+                      onclick: () => {
+                        startAddMode(sg.postId);
+                        $('#post-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                      },
+                    },
+                    tr('이 게시물에 플랫폼 추가'),
+                  ),
+                ),
+              ),
+            ]
+          : []),
       );
     } catch (err) {
       body.replaceChildren(h('p', { class: 'form-error' }, err.message));
