@@ -176,6 +176,27 @@ describe('tiktok publish', () => {
 });
 
 describe('tiktok refresh', () => {
+  it('a disconnect while the token request is out does not bring the account back', async () => {
+    let env!: ReturnType<typeof makeCtx>;
+    const { fetch } = mockFetch([
+      [
+        'POST',
+        '/oauth/token/',
+        () => {
+          env.store.removeAccount('tiktok', account.name);
+          return json({ access_token: 'AT2', refresh_token: 'RT2', expires_in: 86400, refresh_expires_in: 31536000, open_id: 'o', scope: 'video.upload' });
+        },
+      ],
+    ]);
+    env = makeCtx(fetch);
+    env.store.setApp('tiktok', { clientKey: 'k', clientSecret: 's' });
+    const expired = { ...account, credentials: { ...account.credentials, expiresAt: 0 } };
+    env.store.saveAccount(expired);
+    const next = await tiktok.refresh(env.ctx, expired);
+    assert.equal((next.credentials as { accessToken: string }).accessToken, 'AT2');
+    assert.equal(env.store.getAccount('tiktok', account.name), undefined);
+  });
+
   it('doctor still really refreshes a stale copy of an unchanged token', async () => {
     const { fetch, calls } = mockFetch([['POST', '/oauth/token/', () => json({ access_token: 'AT2', refresh_token: 'RT2', expires_in: 86400, refresh_expires_in: 31536000, open_id: 'o', scope: 'video.upload' })]]);
     const { ctx, store } = makeCtx(fetch, () => NOW);

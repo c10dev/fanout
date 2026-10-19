@@ -372,7 +372,9 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     try {
       const tok = await tokenRequest(rotationContext(ctx), { grant_type: 'refresh_token', refresh_token: sc.refreshToken }, sc);
       const next: Account = { ...(stored ?? account), credentials: { ...sc, ...tok } };
-      ctx.store.saveAccount(next);
+      // Only over the grant just spent: the account may have been disconnected meanwhile, and a
+      // plain save would bring it back with live tokens (and its scheduled posts with it).
+      ctx.store.saveAccountIf(next, (s) => creds(s).refreshToken === sc.refreshToken);
       return next;
     } catch (err) {
       // Lost a race: someone else used the token first and saved the new pair.
