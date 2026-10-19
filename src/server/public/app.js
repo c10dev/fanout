@@ -34,13 +34,36 @@ function h(tag, attrs = {}, ...children) {
   return el;
 }
 
+// Set once a request comes back 401: the dashboard restarted (a new token) or the typed token is
+// wrong. Nothing more is sent; the banner offers a reload.
+let sessionLost = false;
+
+function loseSession() {
+  if (sessionLost) return;
+  sessionLost = true;
+  clearTimeout(boardTimer);
+  try {
+    sessionStorage.removeItem('fanoutToken');
+  } catch {}
+  const el = $('#banner');
+  el.className = 'banner bad';
+  el.replaceChildren(
+    h('span', {}, tr('대시보드가 다시 시작돼 이 화면의 연결이 끊겼습니다. 새로고침하면 이어집니다(쓰던 글은 남아 있습니다).')),
+    ' ',
+    h('button', { type: 'button', class: 'small', onclick: () => location.reload() }, tr('새로고침')),
+  );
+  el.hidden = false;
+}
+
 async function api(path, opts = {}) {
+  if (sessionLost) throw new Error(tr('대시보드가 다시 시작돼 이 화면의 연결이 끊겼습니다. 새로고침하면 이어집니다(쓰던 글은 남아 있습니다).'));
   const res = await fetch(`/api${path}`, {
     ...opts,
     // x-fanout-lang: the server translates its own messages (errors, warnings, guides) too.
     headers: { 'x-fanout-token': token, 'x-fanout-lang': LANG, ...(opts.body && !(opts.body instanceof Blob) ? { 'content-type': 'application/json' } : {}), ...opts.headers },
   });
   const body = await res.json().catch(() => ({}));
+  if (res.status === 401) loseSession();
   if (!res.ok) throw Object.assign(new Error(body.error || `HTTP ${res.status}`), { body });
   return body;
 }
@@ -760,6 +783,7 @@ function uploadFile(file) {
     try {
       body = JSON.parse(xhr.responseText);
     } catch {}
+    if (xhr.status === 401) loseSession();
     if (xhr.status >= 300) {
       label.textContent = tr('영상 파일을 고르거나 여기에 끌어다 놓으세요');
       $('#form-error').textContent = body.error || tr('업로드 실패 (HTTP {status})', { status: xhr.status });
