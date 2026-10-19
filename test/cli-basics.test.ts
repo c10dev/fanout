@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, it } from 'node:test';
@@ -15,8 +15,10 @@ describe('CLI basics', () => {
     for (const args of [['version'], ['--version']]) {
       const r = run(args);
       assert.equal(r.status, 0);
-      // A checkout knows its commit; it tells main apart from the release with the same version.
-      assert.match(r.stdout.trim(), new RegExp(`^fanout ${version.replace(/\./g, '\\.')} \\([0-9a-f]{7,}\\)$`));
+      // A checkout knows its commit (it tells main apart from the release with the same version);
+      // a source archive without .git has just the version.
+      const commit = existsSync(join(import.meta.dirname, '..', '.git')) ? ' \\([0-9a-f]{7,}\\)' : '';
+      assert.match(r.stdout.trim(), new RegExp(`^fanout ${version.replace(/\./g, '\\.')}${commit}$`));
     }
   });
 
@@ -26,6 +28,8 @@ describe('CLI basics', () => {
     const here = new URL(`file://${join(dir, 'dist')}/`);
     mkdirSync(join(dir, 'dist'));
     assert.equal(buildCommit(here), undefined, 'no record and no .git: the version alone');
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ gitHead: 'def5678901234' }));
+    assert.equal(buildCommit(here), 'def5678', "npm's gitHead for a git install");
     writeFileSync(join(dir, 'dist', 'commit.txt'), 'abc1234\n');
     assert.equal(buildCommit(here), 'abc1234');
   });

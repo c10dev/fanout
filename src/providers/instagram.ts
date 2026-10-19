@@ -73,7 +73,8 @@ const squash = (s: string | undefined) => (s ?? '').replace(/\s+/g, ' ').trim();
  * caption, that no other target holds. Undefined unless exactly one matches.
  */
 async function findPublishedMedia(ctx: ProviderContext, c: MetaPageCredentials, post: Post, target: Target): Promise<{ id: string; permalink?: string } | undefined> {
-  const since = (ctx.store.stateSince(target.id, 'uploading')?.getTime() ?? Date.parse(post.createdAt)) - MATCH_SKEW_MS;
+  // From the first upload attempt: after a reconnect and retry the post may predate the latest one.
+  const since = (ctx.store.stateSince(target.id, 'uploading', 'first')?.getTime() ?? Date.parse(post.createdAt)) - MATCH_SKEW_MS;
   const caption = squash(metaCaption(post, (target.options as InstagramOptions).caption));
   const res = await graph<{ data?: Array<{ id: string; permalink?: string; timestamp?: string; caption?: string }> }>(ctx, 'GET', `/${c.igUserId}/media`, {
     fields: 'id,permalink,timestamp,caption',
@@ -227,7 +228,8 @@ export const instagram: Provider = {
       // throws, so the target stays in processing and the next poll looks again.
       const found = await findPublishedMedia(ctx, c, post, target);
       if (found) {
-        ctx.store.updateTarget(target.id, { resume: { ...resume, mediaId: found.id, permalink: found.permalink } });
+        const { mediaIdUnknown: _unknown, ...kept } = resume as typeof resume & { mediaIdUnknown?: boolean };
+        ctx.store.updateTarget(target.id, { resume: { ...kept, mediaId: found.id, permalink: found.permalink } });
         return { state: 'published', remoteId: found.id, remoteUrl: found.permalink, warnings: [msg('게시 직후 응답을 놓쳤지만 계정의 최근 게시물에서 찾았습니다')] };
       }
       // Container and media ids look alike, so never guess by the id: mark it, and reads skip it.

@@ -637,7 +637,6 @@ export const MESSAGES_EN: Record<string, string> = {
   "get_post_status 로 진행 상황을 확인하세요": "Check progress with get_post_status",
   "게시물 없음: {id}": "No such post: {id}",
   "바꿀 것(title, description, tags)을 하나 이상 주세요": "Give at least one change (title, description, tags)",
-  "이 대상은 이미 게시됐을 수 있습니다 ({code}). 사용자에게 {platform}에서 확인을 받은 뒤 confirmedNotPosted: true 로 다시 호출하세요": "This target may already be posted ({code}). Have the user check on {platform}, then call again with confirmedNotPosted: true",
   "{field}: 파일 경로가 필요합니다": "{field}: a file path is required",
   "{field}: 파일이 없습니다: {path}": "{field}: no such file: {path}",
   "{field}: {exts} 파일만 받습니다": "{field}: only {exts} files are accepted",
@@ -822,4 +821,7 @@ export const MESSAGES_EN: Record<string, string> = {
   "게시물을 지우는 중이라 첫 댓글을 달지 않았습니다": "The post was being removed, so the first comment was not posted",
   "백업 뒤에 이미 게시됐을 수 있어 멈춰 두었습니다. 플랫폼에서 확인한 뒤 다시 시도하거나 취소하세요": "Held because it may have gone out after the backup. Check on the platform, then retry or cancel",
   "백업 뒤에 이미 게시됐을 수 있는 대상 {n}개를 멈춰 두었습니다. fanout status 로 보고, 플랫폼에서 확인한 뒤 fanout retry … --confirmed-not-posted 나 fanout cancel 하세요": "Held {n} targets that may have gone out after the backup. See them with fanout status, check on the platform, then use fanout retry … --confirmed-not-posted or fanout cancel",
+  "게시물을 지우려고 첫 댓글 답글을 먼저 지웠습니다": "The first-comment reply was deleted first, to remove the post",
+  "업로드 응답을 받지 못했습니다. YouTube Studio에 \"fanout doctor test\" 영상이 있으면 지우세요": "The upload got no answer. If YouTube Studio has a \"fanout doctor test\" video, delete it",
+  "첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못합니다. X에서 확인해 직접 지우세요": "It can't be told whether the first-comment reply went up, so it won't be deleted. Check on X and delete it yourself",
 };

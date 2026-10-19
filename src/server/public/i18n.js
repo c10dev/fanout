@@ -138,6 +138,7 @@ const MESSAGES_EN = {
   '실패: {list}': 'Failed: {list}',
   '직접 확인이 필요해 건너뜀: {list}': 'Skipped, check on the platform first: {list}',
   '첫 댓글 답글도 먼저 지웁니다 (삭제 요청 2건)': 'The first-comment reply is deleted first (two delete requests)',
+  '첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못합니다. X에서 확인해 직접 지우세요': "It can't be told whether the first-comment reply went up, so it won't be deleted. Check on X and delete it yourself",
   '{time}에 공개 예약됨': 'Goes public {time}',
   '이 댓글을 숨길까요? 나중에 다시 보이게 할 수 있습니다.': 'Hide this comment? You can show it again later.',
   '다시 보이기': 'Show again',

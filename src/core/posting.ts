@@ -327,6 +327,8 @@ export async function refreshStats(
       continue;
     }
     if (remoteIdUnknown(t)) {
+      // Saved, so the background refresh moves on instead of picking this target first every run.
+      ctx.store.saveStats(t.id, { ...(t.stats ?? {}), fetchedAt: ctx.now().toISOString(), note: remoteIdUnknownNote() });
       out.push({ ...base, skipped: remoteIdUnknownNote() });
       continue;
     }
@@ -427,7 +429,11 @@ export async function removeTarget(baseCtx: ProviderContext, providers: Map<stri
   // up with its reply, never a reply with nothing to answer.
   const f = ctx.store.getTarget(t.id)?.followup;
   const notes: string[] = [];
-  if (provider.firstCommentIsPost && f?.state === 'posted' && f.id) await provider.remove({ ctx, account, target: { ...t, remoteId: f.id } });
+  if (provider.firstCommentIsPost && f?.state === 'posted' && f.id) {
+    await provider.remove({ ctx, account, target: { ...t, remoteId: f.id } });
+    // Gone now: if the post itself can't be removed, the first comment can be posted again.
+    ctx.store.setFollowup(t.id, { state: 'failed', at: ctx.now().toISOString(), error: msg('게시물을 지우려고 첫 댓글 답글을 먼저 지웠습니다') });
+  }
   else if (provider.firstCommentIsPost && (f?.state === 'sending' || f?.maybePosted)) {
     notes.push(msg('첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못했습니다. {platform}에서 확인해 직접 지우세요', { platform: provider.displayName }));
   }

@@ -770,6 +770,13 @@ export function buildCommit(here: URL = new URL('./', import.meta.url)): string 
     // not a build that recorded one
   }
   const root = new URL('../', here);
+  // npm records the commit of a git dependency it installed (built from a tarball, so no .git).
+  try {
+    const gitHead = (JSON.parse(readFileSync(new URL('package.json', root), 'utf8')) as { gitHead?: unknown }).gitHead;
+    if (typeof gitHead === 'string' && /^[0-9a-f]{7,40}$/.test(gitHead)) return gitHead.slice(0, 7);
+  } catch {
+    // no package.json next to it
+  }
   if (!existsSync(new URL('.git', root))) return undefined;
   try {
     return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: fileURLToPath(root), encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined;
@@ -960,6 +967,7 @@ async function cmdRemove(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
   const t = candidates[0]!;
   console.log(`"${post.title}" → ${t.platform}/${t.account} ${t.remoteUrl ?? t.remoteId ?? ''}`);
   if (deps.providers.get(t.platform)?.firstCommentIsPost && t.followup?.state === 'posted') say(msg('첫 댓글 답글도 먼저 지웁니다 (삭제 요청 2건)'));
+  else if (deps.providers.get(t.platform)?.firstCommentIsPost && (t.followup?.state === 'sending' || t.followup?.maybePosted)) say(msg('첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못합니다. X에서 확인해 직접 지우세요'));
   if (!args.flags.yes && !(await confirm(msg('플랫폼에서 이 게시물을 삭제할까요? 되돌릴 수 없습니다')))) return 1;
   const done = await removeTarget(ctx, deps.providers, t.id).catch((err: Error) => {
     throw err instanceof ProviderError ? err : new UsageError(err.message);
@@ -1306,7 +1314,8 @@ async function cmdRetry(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   await settle(deps, ids, settleOpts(ctx));
   await firstComments(ctx, deps);
   printPost(ctx, post);
-  return 0;
+  // Something was left for the user to check: a script must not read this as all done.
+  return held ? 1 : 0;
 }
 
 export async function main(argv: string[]): Promise<number> {

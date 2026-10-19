@@ -639,11 +639,11 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
 
     // Open question from the research: does inbox upload work for an unaudited app, without the 5-user/private limits?
     const clip = join(tmpdir(), `fanout-doctor-${Date.now()}.mp4`);
-    await makeTestClip(clip);
-    const size = statSync(clip).size;
-    const plan = chunkPlan(size);
     const post: Post = { id: 'doctor', createdAt: ctx.now().toISOString(), mediaPath: clip, title: '', description: '', tags: [], captions: [], containsSyntheticMedia: false };
     try {
+      await makeTestClip(clip);
+      const size = statSync(clip).size;
+      const plan = chunkPlan(size);
       const { publish_id, upload_url } = await init(ctx, acct, post, { mode: 'inbox' }, plan, size);
       await upload(ctx, upload_url, clip, size, plan);
       let data: StatusData = {};

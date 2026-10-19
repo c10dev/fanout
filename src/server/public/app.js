@@ -1305,7 +1305,8 @@ function targetRow(t) {
           type: 'button',
           onclick: async (e) => {
             const question = tr('{target}에서 이 게시물을 삭제할까요?\n플랫폼에서 지워지며 되돌릴 수 없습니다.', { target: `${t.platform}/${t.account}` });
-            if (!confirm(t.removesReply ? `${question}\n${tr('첫 댓글 답글도 먼저 지웁니다 (삭제 요청 2건)')}` : question)) return;
+            const extra = t.removesReply ? tr('첫 댓글 답글도 먼저 지웁니다 (삭제 요청 2건)') : t.replyUnknown ? tr('첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못합니다. X에서 확인해 직접 지우세요') : '';
+            if (!confirm(extra ? `${question}\n${extra}` : question)) return;
             e.target.disabled = true;
             await api(`/targets/${t.id}/remove`, { method: 'POST' }).catch((err) => alert(err.message));
             refreshBoard();
@@ -1680,6 +1681,8 @@ function postCard({ post, targets }) {
   const retryable = failedHere.filter((t) => !t.mayBeDuplicate);
   const held = failedHere.filter((t) => t.mayBeDuplicate);
   const retryStatus = h('span', { class: 'msg', role: 'status' });
+  // The outcome stays until nothing on the post is failed any more.
+  if (!failedHere.length) retryResults.delete(post.id);
   const last = retryResults.get(post.id);
   if (last) message(retryStatus, last.text, last.ok);
   const retryAll =
