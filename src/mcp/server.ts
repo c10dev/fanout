@@ -14,6 +14,7 @@ import { signInExpiry } from '../core/accounts.ts';
 import { computeCalendar } from '../core/calendar.ts';
 import { computeInsights, validTimeZone } from '../core/insights.ts';
 import { suggestTimes } from '../core/slots.ts';
+import { retryFirstComment } from '../core/followup.ts';
 import { currentLang, local, msg, translateDeep } from '../core/i18n.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
@@ -265,6 +266,16 @@ const TOOLS = [
       'If the upload got far enough that the post may already be live, this is refused: ask the user to check the platform, and only pass confirmedNotPosted: true once they confirm it is not there — a canceled target can no longer be retried or removed.',
     inputSchema: { type: 'object', required: ['targetId'], properties: { targetId: { type: 'string' }, confirmedNotPosted: { type: 'boolean' } } },
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+  },
+  {
+    name: 'retry_first_comment',
+    title: 'Post a first comment again',
+    description:
+      "Post the post's first comment on a published target again after it failed (the target's firstComment says so). " +
+      'If firstComment.state is sending or maybePosted is true it may already be there: ask the user to check the platform, ' +
+      'and only pass confirmedNotPosted: true once they confirm it is not — otherwise it is posted twice.',
+    inputSchema: { type: 'object', required: ['targetId'], properties: { targetId: { type: 'string' }, confirmedNotPosted: { type: 'boolean' } } },
+    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
   },
   {
     name: 'retry_target',
@@ -529,6 +540,13 @@ export class McpServer {
           throw new ToolError((err as Error).message);
         }
       }
+      case 'retry_first_comment': {
+        try {
+          return { firstComment: await retryFirstComment(this.#deps.ctx, providers, String(args.targetId ?? ''), args.confirmedNotPosted === true) };
+        } catch (err) {
+          throw new ToolError(err instanceof Error ? err.message : String(err));
+        }
+      }
       case 'retry_target': {
         const current = store.getTarget(String(args.targetId ?? ''));
         // The user, not the model, has to vouch that a maybe-posted target didn't go out.
@@ -620,7 +638,7 @@ export class McpServer {
       captions,
       containsSyntheticMedia: Boolean(args.aiGenerated),
       scheduledAt: args.scheduledAt ? new Date(String(args.scheduledAt)).toISOString() : undefined,
-      ...(typeof args.firstComment === 'string' && args.firstComment.trim() ? { firstComment: args.firstComment.trim().slice(0, 10_000) } : {}),
+      ...firstCommentArg(args.firstComment),
     };
     const media = await this.#probe(mediaPath);
     input.mediaHash = await fileHash(mediaPath);
@@ -640,6 +658,15 @@ function describeBlocked(p: TargetPreview): string {
   return `- ${p.platform}/${p.account}: ${p.errors.join(' / ')}`;
 }
 
+/** firstComment from a tool call: text up to 10,000 characters, or none. */
+function firstCommentArg(value: unknown): { firstComment?: string } {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== 'string') throw new ToolError(msg('첫 댓글은 글자여야 합니다'));
+  const text = value.trim();
+  if ([...text].length > 10_000) throw new ToolError(msg('첫 댓글은 10000자까지입니다'));
+  return text ? { firstComment: text } : {};
+}
+
 function publicTarget(t: Target) {
   return {
     targetId: t.id,
@@ -653,6 +680,8 @@ function publicTarget(t: Target) {
     scheduledFor: t.state === 'queued' ? t.notBefore : undefined,
     checkAgainAt: t.state === 'processing' ? t.notBefore : undefined,
     stats: t.stats,
+    // The post's first comment here: sending / posted (id, url) / failed (maybePosted) / unsupported.
+    firstComment: t.followup,
   };
 }
 

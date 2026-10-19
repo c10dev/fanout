@@ -507,8 +507,21 @@ export class Store {
   }
 
   /**
-   * Published targets whose post has a first comment not yet tried on them, of posts made since
-   * `sinceIso` and public by `nowIso` (a native schedule keeps the video private until then).
+   * Take the first comment for sending, only if it is still as `expected` (undefined: never tried).
+   * One statement, so of two processes (or two clicks) racing for it exactly one gets true.
+   */
+  claimFollowup(id: string, expected: Followup | undefined, next: Followup): boolean {
+    const r = this.#db
+      .prepare('UPDATE targets SET followup = ? WHERE id = ? AND followup IS ?')
+      .run(JSON.stringify(next), id, expected ? JSON.stringify(expected) : null);
+    return Number(r.changes) === 1;
+  }
+
+  /**
+   * Published targets whose post has a first comment not yet tried on them, public by `nowIso` (a
+   * native schedule, the post's or one set on the target later, keeps the video private until
+   * then), and gone out or gone public since `sinceIso`: a target added to an old post, or one
+   * scheduled weeks ahead, counts from its own time.
    */
   followupsDue(nowIso: string, sinceIso: string, limit = 20): Target[] {
     const rows = this.#db
@@ -516,11 +529,12 @@ export class Store {
         `SELECT t.* FROM targets t JOIN posts p ON p.id = t.post_id
          WHERE t.state = 'published' AND t.followup IS NULL
            AND coalesce(json_extract(p.body, '$.firstComment'), '') != ''
-           AND p.created_at >= ?
            AND coalesce(json_extract(p.body, '$.scheduledAt'), '') <= ?
+           AND coalesce(json_extract(t.options, '$.publishAt'), '') <= ?
+           AND max(t.updated_at, coalesce(json_extract(p.body, '$.scheduledAt'), ''), coalesce(json_extract(t.options, '$.publishAt'), '')) >= ?
          ORDER BY t.updated_at LIMIT ?`,
       )
-      .all(sinceIso, nowIso, limit) as unknown as TargetRow[];
+      .all(nowIso, nowIso, sinceIso, limit) as unknown as TargetRow[];
     return rows.map(toTarget);
   }
 

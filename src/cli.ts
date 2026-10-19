@@ -30,6 +30,7 @@ import { disconnectAccount, signInExpiry, verifyDueAccounts } from './core/accou
 import { computeCalendar } from './core/calendar.ts';
 import { computeInsights, validTimeZone } from './core/insights.ts';
 import { suggestTimes } from './core/slots.ts';
+import { retryFirstComment } from './core/followup.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
 
@@ -311,6 +312,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout add <postId> --to tiktok,x [플랫폼 옵션] [--yes]   이미 만든 게시물에 플랫폼 추가 (원본이 남아 있을 때)
   fanout status [postId] [--events]
   fanout retry <postId> [platform]
+  fanout first-comment <postId> <platform> [--account main] [--not-posted]   실패한 첫 댓글 다시 달기
   fanout run                             밀린 작업 처리 후 종료
   fanout worker [--interval 60] [--stats-every 6]   예약·재시도 작업을 계속 처리 (+ 최근 30일 게시물 반응을 6시간마다 기록, 0이면 끔)
   fanout serve [--port 8780] [--host 127.0.0.1] [--keep-days 7 | --no-prune] [--stats-every 6]
@@ -507,7 +509,7 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
     captions: parseCaptions(args.lists.caption),
     containsSyntheticMedia: Boolean(args.flags.ai),
     scheduledAt: at ? new Date(at).toISOString() : undefined,
-    ...(str(args, 'first-comment')?.trim() ? { firstComment: str(args, 'first-comment')!.trim() } : {}),
+    ...cliFirstComment(str(args, 'first-comment')),
   };
   let targets = parseTargets(to, deps.providers, args, ctx.store.listAccounts());
   const thumbAt = num(args, 'thumbnail-at');
@@ -1187,6 +1189,33 @@ async function cmdMcp(providers: Map<string, Provider>, args: Args): Promise<num
   return 0;
 }
 
+function cliFirstComment(value: string | undefined): { firstComment?: string } {
+  const text = value?.trim();
+  if (!text) return {};
+  if ([...text].length > 10_000) throw new UsageError(msg('첫 댓글은 10000자까지입니다'));
+  return { firstComment: text };
+}
+
+/** Post a published target's first comment again: fanout first-comment <postId> <platform> [--account] [--not-posted]. */
+async function cmdFirstComment(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
+  const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
+  const platform = args.positionals[2];
+  if (!post || !platform) throw new UsageError(msg('fanout first-comment <postId> <platform> [--account main] [--not-posted]'));
+  const account = str(args, 'account');
+  const target = ctx.store.targetsForPost(post.id).find((t) => t.platform === platform && (!account || t.account === account));
+  if (!target) throw new UsageError(msg('그 게시물에 {platform} 대상이 없습니다', { platform }));
+  try {
+    const f = await retryFirstComment(ctx, deps.providers, target.id, Boolean(args.flags['not-posted']));
+    say(f.state === 'posted' ? msg('첫 댓글 ✓ {where}', { where: f.url ?? f.id ?? '' }) : msg('첫 댓글 실패: {error}', { error: f.error ?? f.state }));
+    return f.state === 'posted' ? 0 : 1;
+  } catch (err) {
+    const e = err as Error & { needsConfirm?: boolean };
+    sayErr(e.message);
+    if (e.needsConfirm) sayErr(msg('플랫폼에서 없는 것을 확인했으면 --not-posted 를 붙여 다시 실행하세요'));
+    return 1;
+  }
+}
+
 async function cmdRetry(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
   if (!post) throw new UsageError('fanout retry <postId> [platform]');
@@ -1318,6 +1347,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdNotify(ctx, args);
       case 'retry':
         return await cmdRetry(ctx, deps, args);
+      case 'first-comment':
+        return await cmdFirstComment(ctx, deps, args);
       case 'run':
         return await cmdRun(ctx, deps);
       case 'worker':

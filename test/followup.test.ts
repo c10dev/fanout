@@ -41,7 +41,7 @@ describe('first comment', () => {
     const f = fb.store.getTarget(fb.id)!.followup!;
     assert.equal(f.state, 'failed');
     assert.match(f.error!, /pages_manage_engagement/);
-    assert.equal(f.maybePosted, true, 'the request went out');
+    assert.equal(f.maybePosted, undefined, 'a clear refusal created nothing');
     assert.equal(fb.store.getTarget(fb.id)!.state, 'published', 'the post itself stays published');
   });
 
@@ -80,11 +80,46 @@ describe('first comment', () => {
     assert.equal(warn.length, 2, 'over 280 weighted (Korean counts double), and the cost');
   });
 
+  it('two workers (or two clicks) never post the same comment twice', async () => {
+    let posts = 0;
+    const slow = () => new Promise<Response>((r) => setTimeout(() => (posts++, r(json({ id: `TH${posts}` }))), 30));
+    const { ctx, id, store } = published('youtube', yt, 'V1', [['POST', '/commentThreads?part=snippet', slow]]);
+    await Promise.all([postDueFirstComments(ctx, providerMap()), postDueFirstComments(ctx, providerMap())]);
+    assert.equal(posts, 1);
+    store.setFollowup(id, { state: 'failed', at: '2026-10-17T03:00:00.000Z', error: 'x' });
+    const results = await Promise.allSettled([retryFirstComment(ctx, providerMap(), id), retryFirstComment(ctx, providerMap(), id)]);
+    assert.equal(posts, 2, 'one retry went through');
+    assert.deepEqual(results.map((r) => r.status).sort(), ['fulfilled', 'rejected']);
+  });
+
+  it('counts from when the target went out or public, not when the post was made', async () => {
+    // Scheduled natively ten days ahead: due once that time comes, though the post is older than a week.
+    let clock = Date.parse('2026-10-17T03:00:00Z');
+    const { fetch } = mockFetch([['POST', '/commentThreads?part=snippet', () => json({ id: 'TH' })]]);
+    const env = makeCtx(fetch, () => new Date(clock));
+    env.store.saveAccount({ platform: 'youtube', name: 'main', credentials: yt, profile: {} });
+    const { targets } = env.store.createPost(POST({ scheduledAt: '2026-10-27T03:00:00.000Z' }), [{ platform: 'youtube', account: 'main', options: {} }]);
+    env.store.transition(targets[0]!.id, 'uploading');
+    env.store.transition(targets[0]!.id, 'published', { remoteId: 'V' });
+    assert.equal(await postDueFirstComments(env.ctx, providerMap()), 0, 'still private');
+    clock = Date.parse('2026-10-27T04:00:00Z');
+    assert.equal(await postDueFirstComments(env.ctx, providerMap()), 1);
+    // A target added to that (now old) post later, published today.
+    clock = Date.parse('2026-11-20T00:00:00Z');
+    const [added] = env.store.addTargets(targets[0]!.postId, [{ platform: 'youtube', account: 'main', options: {} }]);
+    env.store.transition(added!.id, 'uploading');
+    env.store.transition(added!.id, 'published', { remoteId: 'V2' });
+    assert.equal(await postDueFirstComments(env.ctx, providerMap()), 1);
+  });
+
   it('warns where it will not go or breaks the platform rules', () => {
     const providers = providerMap();
     assert.match(firstCommentWarnings(providers.get('tiktok')!, 'hi')[0]!, /건너뜁니다/);
     assert.deepEqual(firstCommentWarnings(providers.get('youtube')!, 'hi'), []);
     assert.deepEqual(firstCommentWarnings(providers.get('youtube')!, '  '), []);
+    assert.match(firstCommentWarnings(providers.get('youtube')!, 'hi', { madeForKids: true })[0]!, /아동용/);
+    const premium = { platform: 'x', name: 'main', credentials: { subscriptionType: 'Premium' }, profile: {} };
+    assert.equal(firstCommentWarnings(providers.get('x')!, '한'.repeat(141), {}, premium as never).length, 1, 'Premium: only the cost');
     const ig = firstCommentWarnings(providers.get('instagram')!, `${'가'.repeat(301)} #a #b #c #d #e https://a.example https://b.example`);
     assert.equal(ig.length, 3);
   });
