@@ -112,9 +112,18 @@
     <section class="panel" id="insights" data-section="insights" hidden></section>
   </main>
 
-  <main class="column settings" id="view-settings" hidden>
-    <div id="settings"></div>
-  </main>
+  </div>
+</div>
+<div class="modal-backdrop" id="settings-modal" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <nav class="modal-nav" aria-label="설정 메뉴" data-i18n-aria-label="설정 메뉴">
+      <h2 id="settings-title" data-i18n="설정">설정</h2>
+      <div id="settings-nav" class="modal-nav-items"></div>
+    </nav>
+    <div class="modal-main">
+      <button type="button" class="icon-btn modal-close" id="settings-close" aria-label="설정 닫기" data-i18n-aria-label="설정 닫기">×</button>
+      <div id="settings" class="settings-body"></div>
+    </div>
   </div>
 </div>
 </body>
