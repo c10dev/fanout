@@ -1,6 +1,6 @@
-# fanout 0.1.0 — release notes (draft)
+# fanout 0.1.0 — release notes
 
-Draft for the GitHub release when v0.1.0 is tagged. The full list is in [CHANGELOG.md](../CHANGELOG.md) (Korean).
+Released 2026-10-19. The full list is in [CHANGELOG.md](../CHANGELOG.md) (Korean).
 
 fanout is a self-hosted, video-first uploader: one video, posted to YouTube, TikTok, Instagram Reels, Facebook Reels, X, Bluesky, Mastodon and PeerTube with your own platform accounts and developer apps. It runs as a CLI, a local web dashboard, an MCP server for AI agents, and a watch folder. No dependencies beyond Node.js 24 and ffmpeg (24.0–24.1 also print experimental-feature warnings).
 
