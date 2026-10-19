@@ -178,6 +178,27 @@ describe('x upload', () => {
 });
 
 describe('x refresh race', () => {
+  it('a disconnect while the token request is out does not bring the account back', async () => {
+    let env!: ReturnType<typeof makeCtx>;
+    const { fetch } = mockFetch([
+      [
+        'POST',
+        '/2/oauth2/token',
+        () => {
+          env.store.removeAccount('x', account.name);
+          return json({ access_token: 'AT2', refresh_token: 'RT2', expires_in: 7200 });
+        },
+      ],
+    ]);
+    env = makeCtx(fetch, () => NOW);
+    env.store.setApp('x', { clientId: 'cid' });
+    const expired = { ...account, credentials: { ...account.credentials, expiresAt: 0 } };
+    env.store.saveAccount(expired);
+    const next = await x.refresh(env.ctx, expired);
+    assert.equal((next.credentials as { accessToken: string }).accessToken, 'AT2', 'this call still gets the new token');
+    assert.equal(env.store.getAccount('x', account.name), undefined, 'but the account stays gone');
+  });
+
   it('a refresh token another process already used: take the pair it stored', async () => {
     let env!: ReturnType<typeof makeCtx>;
     const { fetch } = mockFetch([

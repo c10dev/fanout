@@ -480,7 +480,9 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
           ...(await tokenRequest(rotationContext(ctx), { client_key: a.clientKey, client_secret: a.clientSecret, grant_type: 'refresh_token', refresh_token: sc.refreshToken }, sc)),
         },
       };
-      ctx.store.saveAccount(next);
+      // Only over the grant just spent: the account may have been disconnected meanwhile, and a
+      // plain save would bring it back with live tokens (and its scheduled posts with it).
+      ctx.store.saveAccountIf(next, (s) => creds(s).refreshToken === sc.refreshToken);
       return next;
     } catch (err) {
       // Lost a race with another process that used the same refresh token and saved the new pair.
