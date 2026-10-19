@@ -15,6 +15,8 @@ export interface FacebookOptions {
   draft?: boolean;
   /** Pages invited as collaborators (Page IDs); the reel shows on theirs too once they accept. */
   collaborators?: string[];
+  /** Location tag: the ID of a Page that has a location (place). */
+  placeId?: string;
 }
 
 const COLLAB_MAX = 10;
@@ -45,6 +47,7 @@ async function finishReel(ctx: ProviderContext, pageId: string, pageToken: strin
     video_id: videoId,
     description: metaCaption(post, o.caption),
     title: o.title,
+    place: o.placeId,
     video_state: o.draft ? 'DRAFT' : post.scheduledAt ? 'SCHEDULED' : 'PUBLISHED',
     scheduled_publish_time: post.scheduledAt && !o.draft ? Math.floor(new Date(post.scheduledAt).getTime() / 1000) : undefined,
     access_token: pageToken,
@@ -122,6 +125,7 @@ export const facebook: Provider = {
   validate(post, target, _media) {
     const issues: Issue[] = [];
     const o = target.options as FacebookOptions;
+    if (o.placeId !== undefined && !/^\d+$/.test(String(o.placeId))) issues.push({ severity: 'error', code: 'place', message: msg('장소는 위치가 있는 페이지의 ID(숫자)로 적으세요') });
     const pages = collaboratorPages(o);
     if (pages.some((p) => !/^\d+$/.test(p))) issues.push({ severity: 'error', code: 'collaborators', message: msg('Facebook 공동 작업자는 페이지 ID(숫자)로 적으세요') });
     if (pages.length > COLLAB_MAX) issues.push({ severity: 'error', code: 'collaborators', message: msg('Facebook 공동 작업자 초대는 페이지마다 하루 {max}건까지입니다', { max: COLLAB_MAX }) });

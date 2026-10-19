@@ -72,6 +72,8 @@ const MESSAGES_EN = {
   '하루 뒤 조회 중앙값 {views}': 'median {views} views a day later',
   '요일·시간은 {timeZone} 기준, 기록된 반응으로만 계산합니다': 'Weekdays and times in {timeZone}, from recorded reactions only',
   '성과 요약': 'Performance',
+  '장소 페이지 ID (선택)': 'Location Page ID (optional)',
+  '커뮤니티 ID (선택)': 'Community ID (optional)',
   '{time}에 공개 예약됨': 'Goes public {time}',
   '이 댓글을 숨길까요? 나중에 다시 보이게 할 수 있습니다.': 'Hide this comment? You can show it again later.',
   '다시 보이기': 'Show again',

@@ -24,6 +24,8 @@ export interface InstagramOptions {
   paidPartnership?: boolean;
   /** People tagged in the Reel, by username (user_tags; Reels take no x/y). */
   userTags?: string[];
+  /** Location tag: the ID of a Page that has a location (location_id). */
+  locationId?: string;
 }
 
 const TAGS_MAX = 20;
@@ -121,6 +123,10 @@ export const instagram: Provider = {
       if (o.shareToFeed === true) issues.push({ severity: 'warning', code: 'trial', message: msg('시험 릴스는 피드 공유(shareToFeed)와 함께 쓰지 못할 수 있습니다') });
     }
     // Documented on the container ("Facebook Login API only", which fanout uses), media type not stated.
+    if (o.locationId !== undefined) {
+      if (!/^\d+$/.test(String(o.locationId))) issues.push({ severity: 'error', code: 'location', message: msg('장소는 위치가 있는 페이지의 ID(숫자)로 적으세요') });
+      else issues.push({ severity: 'warning', code: 'location', message: msg('위치 정보가 없는 페이지 ID면 Instagram이 게시를 거절합니다') });
+    }
     const tags = usernamesOf(o.userTags);
     if (tags.length > TAGS_MAX) issues.push({ severity: 'error', code: 'user_tags', message: msg('Instagram 사람 태그는 {max}명까지', { max: TAGS_MAX }) });
     const badTags = tags.filter((u) => !USERNAME.test(u));
@@ -153,6 +159,7 @@ export const instagram: Provider = {
     const container = await graph<{ id: string; uri?: string }>(ctx, 'POST', `/${c.igUserId}/media`, {
       trial_params: o.trialReel && o.trialReel in TRIAL ? JSON.stringify({ graduation_strategy: TRIAL[o.trialReel] }) : undefined,
       is_paid_partnership: o.paidPartnership ? true : undefined,
+      location_id: o.locationId,
       user_tags: usernamesOf(o.userTags).length ? JSON.stringify(usernamesOf(o.userTags).map((username) => ({ username }))) : undefined,
       media_type: 'REELS',
       upload_type: 'resumable',

@@ -133,12 +133,14 @@ const OPTION_FORMS = {
     opt(tr('시험 릴스 (팔로워가 아닌 사람에게 먼저)'), select('trialReel', [['', tr('쓰지 않음')], ['manual', tr('앱에서 직접 공유')], ['auto', tr('반응이 좋으면 자동 공유')]])),
     checkbox('paidPartnership', tr('유료 파트너십 표시')),
     opt(tr('사람 태그 (선택, 쉼표로 구분)'), h('input', { type: 'text', name: 'userTags', autocomplete: 'off', placeholder: 'user1, user2' })),
+    opt(tr('장소 페이지 ID (선택)'), h('input', { type: 'text', name: 'locationId', autocomplete: 'off', inputmode: 'numeric' })),
   ],
   facebook: () => [
     opt(tr('설명 (비우면 제목·설명·태그로 만듦)'), h('textarea', { name: 'caption', rows: 2 }), true),
     opt(tr('릴스 제목 (선택)'), h('input', { type: 'text', name: 'title', autocomplete: 'off' })),
     checkbox('draft', tr('게시하지 않고 초안으로 저장 (Meta Business Suite에서 마무리)')),
     opt(tr('공동 작업자 페이지 ID (선택, 쉼표로 구분)'), h('input', { type: 'text', name: 'collaborators', autocomplete: 'off', placeholder: '1234567890' })),
+    opt(tr('장소 페이지 ID (선택)'), h('input', { type: 'text', name: 'placeId', autocomplete: 'off', inputmode: 'numeric' })),
     h('p', { class: 'note' }, tr('Facebook Reels는 9:16, 3~90초 영상만 받습니다.')),
   ],
   x: () => [
@@ -150,6 +152,7 @@ const OPTION_FORMS = {
     checkbox('paidPartnership', tr('유료 파트너십 표시')),
     opt(tr('영상 대체 텍스트 (선택)'), h('input', { type: 'text', name: 'alt', autocomplete: 'off', maxlength: 1000 })),
     opt(tr('사람 태그 (선택, 쉼표로 구분, 10명까지)'), h('input', { type: 'text', name: 'tagUsers', autocomplete: 'off', placeholder: 'user1, user2' })),
+    opt(tr('커뮤니티 ID (선택)'), h('input', { type: 'text', name: 'communityId', autocomplete: 'off', inputmode: 'numeric' })),
     h('p', { class: 'note' }, tr('X API는 종량제입니다. URL이 들어간 게시물은 요금이 훨씬 비쌉니다.')),
   ],
   mastodon: () => [
@@ -226,11 +229,12 @@ function readOptions(platform, body) {
         trialReel: val('trialReel').value || undefined,
         paidPartnership: on('paidPartnership') || undefined,
         userTags: text('userTags')?.split(',').map((u) => u.trim()).filter(Boolean),
+        locationId: text('locationId'),
       };
     case 'facebook':
-      return { caption: text('caption'), title: text('title'), draft: on('draft') || undefined, collaborators: text('collaborators')?.split(',').map((p) => p.trim()).filter(Boolean) };
+      return { caption: text('caption'), title: text('title'), draft: on('draft') || undefined, collaborators: text('collaborators')?.split(',').map((p) => p.trim()).filter(Boolean), placeId: text('placeId') };
     case 'x':
-      return { text: text('text'), replySettings: val('replySettings').value || undefined, paidPartnership: on('paidPartnership') || undefined, alt: text('alt'), tagUsers: text('tagUsers')?.split(',').map((u) => u.trim()).filter(Boolean) };
+      return { text: text('text'), replySettings: val('replySettings').value || undefined, paidPartnership: on('paidPartnership') || undefined, alt: text('alt'), tagUsers: text('tagUsers')?.split(',').map((u) => u.trim()).filter(Boolean), communityId: text('communityId') };
     case 'mastodon':
       return { visibility: val('visibility').value || undefined, text: text('text'), alt: text('alt'), language: text('language'), spoilerText: text('spoilerText') };
     case 'peertube':
