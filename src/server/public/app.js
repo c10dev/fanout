@@ -809,6 +809,43 @@ async function uploadAsset(kind, file) {
   return body.id;
 }
 
+// ── Suggested times ──────────────────────────────────────────────
+
+/** The chosen accounts as platform/account. */
+function chosenAccounts() {
+  return [...document.querySelectorAll('.target')]
+    .filter((block) => block.querySelector('[name="enabled"]').checked)
+    .map((block) => `${block.dataset.platform}/${block.querySelector('select[name="account"]')?.value ?? block.querySelector('[data-account]')?.dataset.account}`);
+}
+
+// Read-only: fills the schedule field when one is picked; nothing is scheduled until the post is made.
+$('#best-times-btn').addEventListener('click', async () => {
+  const list = $('#best-times-list');
+  const accounts = chosenAccounts();
+  if (!accounts.length) return list.replaceChildren(h('p', { class: 'muted' }, tr('올릴 곳을 하나 이상 고르세요')));
+  list.replaceChildren(h('p', { class: 'muted' }, tr('불러오는 중…')));
+  try {
+    const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone ?? '');
+    const r = await api(`/best-times?accounts=${encodeURIComponent(accounts.join(','))}&lang=${LANG}&tz=${tz}`);
+    const why = h('p', { class: 'muted best-times-why' });
+    const pick = (s) => {
+      $('#scheduled').value = s.local;
+      $('#scheduled').dispatchEvent(new Event('input', { bubbles: true }));
+      for (const b of list.querySelectorAll('.chip')) b.setAttribute('aria-pressed', String(b.dataset.local === s.local));
+      why.textContent = s.reasons.join(' · ');
+    };
+    list.replaceChildren(
+      r.suggestions.length
+        ? h('div', { class: 'chips' }, ...r.suggestions.map((s) => h('button', { type: 'button', class: 'chip', 'data-local': s.local, 'aria-pressed': String($('#scheduled').value === s.local), onclick: () => pick(s) }, s.label)))
+        : h('p', { class: 'muted' }, tr('앞으로 2주 안에 비어 있는 시간이 없습니다')),
+      why,
+      r.note ? h('p', { class: 'muted' }, r.note) : null,
+    );
+  } catch (err) {
+    list.replaceChildren(h('p', { class: 'form-error' }, err.message));
+  }
+});
+
 // ── Submit ───────────────────────────────────────────────────────
 
 /** Read and check the form; returns errors, or everything needed to preview and post. */

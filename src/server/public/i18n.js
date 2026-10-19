@@ -113,6 +113,8 @@ const MESSAGES_EN = {
   '일반': 'General',
   '대시보드에 쓰는 말': 'The language of the dashboard',
   '계정 점검': 'Account checks',
+  '올리기 좋은 시간 추천': 'Suggest good times',
+  '앞으로 2주 안에 비어 있는 시간이 없습니다': 'No free time in the next two weeks',
   '{time}에 공개 예약됨': 'Goes public {time}',
   '이 댓글을 숨길까요? 나중에 다시 보이게 할 수 있습니다.': 'Hide this comment? You can show it again later.',
   '다시 보이기': 'Show again',

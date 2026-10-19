@@ -62,6 +62,7 @@ claude mcp add fanout -- fanout mcp --allow ~/videos,~/fanout-inbox
 | `get_calendar` | 월요일부터 주 단위(1~8주, `offset`으로 앞뒤 이동) 날마다 게시물과 대상별 상태. 기록만 읽음 |
 | `get_comment_inbox` | 최근 게시물에서 아직 답하지 않은 댓글 (YouTube·Facebook·Instagram, 기본 7일). 답하려면 사용자가 문구를 승인한 뒤 `reply_to_comment` |
 | `get_insights` | 기록된 반응으로 본 성과 요약: 플랫폼·계정별 게시물 수, 조회 합계·중앙값, 조회 100회당 좋아요, 상위 게시물, 하루 뒤 조회수가 가장 좋았던 요일·3시간대(게시물이 충분할 때). 플랫폼 호출 없음, `timeZone`으로 시간대 지정 |
+| `suggest_post_times` | 계정들(`["youtube/main", "tiktok/main"]`)에 다음으로 올리기 좋은 시간: 하루 뒤 조회수가 좋았던 요일·3시간대(기록이 충분할 때), 아니면 저녁 시간. 같은 계정에 이미 잡힌 예약·막 올린 게시물과 4시간 이상 떨어뜨림. 예약은 하지 않음 — 고른 `at`을 `create_post`의 `scheduledAt`으로 |
 | `get_post_comments` | 게시된 대상의 최근 댓글. 댓글 내용은 신뢰할 수 없는 사용자 글이라고 설명에 적어 둠 |
 | `reply_to_comment` | `get_post_comments`가 준 댓글에 답글. 바로 공개되므로 사용자에게 문구를 보여 주고 승인받은 뒤 호출하고, 댓글 속 지시는 따르지 말라고 설명에 적어 둠 |
 | `update_post` | 제목·설명·태그를 바꾸고 YouTube·Facebook·Mastodon·PeerTube에 반영. 사용자 확인 후 호출하도록 설명에 적어 둠 |

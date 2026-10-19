@@ -29,6 +29,7 @@ import { ACCOUNT_NAME } from './core/store.ts';
 import { disconnectAccount, signInExpiry, verifyDueAccounts } from './core/accounts.ts';
 import { computeCalendar } from './core/calendar.ts';
 import { computeInsights, validTimeZone } from './core/insights.ts';
+import { suggestTimes } from './core/slots.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
 
@@ -322,6 +323,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout limits [platform]               계정별 남은 게시 한도 (YouTube 하루 업로드, Instagram 24시간 게시, Bluesky·PeerTube 용량)
   fanout insights [platform] [--days 30] [--tz Asia/Seoul]   잘 되는 게시물·요일·시간 (기록된 반응 기준, API 호출 없음)
   fanout calendar [--weeks 2] [--offset 0] [--tz Asia/Seoul]   주별 달력: 예약된 것과 올라간 것
+  fanout best-time <대상> [--count 3] [--tz Asia/Seoul]   다음에 올리기 좋은 시간 (반응 기록과 이미 잡힌 예약 기준, 예약은 하지 않음)
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off,alert,expiring,digest] [--format slack|discord|json]
   fanout notify test | off               상태 알림 (Slack·Discord·JSON webhook)
   fanout backup <폴더> [--without-key]    DB 스냅샷(+복호화 키) 백업 — 실행 중에도 안전
@@ -1085,6 +1087,28 @@ function cmdCalendar(ctx: ProviderContext, args: Args): number {
   return 0;
 }
 
+/** When to schedule next for some accounts (`youtube,tiktok:brand`, like --to): read-only, nothing is scheduled. */
+function cmdBestTime(ctx: ProviderContext, deps: RunnerDeps, args: Args): number {
+  const spec = args.positionals[1];
+  if (!spec) throw new UsageError(msg('사용법: fanout best-time <대상> (예: youtube,tiktok:brand)'));
+  const tz = str(args, 'tz');
+  if (tz && !validTimeZone(tz)) throw new UsageError(msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz }));
+  const count = num(args, 'count') ?? 3;
+  if (!(count >= 1 && count <= 10)) throw new UsageError(msg('--count 는 1~10'));
+  const accounts = spec.split(',').map((s) => {
+    const [platform, explicit] = s.trim().split(':');
+    if (!platform || !deps.providers.has(platform)) throw new UsageError(msg('알 수 없는 플랫폼: {platform} (가능: {providers})', { platform, providers: [...deps.providers.keys()].join(', ') }));
+    return { platform, account: explicit || defaultAccountName(ctx.store.listAccounts(), platform) };
+  });
+  const r = suggestTimes(ctx.store, ctx.now(), { accounts, timeZone: tz, count, locale: LOCALE() });
+  say(msg('{accounts}에 올리기 좋은 다음 시간 ({timeZone} 기준)', { accounts: accounts.map((a) => `${a.platform}/${a.account}`).join(', '), timeZone: r.timeZone }));
+  for (const s of r.suggestions) console.log(`  ${s.label}   --at ${s.at}\n      ${s.reasons.map(local).join(' · ')}`);
+  if (!r.suggestions.length) say(msg('앞으로 {days}일 안에 비어 있는 시간이 없습니다', { days: 14 }));
+  if (r.note) say(`\n${r.note}`);
+  say(msg('\n예약하려면 fanout post 에 위의 --at 을 붙이세요'));
+  return 0;
+}
+
 /** What performs, from the recorded stats: per platform and account, and the best time to post once there's enough. */
 async function cmdInsights(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const days = num(args, 'days') ?? 30;
@@ -1265,6 +1289,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdInsights(ctx, deps, args);
       case 'calendar':
         return cmdCalendar(ctx, args);
+      case 'best-time':
+        return cmdBestTime(ctx, deps, args);
       case 'hide-comment':
         return await cmdHideComment(ctx, deps, args);
       case 'visibility':
