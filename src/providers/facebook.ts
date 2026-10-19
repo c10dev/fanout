@@ -146,8 +146,8 @@ export const facebook: Provider = {
         issues.push({ severity: 'warning', code: 'schedule_window', message: msg('Facebook은 29일 안쪽만 예약할 수 있어, 예약 28일 전에 올립니다 (그때 fanout이 켜져 있어야 합니다)') });
       }
     }
-    // The thumbnails edge is documented for Page videos; for Reels it is still to be confirmed live.
-    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: msg('Facebook 릴스 커버는 처리가 끝난 뒤 썸네일로 바꿉니다 (릴스에서 되는지 아직 확인 전, 안 되면 경고만 남김)') });
+    // The thumbnails edge is documented for Page videos; on a reel it was confirmed live on 2026-10-19 (#116).
+    if (post.thumbnailPath) issues.push({ severity: 'warning', code: 'thumbnail', message: msg('Facebook 릴스 커버는 처리가 끝난 뒤 썸네일로 바꿉니다 (바꾸지 못해도 릴스는 그대로 올라가고 경고만 남김)') });
     return issues;
   },
 
