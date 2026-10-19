@@ -682,7 +682,8 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
       return { matches: [{ remoteId: ids[0]!, remoteUrl: await shareUrl(ctx, account, ids[0]!) }] };
     }
     if (status?.status === 'FAILED') return { matches: [], note: msg('TikTok 처리 실패: {reason}', { reason: status.fail_reason ?? 'unknown' }) };
-    if (status) return { matches: [], note: msg('아직 앱에서 게시하지 않았습니다 (TikTok 수신함에 있음)') };
+    // TikTok says the same for a post finished as "Only me": private posts aren't reported to apps.
+    if (status) return { matches: [], note: msg('TikTok이 아직 수신함에 있다고 합니다. "나만 보기"로 게시한 영상도 이렇게 보이며, 비공개 게시물은 앱에 알려 주지 않아 반응을 가져올 수 없습니다') };
 
     if (!hasScope(account, 'video.list')) return { matches: [], note: msg('TikTok 통계는 video.list 권한이 필요합니다 — 앱 scopes에 더하고 다시 연결하세요') };
     const length = (target.resume as { durationSec?: number } | undefined)?.durationSec;
