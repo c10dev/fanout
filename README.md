@@ -27,7 +27,7 @@ npm install -g --allow-git=all github:c10dev/fanout
 
 이 명령은 `main`(다음 릴리스 전 최신)을 설치합니다. 릴리스 그대로 쓰려면 태그를 붙이세요: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`.
 
-npm 12부터 git 저장소에서 설치하는 것이 기본으로 막혀 있어 `--allow-git=all`이 필요합니다(npm 11 이하는 없어도 됩니다). 설치 중 `install scripts blocked … fanout (prepare)` 경고가 나와도 `dist/`는 만들어져 있어 그대로 쓰면 됩니다. `fanout version`으로 설치된 버전을 확인합니다. 설치하면 `fanout` 명령이 생깁니다. 아래 예시의 `node src/cli.ts`를 `fanout`으로 바꿔 쓰면 됩니다.
+npm 12부터 git 저장소에서 설치하는 것이 기본으로 막혀 있어 `--allow-git=all`이 필요합니다(npm 11 이하는 없어도 됩니다). 설치 중 `install scripts blocked … fanout (prepare)` 경고가 나와도 `dist/`는 만들어져 있어 그대로 쓰면 됩니다. `fanout version`으로 설치된 버전과 빌드한 커밋을 확인합니다(예: `fanout 0.1.0 (f7d5c62)`). 설치하면 `fanout` 명령이 생깁니다. 아래 예시의 `node src/cli.ts`를 `fanout`으로 바꿔 쓰면 됩니다.
 
 **Docker**
 

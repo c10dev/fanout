@@ -25,7 +25,7 @@ npm install -g --allow-git=all github:c10dev/fanout
 
 This installs `main` (the latest, ahead of the next release). For the release as tagged, add the tag: `npm install -g --allow-git=all github:c10dev/fanout#v0.1.0`.
 
-npm 12 blocks installs from git by default, hence `--allow-git=all` (not needed on npm 11 and earlier). Not published to the npm registry yet. npm may warn `install scripts blocked … fanout (prepare)`; `dist/` is already built, so it works as is. `fanout version` shows the installed version.
+npm 12 blocks installs from git by default, hence `--allow-git=all` (not needed on npm 11 and earlier). Not published to the npm registry yet. npm may warn `install scripts blocked … fanout (prepare)`; `dist/` is already built, so it works as is. `fanout version` shows the installed version and the commit it was built from, e.g. `fanout 0.1.0 (f7d5c62)`.
 
 **Docker**
 
