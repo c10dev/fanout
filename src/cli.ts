@@ -27,6 +27,7 @@ import { isShort } from './providers/youtube.ts';
 import { currentLang, local, msg } from './core/i18n.ts';
 import { ACCOUNT_NAME } from './core/store.ts';
 import { disconnectAccount, signInExpiry, verifyDueAccounts } from './core/accounts.ts';
+import { computeInsights, validTimeZone } from './core/insights.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
 
@@ -313,6 +314,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout hide-comment <postId> <platform> <commentId> [--show] [--account main]   댓글 숨기기 (YouTube·Instagram·Facebook, --show로 되돌림)
   fanout stats [postId] [--include-paid] [--history]  게시된 영상의 조회·좋아요·댓글과 24시간 변화 (X는 --include-paid일 때만)
   fanout limits [platform]               계정별 남은 게시 한도 (YouTube 하루 업로드, Instagram 24시간 게시, Bluesky·PeerTube 용량)
+  fanout insights [platform] [--days 30] [--tz Asia/Seoul]   잘 되는 게시물·요일·시간 (기록된 반응 기준, API 호출 없음)
   fanout notify set <webhook URL> [--events failed,needs_reauth,published,handed_off,alert,expiring] [--format slack|discord|json]
   fanout notify test | off               상태 알림 (Slack·Discord·JSON webhook)
   fanout backup <폴더> [--without-key]    DB 스냅샷(+복호화 키) 백업 — 실행 중에도 안전
@@ -1024,6 +1026,30 @@ function cmdPrune(ctx: ProviderContext, args: Args): number {
   return 0;
 }
 
+/** What performs, from the recorded stats: per platform and account, and the best time to post once there's enough. */
+function cmdInsights(ctx: ProviderContext, args: Args): number {
+  const days = num(args, 'days') ?? 30;
+  if (!(days > 0)) throw new UsageError(msg('--days 는 1 이상'));
+  const tz = str(args, 'tz');
+  if (tz && !validTimeZone(tz)) throw new UsageError(msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz }));
+  const r = computeInsights(ctx.store, ctx.now(), { days, platform: args.positionals[1], locale: LOCALE(), timeZone: tz });
+  if (!r.groups.length) {
+    say(msg('최근 {days}일 동안 게시된 영상이 없습니다', { days }));
+    return 0;
+  }
+  const fmt = (n?: number) => (n === undefined ? '-' : n.toLocaleString(LOCALE()));
+  say(msg('최근 {days}일 ({timeZone} 기준)', { days, timeZone: r.timeZone }));
+  for (const g of r.groups) {
+    console.log(`\n${g.platform}/${g.account}`);
+    say(msg('  게시물 {posts}개 · 조회 합계 {total} · 중앙값 {median}{likes}', { posts: g.posts, total: fmt(g.totalViews), median: fmt(g.medianViews), likes: g.likesPer100Views === undefined ? '' : local(msg(' · 조회 100회당 좋아요 {n}', { n: g.likesPer100Views })) }));
+    for (const t of g.top) console.log(`    ${fmt(t.views).padStart(9)}  ${printable(t.title).slice(0, 60)}${t.url ? `  ${t.url}` : ''}`);
+    if (g.bestWeekday) say(msg('  잘 되는 요일: {label} (하루 뒤 조회 중앙값 {views} · 게시물 수 {posts})', { label: g.bestWeekday.label, views: fmt(g.bestWeekday.medianViews), posts: g.bestWeekday.posts }));
+    if (g.bestHours) say(msg('  잘 되는 시간: {label} (하루 뒤 조회 중앙값 {views} · 게시물 수 {posts})', { label: g.bestHours.label, views: fmt(g.bestHours.medianViews), posts: g.bestHours.posts }));
+    if (g.note) say('  ' + local(g.note));
+  }
+  return 0;
+}
+
 /** MCP server on stdio; it also runs the upload worker, so posts it creates actually go out. */
 /** --allow a,b or FANOUT_MCP_ROOTS (path-list separated): the folders MCP agents may read from. */
 export function mcpRoots(allow: string | true | undefined, env = process.env.FANOUT_MCP_ROOTS): string[] | undefined {
@@ -1164,6 +1190,8 @@ export async function main(argv: string[]): Promise<number> {
         return await cmdStats(ctx, deps, args);
       case 'limits':
         return await cmdLimits(ctx, deps, args);
+      case 'insights':
+        return cmdInsights(ctx, args);
       case 'hide-comment':
         return await cmdHideComment(ctx, deps, args);
       case 'visibility':

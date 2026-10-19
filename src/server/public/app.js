@@ -1802,6 +1802,45 @@ async function refreshAll() {
   if (!$('#view-settings').hidden) await loadSettings();
 }
 
+/** "What performs" under the board: per platform and account, from the recorded reactions (no platform calls). */
+function insightsPanel() {
+  const box = $('#insights');
+  if (!box) return;
+  const body = h('div', {}, h('p', { class: 'muted' }, tr('불러오는 중…')));
+  const days = h('select', { 'aria-label': tr('기간') }, [7, 30, 90].map((d) => h('option', { value: d, selected: d === 30 }, tr('최근 {days}일', { days: d }))));
+  const fmt = (n) => (n === undefined || n === null ? '-' : Number(n).toLocaleString(LOCALE));
+  const load = async () => {
+    try {
+      // In the viewer's own time zone, which is where "Friday evening" means something.
+      const tz = encodeURIComponent(Intl.DateTimeFormat().resolvedOptions().timeZone ?? '');
+      const r = await api(`/insights?days=${days.value}&lang=${LANG}&tz=${tz}`);
+      if (!r.groups.length) return body.replaceChildren(h('p', { class: 'muted' }, tr('이 기간에 게시된 영상이 없습니다')));
+      body.replaceChildren(
+        ...r.groups.map((g) =>
+          h(
+            'div',
+            { class: 'insight' },
+            h('h3', {}, `${g.platform}/${g.account}`),
+            h('p', {}, tr('게시물 {posts}개 · 조회 합계 {total} · 중앙값 {median}', { posts: g.posts, total: fmt(g.totalViews), median: fmt(g.medianViews) }), g.likesPer100Views !== undefined ? ` · ${tr('조회 100회당 좋아요 {n}', { n: g.likesPer100Views })}` : ''),
+            g.top.length
+              ? h('ol', {}, g.top.map((t) => h('li', {}, webUrl(t.url) ? h('a', { href: t.url, target: '_blank', rel: 'noopener noreferrer' }, t.title) : t.title, h('span', { class: 'muted' }, ` · ${tr('조회')} ${fmt(t.views)}`))))
+              : null,
+            g.bestWeekday ? h('p', {}, tr('잘 되는 요일: {label}', { label: g.bestWeekday.label }), h('span', { class: 'muted' }, ` · ${tr('하루 뒤 조회 중앙값 {views}', { views: fmt(g.bestWeekday.medianViews) })}`)) : null,
+            g.bestHours ? h('p', {}, tr('잘 되는 시간: {label}', { label: g.bestHours.label }), h('span', { class: 'muted' }, ` · ${tr('하루 뒤 조회 중앙값 {views}', { views: fmt(g.bestHours.medianViews) })}`)) : null,
+            g.note ? h('p', { class: 'muted' }, g.note) : null,
+          ),
+        ),
+        h('p', { class: 'muted' }, tr('요일·시간은 {timeZone} 기준, 기록된 반응으로만 계산합니다', { timeZone: r.timeZone })),
+      );
+    } catch (err) {
+      body.replaceChildren(h('p', { class: 'form-error' }, err.message));
+    }
+  };
+  days.addEventListener('change', load);
+  box.replaceChildren(h('div', { class: 'panel-head' }, h('h2', {}, tr('성과 요약')), days), body);
+  load();
+}
+
 async function init() {
   translateStatic();
   // The switch names the other language, in that language.
@@ -1818,6 +1857,7 @@ async function init() {
   renderAccounts();
   renderTargets();
   refreshBoard();
+  insightsPanel();
   loadPresets();
 
   // Coming back from an OAuth redirect.
