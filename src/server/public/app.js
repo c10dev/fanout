@@ -121,6 +121,7 @@ const OPTION_FORMS = {
     opt(tr('카테고리'), select('categoryId', [['22', tr('인물/블로그'), true], ['24', tr('엔터테인먼트')], ['10', tr('음악')], ['20', tr('게임')], ['26', tr('노하우/스타일')], ['27', tr('교육')], ['28', tr('과학기술')], ['19', tr('여행/이벤트')], ['17', tr('스포츠')], ['15', tr('동물')]])),
     opt(tr('재생목록 (선택)'), playlistInput()),
     checkbox('notifySubscribers', tr('구독자에게 알림'), true),
+    checkbox('paidProductPlacement', tr('유료 PPL 포함 (올린 뒤 표시)')),
     h(
       'details',
       { class: 'opt wide more' },
@@ -229,6 +230,7 @@ function readOptions(platform, body) {
         localizations: readLocalizations(body),
         recordingDate: val('recordingDate').value || undefined,
         fit: val('fit').value || undefined,
+        paidProductPlacement: on('paidProductPlacement') || undefined,
       };
     }
     case 'tiktok': {

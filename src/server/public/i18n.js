@@ -174,6 +174,7 @@ const MESSAGES_EN = {
   '인증된 계정': 'Verified accounts',
   '구독자': 'Subscribers',
   '유료 파트너십 표시': 'Paid partnership',
+  '유료 PPL 포함 (올린 뒤 표시)': 'Includes paid product placement (disclosed after the upload)',
   '연결 안 됨 {count}곳': '{count} not connected',
   '연결 안 된 플랫폼 {count}곳': '{count} platforms not connected',
   '연결을 해제했습니다. 토큰을 철회하고 플랫폼에서 받은 반응 통계도 지웠습니다.': 'Disconnected. The token was revoked and the reaction stats read from the platform were deleted.',

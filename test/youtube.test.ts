@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { ProviderError } from '../src/core/errors.ts';
+import { parseArgs, targetOptions } from '../src/cli.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
 import { CHUNK_SIZE, DAILY_UNITS, buildMetadata, insertParts, nextOffset, pacificDay, postUnits, unitCost, youtube } from '../src/providers/youtube.ts';
@@ -298,5 +299,68 @@ describe('youtube chapters and recording date', () => {
     assert.ok(codes({ recordingDate: '10/01/2026' }).includes('recording_date'));
     assert.ok(codes({ recordingDate: '2026-02-30' }).includes('recording_date'), 'not a real day');
     assert.ok(!codes({ recordingDate: '2026-10-01' }).includes('recording_date'));
+  });
+});
+
+describe('youtube paid product placement', () => {
+  const URL_PART = '/youtube/v3/videos?part=paidProductPlacementDetails';
+  function publish(options: Record<string, unknown>, route: Parameters<typeof mockFetch>[0][number], resume: Record<string, unknown> = { videoId: 'VID' }) {
+    const { fetch, calls } = mockFetch([route]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('youtube', { clientId: 'c', clientSecret: 's' });
+    const saved: Array<Record<string, unknown>> = [];
+    const out = youtube.publish({
+      ctx, post: post(), target: target({ privacy: 'unlisted', madeForKids: false, ...options }, resume), account,
+      mediaPath: tempFile(100), media: fakeMedia(), saveResume: (r) => saved.push(r),
+    });
+    return { out, calls, saved, store };
+  }
+
+  it('sets the disclosure once after the upload with videos.update', async () => {
+    const { out, calls, saved } = publish({ paidProductPlacement: true }, ['PUT', URL_PART, () => json({ id: 'VID', paidProductPlacementDetails: { hasPaidProductPlacement: false } })]);
+    const result = await out;
+    assert.equal(result.state, 'processing');
+    assert.deepEqual(result.warnings, [], 'a lagging read-back in the response is not a failure');
+    const puts = calls.filter((c) => c.url.includes(URL_PART));
+    assert.equal(puts.length, 1);
+    assert.equal(puts[0]!.headers.authorization, 'Bearer AT');
+    assert.deepEqual(JSON.parse(String(puts[0]!.body)), { id: 'VID', paidProductPlacementDetails: { hasPaidProductPlacement: true } });
+    assert.deepEqual(saved.at(-1), { videoId: 'VID', extras: ['paidPlacement'] }, 'marked done before it is sent');
+  });
+
+  it('turns a refusal or a network error into a warning, and never sends it twice', async () => {
+    const refused = publish({ paidProductPlacement: true }, ['PUT', URL_PART, () => json({ error: { code: 403, message: 'Forbidden', errors: [{ reason: 'forbidden' }] } }, 403)]);
+    const r = await refused.out;
+    assert.equal(r.state, 'processing', 'the post itself still goes ahead');
+    assert.deepEqual(r.warnings, ['유료 PPL 표시 실패 (forbidden): Forbidden — YouTube Studio에서 직접 표시하세요']);
+    assert.deepEqual(refused.saved.at(-1), { videoId: 'VID', extras: ['paidPlacement'] });
+
+    const offline = publish({ paidProductPlacement: true }, ['PUT', URL_PART, () => { throw new TypeError('fetch failed'); }]);
+    assert.ok((await offline.out).warnings?.[0]?.startsWith('유료 PPL 표시 실패: fetch failed'));
+
+    const again = publish({ paidProductPlacement: true }, ['PUT', URL_PART, () => json({})], { videoId: 'VID', extras: ['paidPlacement'] });
+    await again.out;
+    assert.equal(again.calls.length, 0, 'already attempted for this video');
+  });
+
+  it('sends nothing unless it is on, and counts its quota units', async () => {
+    for (const options of [{}, { paidProductPlacement: false }]) {
+      const { out, calls } = publish(options, ['PUT', URL_PART, () => json({})]);
+      await out;
+      assert.equal(calls.length, 0);
+    }
+    assert.equal(unitCost('PUT', `https://www.googleapis.com${URL_PART}`), 50);
+    assert.equal(postUnits({ captions: [] }, { paidProductPlacement: true }) - postUnits({ captions: [] }, {}), 50);
+    const codes = (o: Record<string, unknown>) => youtube.validate(post(), target({ privacy: 'public', madeForKids: false, ...o }), fakeMedia()).map((i) => i.code);
+    assert.ok(codes({ paidProductPlacement: 'yes' }).includes('paid_placement'));
+    assert.ok(!codes({ paidProductPlacement: true }).includes('paid_placement'));
+  });
+
+  it('takes --yt-paid-placement, and --paid-partnership for YouTube too', () => {
+    const yt = (...flags: string[]) => targetOptions('youtube', parseArgs(['post', 'v.mp4', ...flags])).paidProductPlacement;
+    assert.equal(yt('--yt-paid-placement', 'yes'), true);
+    assert.equal(yt('--paid-partnership'), true);
+    assert.equal(yt('--paid-partnership', '--yt-paid-placement', 'no'), false, 'the platform flag wins');
+    assert.equal(yt(), undefined);
   });
 });

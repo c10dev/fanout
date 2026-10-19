@@ -11,7 +11,7 @@
 - 처음 쓰는 버전이라 옮길 데이터는 없습니다. 개발 중 빌드를 쓰던 경우 데이터베이스에 새로 생긴 열(통계, 첫 댓글 등)은 실행할 때 자동으로 더해지고, 기존 게시물과 계정은 그대로 남습니다.
 
 ### 플랫폼을 더 깊게 (YouTube·Meta·X·TikTok)
-- YouTube: YouTube Analytics 반응(평균 시청 시간·시청 비율·구독 증가, `yt-analytics.readonly` 권한으로 다시 연결), 챕터 검사, 촬영일
+- YouTube: YouTube Analytics 반응(평균 시청 시간·시청 비율·구독 증가, `yt-analytics.readonly` 권한으로 다시 연결), 챕터 검사, 촬영일, 유료 PPL 표시(`--yt-paid-placement`, `--paid-partnership`, 대시보드, MCP `paidProductPlacement`: 업로드 직후 한 번 설정하고 실패하면 경고)
 - TikTok: 수신함으로 보낸 영상이 앱에서 게시되면 그 게시물을 정확히 찾아 연결하고 반응을 가져옴
 - Instagram: 내 댓글은 숨기기 대상에서 빼기, 체험용 릴스(실험), 유료 파트너십 표시, 사람 태그, 장소
 - Facebook: 커버 이미지, 공동 작업자, 장소, 저작권 차단 상태를 알림으로
