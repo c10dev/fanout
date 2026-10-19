@@ -97,6 +97,7 @@ const MESSAGES_EN = {
   '이번 주': 'This week',
   '다음 주': 'Next week',
   '* 예약 시각 · ✓ 게시됨 · ⏳ 기다림/진행 중 · ✗ 실패': '* scheduled time · ✓ posted · ⏳ waiting or in progress · ✗ failed',
+  '주간 요약': 'Weekly summary',
   '{time}에 공개 예약됨': 'Goes public {time}',
   '이 댓글을 숨길까요? 나중에 다시 보이게 할 수 있습니다.': 'Hide this comment? You can show it again later.',
   '다시 보이기': 'Show again',
