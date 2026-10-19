@@ -1304,7 +1304,8 @@ function targetRow(t) {
           class: 'small danger',
           type: 'button',
           onclick: async (e) => {
-            if (!confirm(tr('{target}에서 이 게시물을 삭제할까요?\n플랫폼에서 지워지며 되돌릴 수 없습니다.', { target: `${t.platform}/${t.account}` }))) return;
+            const question = tr('{target}에서 이 게시물을 삭제할까요?\n플랫폼에서 지워지며 되돌릴 수 없습니다.', { target: `${t.platform}/${t.account}` });
+            if (!confirm(t.removesReply ? `${question}\n${tr('첫 댓글 답글도 먼저 지웁니다 (삭제 요청 2건)')}` : question)) return;
             e.target.disabled = true;
             await api(`/targets/${t.id}/remove`, { method: 'POST' }).catch((err) => alert(err.message));
             refreshBoard();

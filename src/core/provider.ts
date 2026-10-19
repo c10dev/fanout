@@ -209,6 +209,12 @@ export interface Provider {
    */
   postComment?(args: StatsArgs & { text: string; sending: () => void }): Promise<{ id: string; url?: string }>;
 
+  /**
+   * The first comment is a post of its own (X: a reply), not part of the post: removing the post
+   * leaves it up unless it is removed too (with `remove`, by its id).
+   */
+  readonly firstCommentIsPost?: boolean;
+
   /** What postComment's API accepts (from its docs), checked in the preview; breaking it fails only the comment. */
   readonly commentRules?: {
     max: number;

@@ -137,6 +137,7 @@ const MESSAGES_EN = {
   '{n}곳 다시 시도함': 'Retried {n}',
   '실패: {list}': 'Failed: {list}',
   '직접 확인이 필요해 건너뜀: {list}': 'Skipped, check on the platform first: {list}',
+  '첫 댓글 답글도 먼저 지웁니다 (삭제 요청 2건)': 'The first-comment reply is deleted first (two delete requests)',
   '{time}에 공개 예약됨': 'Goes public {time}',
   '이 댓글을 숨길까요? 나중에 다시 보이게 할 수 있습니다.': 'Hide this comment? You can show it again later.',
   '다시 보이기': 'Show again',

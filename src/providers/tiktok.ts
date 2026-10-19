@@ -1,4 +1,4 @@
-import { statSync } from 'node:fs';
+import { rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline/promises';
@@ -659,6 +659,8 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     } catch (err) {
       const e = err as ProviderError;
       checks.push({ name: msg('미심사 앱 수신함 업로드'), status: 'fail', detail: `${e.platformCode ?? e.code}: ${e.message}` });
+    } finally {
+      rmSync(clip, { force: true });
     }
     return checks;
   },

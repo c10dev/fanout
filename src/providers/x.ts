@@ -602,6 +602,8 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
     return { views: m.impression_count, likes: m.like_count, comments: m.reply_count, shares: (m.retweet_count ?? 0) + (m.quote_count ?? 0) };
   },
 
+  firstCommentIsPost: true,
+
   // The first comment is a reply to the video post: one more paid write.
   commentRules: {
     max: TEXT_MAX,
