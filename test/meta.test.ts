@@ -143,7 +143,9 @@ describe('instagram reels', () => {
     const { fetch } = mockFetch([['GET', '/CONT2?', () => json({ status_code: code, status: 'Error: unsupported codec' })]]);
     const { ctx, store } = makeCtx(fetch);
     store.setApp('meta', { appId: 'a', appSecret: 's' });
-    const t = { ...target('instagram', { containerId: 'CONT2' }), remoteId: 'CONT2' };
+    const { targets } = store.createPost(post, [{ platform: 'instagram', account: 'main', options: {} }]);
+    store.transition(targets[0]!.id, 'uploading');
+    const t = { ...store.getTarget(targets[0]!.id)!, resume: { containerId: 'CONT2' }, remoteId: 'CONT2' };
     assert.equal((await instagram.poll({ ctx, post, target: t, account: account('instagram') })).state, 'processing');
     code = 'PUBLISHED';
     assert.equal((await instagram.poll({ ctx, post, target: t, account: account('instagram') })).state, 'published');

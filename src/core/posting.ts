@@ -1,4 +1,5 @@
 import { firstCommentWarnings } from './followup.ts';
+import { remoteIdUnknown, remoteIdUnknownNote } from './remote.ts';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { ProviderError } from './errors.ts';
@@ -325,6 +326,10 @@ export async function refreshStats(
       out.push({ ...base, skipped: why });
       continue;
     }
+    if (remoteIdUnknown(t)) {
+      out.push({ ...base, skipped: remoteIdUnknownNote() });
+      continue;
+    }
     if (!provider?.stats) {
       out.push({ ...base, skipped: msg('{provider}는 반응 통계를 가져올 수 없습니다', { provider: provider?.displayName ?? t.platform }) });
       continue;
@@ -552,6 +557,10 @@ export async function fetchComments(baseCtx: ProviderContext, providers: Map<str
     const provider = providers.get(t.platform);
     if (t.state !== 'published' || !t.remoteId) {
       out.push({ ...base, skipped: t.state === 'removed' ? msg('플랫폼에서 삭제했습니다') : msg('게시된 대상이 아닙니다') });
+      continue;
+    }
+    if (remoteIdUnknown(t)) {
+      out.push({ ...base, skipped: remoteIdUnknownNote() });
       continue;
     }
     if (!provider?.comments) {

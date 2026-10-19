@@ -815,4 +815,8 @@ export const MESSAGES_EN: Record<string, string> = {
   "fanout 작업 처리기가 멈췄습니다: 데이터베이스 오류가 계속됩니다 — {error}": "The fanout worker has stalled: database errors keep coming — {error}",
   "첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못했습니다. {platform}에서 확인해 직접 지우세요": "Couldn't tell whether the first-comment reply went up, so it wasn't deleted. Check on {platform} and delete it yourself",
   "첫 댓글 답글도 먼저 지웁니다 (삭제 요청 2건)": "The first-comment reply is deleted first (two delete requests)",
+  "플랫폼의 게시물 id를 몰라 건너뜁니다. 게시물은 앱에서 확인하세요": "Skipped: the post's id on the platform isn't known. Check the post in the app",
+  "게시 직후 응답을 놓쳤지만 계정의 최근 게시물에서 찾았습니다": "The answer to publishing was lost, but the post was found among the account's latest posts",
+  "시험 릴스는 게시됐지만 계정 게시물 목록에 나오지 않아 id를 찾지 못했습니다. 반응·댓글·첫 댓글은 건너뜁니다. Instagram 앱에서 확인하세요": "The trial reel went out, but it isn't in the account's post list, so its id wasn't found. Reactions, comments and the first comment are skipped. Check it in the Instagram app",
+  "게시됐지만 Instagram 게시물 id를 찾지 못했습니다. 반응·댓글·첫 댓글은 건너뜁니다. 게시물은 Instagram 앱에서 확인하세요": "It went out, but its Instagram post id wasn't found. Reactions, comments and the first comment are skipped. Check the post in the Instagram app",
 };

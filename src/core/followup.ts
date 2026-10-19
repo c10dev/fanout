@@ -1,5 +1,6 @@
 import { msg } from './i18n.ts';
 import { notifyEvent } from './notify.ts';
+import { remoteIdUnknown, remoteIdUnknownNote } from './remote.ts';
 import { ProviderError } from './errors.ts';
 import type { Provider, ProviderContext } from './provider.ts';
 import type { Account } from './store.ts';
@@ -50,6 +51,7 @@ export async function postFirstComment(ctx: ProviderContext, providers: Map<stri
   if (!text) return save({ state: 'failed', at: now(), error: msg('첫 댓글 내용이 없습니다') });
   if (!provider?.postComment) return save({ state: 'unsupported', at: now() });
   if (!target.remoteId) return save({ state: 'failed', at: now(), error: msg('플랫폼의 게시물 id가 없어 댓글을 달 수 없습니다') });
+  if (remoteIdUnknown(target)) return save({ state: 'failed', at: now(), error: remoteIdUnknownNote() });
   const posted = { ...target, remoteId: target.remoteId };
   let account = store.getAccount(target.platform, target.account);
   if (!account) return save({ state: 'failed', at: now(), error: msg('연결되지 않은 계정: {platform}/{account}', { platform: target.platform, account: target.account }) });
