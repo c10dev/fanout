@@ -203,6 +203,12 @@ export interface Provider {
    */
   reply?(args: StatsArgs & { comment: Comment; text: string; sending: () => void }): Promise<{ id: string; url?: string }>;
 
+  /**
+   * Post `text` as a top-level comment on the account's own published post (the post's first
+   * comment). Like reply: called once, `sending()` right before the request that creates it.
+   */
+  postComment?(args: StatsArgs & { text: string; sending: () => void }): Promise<{ id: string; url?: string }>;
+
   /** Apply an edited title/description/tags (already saved on `post`) to the published post. */
   update?(args: StatsArgs & { post: Post }): Promise<void>;
 

@@ -775,4 +775,17 @@ export const MESSAGES_EN: Record<string, string> = {
   "\n예약하려면 fanout post 에 위의 --at 을 붙이세요": "\nTo schedule, add one of the --at above to fanout post",
   "accounts 가 필요합니다 (예: youtube/main,tiktok/main)": "accounts is required (e.g. youtube/main,tiktok/main)",
   "올린 영상이 서버에 없습니다. 다시 올려 주세요": "The uploaded video is no longer on the server. Upload it again",
+  // first comment
+  "첫 댓글 내용이 없습니다": "The first comment is empty",
+  "{target}: 첫 댓글을 달지 못했습니다 — {error}": "{target}: couldn't post the first comment — {error}",
+  "게시된 대상에만 첫 댓글을 달 수 있습니다": "A first comment goes only on a published target",
+  "첫 댓글은 이미 달렸습니다": "The first comment is already posted",
+  "첫 댓글이 이미 달렸을 수 있습니다. 플랫폼에서 확인한 뒤 다시 시도하세요": "The first comment may already be posted. Check on the platform, then try again",
+  "첫 댓글: {platform}에는 API로 댓글을 달 수 없어 건너뜁니다": "First comment: {platform} can't take comments through its API, so it's skipped there",
+  "첫 댓글이 {platform} 한도({max}자)보다 깁니다 (지금 {length}자) — 댓글만 실패합니다": "The first comment is longer than {platform} allows ({max} characters, now {length}) — only the comment will fail",
+  "첫 댓글: {platform} 댓글은 해시태그 {max}개까지입니다 (지금 {n}개)": "First comment: {platform} comments take up to {max} hashtags (now {n})",
+  "첫 댓글: {platform} 댓글은 링크 {max}개까지입니다 (지금 {n}개)": "First comment: {platform} comments take up to {max} links (now {n})",
+  "첫 댓글은 글자여야 합니다": "The first comment must be text",
+  "첫 댓글은 10000자까지입니다": "The first comment can be up to 10000 characters",
+  "플랫폼의 게시물 id가 없어 댓글을 달 수 없습니다": "The platform gave no post id, so there is nothing to comment on",
 };

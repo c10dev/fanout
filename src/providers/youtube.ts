@@ -1114,6 +1114,17 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     });
   },
 
+  // A new thread on the video, as the channel. Comments must be on (not "made for kids").
+  async postComment({ ctx, account, target, text, sending }) {
+    sending();
+    const res = await api<{ id: string }>(ctx, account, '/commentThreads?part=snippet', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ snippet: { videoId: target.remoteId, topLevelComment: { snippet: { textOriginal: text } } } }),
+    });
+    return { id: res.id, url: `https://www.youtube.com/watch?v=${target.remoteId}&lc=${res.id}` };
+  },
+
   // comments.insert with parentId; the thread id from comments() is the top-level comment's id.
   async reply({ ctx, account, target, comment, text, sending }) {
     sending();

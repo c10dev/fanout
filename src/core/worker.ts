@@ -3,6 +3,7 @@ import { settle, type RunnerDeps } from './runner.ts';
 import { refreshDueStats } from './stats.ts';
 import { verifyDueAccounts, warnExpiringAccounts } from './accounts.ts';
 import { sendWeeklyDigest } from './digest.ts';
+import { postDueFirstComments } from './followup.ts';
 
 export const DEFAULT_STATS_EVERY_MS = 6 * 3600_000;
 const STATS_CHECK_MS = 30 * 60_000;
@@ -32,6 +33,7 @@ export class Worker {
   #upkeepTimer?: NodeJS.Timeout;
   #upkeepFirst?: NodeJS.Timeout;
   #upkeepRun?: Promise<number>;
+  #followupRun?: Promise<number>;
 
   constructor(deps: RunnerDeps, opts: WorkerOptions = {}) {
     this.#deps = deps;
@@ -102,14 +104,31 @@ export class Worker {
     return this.#upkeepRun;
   }
 
+  /** First comments of targets just published; one run at a time. Resolves to how many were tried. */
+  followupTick(): Promise<number> {
+    if (this.#followupRun) return this.#followupRun;
+    const { ctx, providers } = this.#deps;
+    this.#followupRun = postDueFirstComments(ctx, providers)
+      .catch((err: unknown) => {
+        ctx.log.warn(`first comment: ${String(err)}`);
+        return 0;
+      })
+      .finally(() => {
+        this.#followupRun = undefined;
+      });
+    return this.#followupRun;
+  }
+
   /** Wait for in-flight runner work (tests, shutdown). */
   async idle(): Promise<void> {
     while (this.#running.size) await Promise.all(this.#running);
     await this.#statsRun;
     await this.#upkeepRun;
+    await this.#followupRun;
   }
 
   tick(): void {
+    void this.followupTick();
     const byPlatform = new Map<string, string[]>();
     for (const t of this.#deps.ctx.store.workableTargets()) {
       if (this.#busyPlatforms.has(t.platform)) continue;
