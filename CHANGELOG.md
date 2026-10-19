@@ -113,6 +113,7 @@
 - YouTube: 미검증 프로젝트로 일부 공개 게시(처리 뒤에도 일부 공개 유지). 그 뒤 연결 권한에 YouTube Analytics가 더해졌고, 다시 연결한 계정으로는 아직 확인하지 않았습니다(#116)
 - TikTok: 수신함 업로드
 - Instagram: 연결과 하루 게시 한도 조회. Facebook: 연결과 점검
+- 2026-10-19 (#116): YouTube 첫 댓글(일부 공개 영상, 달린 뒤 다시 읽음)과 유료 PPL 표시 설정(`videos.update`로 바뀜), Facebook 릴스 커버 이미지, 연결된 네 계정 점검. 시험 릴스는 팔로워 요건 미달로 거절(게시물은 만들어지지 않음), Facebook·Instagram 첫 댓글은 토큰에 댓글 권한이 없어 거절, TikTok "나만 보기" 게시물은 API로 보이지 않아 반응을 못 읽음
 - PeerTube: 로컬 PeerTube 8.3.1(Docker) 인스턴스에서 업로드·이어 올리기·예약·수정·댓글·답글·삭제
 - Mastodon: 로컬 Mastodon 4.7.3(Docker) 인스턴스에서 썸네일 게시·수정·반응·댓글·답글(멘션, 중복 방지)·예약·삭제
 - X·Bluesky와 나머지 경로는 HTTP mock 테스트로만 확인했습니다

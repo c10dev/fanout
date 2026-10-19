@@ -22,7 +22,7 @@ or `docker compose up -d` and open http://127.0.0.1:8780/. See the README for bo
 
 ## What was checked on real accounts
 
-On 2026-10-17: a YouTube unlisted upload from an unverified Google project (it stayed unlisted), a TikTok inbox upload, Instagram's connection and daily publishing limit, Facebook's connection, and full flows on local PeerTube 8.3 and Mastodon 4.7 instances. Much was added after that date. YouTube connections now also ask for the Analytics permission, which hasn't been checked against Google with a reconnected account yet. X, Bluesky and the newer paths (first comment, trial reels, X Communities and others) are covered by HTTP-mocked tests. The remaining live checks are tracked in issue #116.
+On 2026-10-17: a YouTube unlisted upload from an unverified Google project (it stayed unlisted), a TikTok inbox upload, Instagram's connection and daily publishing limit, Facebook's connection, and full flows on local PeerTube 8.3 and Mastodon 4.7 instances. On 2026-10-19: a YouTube first comment (posted and read back), YouTube's paid-product-placement flag (it can be set with `videos.update`), and a custom cover on a Facebook reel. Instagram refused a trial reel for an account below its follower requirement, the Facebook and Instagram first comments need a token with comment permissions, and a TikTok post finished as "Only me" isn't visible to the API. Much else was added after 10-17. YouTube connections now also ask for the Analytics permission, which hasn't been checked against Google with a reconnected account yet. X, Bluesky and the newer paths (first comment, trial reels, X Communities and others) are covered by HTTP-mocked tests. The remaining live checks are tracked in issue #116.
 
 ## Know before you start
 
