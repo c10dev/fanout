@@ -83,6 +83,8 @@ body {
 
 
 .panel {
+  /* Rows inside lay out by the panel's own width (it changes with the sidebar and wide screens, not only the window). */
+  container-type: inline-size;
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -163,7 +165,7 @@ button { font: inherit; cursor: pointer; border-radius: var(--radius-control); }
   font-size: 14px;
 }
 .trow:first-of-type { margin-top: 8px; }
-@media (max-width: 560px) { .trow { grid-template-columns: 1fr auto; } .trow .tdetail { grid-column: 1 / -1; } }
+@container (max-width: 32rem) { .trow { grid-template-columns: 1fr auto; } .trow .tdetail { grid-column: 1 / -1; } }
 .tname { font-weight: 500; overflow-wrap: anywhere; }
 .tdetail { min-width: 0; overflow-wrap: anywhere; }
 .tdetail a { color: var(--accent); }
@@ -195,7 +197,7 @@ body.modal-open { overflow: hidden; }
 .modal-close { position: absolute; top: 12px; right: 12px; font-size: 20px; }
 .settings-body { display: flex; flex-direction: column; gap: 16px; }
 .settings-heading { font-size: 20px; font-weight: 500; margin: 4px 40px 4px 0; }
-.settings-body .panel, .settings-section { margin: 0; padding: 4px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: none; }
+.settings-body .panel, .settings-section { container-type: inline-size; margin: 0; padding: 4px 16px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); box-shadow: none; }
 .settings-body .panel > h2 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 15px; margin: 12px 0 4px; }
 .settings-body .panel > p, .settings-body .panel > .note { margin: 8px 0 12px; }
 .settings-body .acct { border-bottom: 1px solid var(--line-soft); padding: 12px 0; }
@@ -288,7 +290,7 @@ body.modal-open { overflow: hidden; }
 .presets select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius-control); padding: 4px 8px; min-width: 0; max-width: 100%; }
 
 .row-actions { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
-@media (max-width: 560px) { .row-actions { flex-direction: row; justify-content: flex-start; } }
+@container (max-width: 32rem) { .row-actions { flex-direction: row; justify-content: flex-start; } }
 .presets .note { flex-basis: 100%; margin: 0; }
 .comment .small.link { margin-top: 4px; padding: 1px 8px; font-size: 12px; }
 .reply-box { display: grid; gap: 6px; margin-top: 6px; }
@@ -317,12 +319,17 @@ details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1;
 .insight h3 { font-size: 1rem; margin: 0 0 0.25rem; }
 .insight ol { margin: 0.25rem 0 0.5rem 1.25rem; padding: 0; }
 .calendar { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; margin: 0.5rem 0; }
-.cal-day { border: 0.5px solid var(--border, #ddd); border-radius: var(--radius-control); padding: 6px; min-height: 64px; font-size: 13px; }
-.cal-day.today { border-color: currentColor; }
+.cal-day { border: 1px solid var(--line); border-radius: var(--radius-control); padding: 6px; min-height: 64px; font-size: 13px; }
+.cal-day.today { border-color: var(--accent); }
 .cal-date { font-size: 12px; opacity: 0.8; margin-bottom: 4px; }
 .cal-item { margin: 2px 0; overflow-wrap: anywhere; }
 .cal-targets { font-size: 12px; }
-@media (max-width: 720px) { .calendar { grid-template-columns: 1fr; } }
+@container (max-width: 40rem) {
+  .calendar { grid-template-columns: 1fr; gap: 4px; }
+  /* A day with nothing on it is one short line. */
+  .cal-day:not(:has(.cal-item)) { min-height: 0; display: flex; gap: 8px; align-items: baseline; padding: 4px 6px; }
+  .cal-day:not(:has(.cal-item)) .cal-date { margin: 0; }
+}
 
 /* App frame: sidebar 288, top bar 48, a centred column 808 (768 + 20 each side). */
 .app { display: flex; min-height: 100vh; }
@@ -373,6 +380,12 @@ details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1;
 }
 @media (min-width: 704px) { .scrim { display: none; } }
 @media (max-width: 767px) { .column { padding: 8px 12px 40px; } }
+/* Sidebar as a drawer: panels run edge to edge, no column padding around them. */
+@media (max-width: 703px) {
+  .topbar { padding-left: 8px; }
+  .column { padding: 0 0 40px; gap: 8px; }
+  .column > .panel:not(.compose-panel.empty) { border-radius: 0; border-left: 0; border-right: 0; padding: 16px; }
+}
 @media (prefers-reduced-motion: reduce) { .sidebar { transition: none; } }
 /* The top bar names the screen; a section's own heading would repeat it. */
 .column > [data-section] > h2:first-child, .column > [data-section] > .panel-head > h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
