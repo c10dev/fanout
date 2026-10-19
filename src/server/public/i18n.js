@@ -121,6 +121,7 @@ const MESSAGES_EN = {
   '버리기': 'Discard',
   '지금 쓰고 있는 내용 대신 저장된 초안을 불러올까요?': 'Load the saved draft instead of what you are writing now?',
   '조회 추이: {from} ({start}) → {to} ({end})': 'Views: {from} ({start}) → {to} ({end})',
+  '대시보드가 다시 시작돼 이 화면의 연결이 끊겼습니다. 새로고침하면 이어집니다(쓰던 글은 남아 있습니다).': 'The dashboard restarted, so this page lost its connection. Reload to continue (what you were writing is kept).',
   '{time}에 공개 예약됨': 'Goes public {time}',
   '이 댓글을 숨길까요? 나중에 다시 보이게 할 수 있습니다.': 'Hide this comment? You can show it again later.',
   '다시 보이기': 'Show again',
