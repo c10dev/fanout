@@ -302,9 +302,10 @@ export class Dashboard {
     if (method === 'GET' && (url.pathname === '/' || url.pathname === '/index.html')) return this.#page(res);
     // Liveness for Docker/monitors: no token, no data.
     if (method === 'GET' && url.pathname === '/healthz') {
-      // 503 once the background worker keeps failing, so a health check sees it.
-      const worker = this.#worker.health();
-      return send(res, worker.ok ? 200 : 503, worker.ok ? { ok: true } : { ok: false, worker });
+      // 503 once the background worker keeps failing, so a health check sees it. No token here, so
+      // no detail either: the reason is in the log (and in an alert, when the webhook is readable).
+      const ok = this.#worker.health().ok;
+      return send(res, ok ? 200 : 503, { ok });
     }
     if (method === 'GET' && STATIC[url.pathname]) {
       res.writeHead(200, { 'content-type': STATIC[url.pathname]!, 'cache-control': 'no-cache' });

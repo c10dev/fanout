@@ -808,8 +808,9 @@ export const MESSAGES_EN: Record<string, string> = {
   "{platform}/{account}: {reason}. 이미 게시됐을 수 있습니다. 플랫폼에서 올라가지 않은 것을 확인한 뒤에만 다시 시도하세요. 그렇지 않으면 두 번 올라갑니다": "{platform}/{account}: {reason}. It may already be posted. Retry only after checking on the platform that it isn't there, or it goes up twice",
   "플랫폼에서 없는 것을 확인했으면 --confirmed-not-posted 를 붙여 다시 실행하세요": "If you checked on the platform that it isn't there, run again with --confirmed-not-posted",
   "사용자에게 플랫폼에서 확인을 받은 뒤에만 confirmedNotPosted: true 로 다시 호출하세요": "Ask the user to check the platform, and call again with confirmedNotPosted: true only once they confirm it isn't there.",
-||||||| parent of ba00231 (fix: the worker survives database errors and says when it can't work)
   "작업 잠금을 다른 프로세스가 가져갔습니다. 이 대상은 지금 요청이 끝나면 멈춥니다": "Another process took the work lock; this target stops once the current request ends",
   "작업 잠금을 연장하지 못했습니다 ({n}번째): {err}": "Couldn't renew the work lock (attempt {n}): {err}",
   "작업 잠금을 잃어 이 단계를 멈췄습니다. 이어서 할 정보는 남겨 두었습니다": "Lost the work lock, so this step stopped; what it needs to resume is kept",
+  "작업 처리기가 데이터베이스를 읽지 못했습니다 ({n}번 연속): {error}": "The worker couldn't read the database ({n} in a row): {error}",
+  "fanout 작업 처리기가 멈췄습니다: 데이터베이스 오류가 계속됩니다 — {error}": "The fanout worker has stalled: database errors keep coming — {error}",
 };

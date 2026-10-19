@@ -14,8 +14,8 @@ export const MAX_ATTEMPTS = 4;
 /** Renewed every RENEW_MS while a step runs, so it only matters when the holder died or stalled. */
 const LEASE_MS = 15 * 60_000;
 const RENEW_MS = 5 * 60_000;
-/** Renewals that may fail in a row (15 minutes) before the lease is treated as lost. */
-const RENEW_FAILURES_MAX = 3;
+/** Renewals that may throw in a row before the lease is treated as lost (then at most 5 minutes are left). */
+const RENEW_FAILURES_MAX = 2;
 /** A platform that hasn't finished processing after this long is not going to. */
 export const PROCESSING_MAX_MS = 24 * 3600_000;
 const POLL_TIMEOUT_MS = 60_000;

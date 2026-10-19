@@ -78,3 +78,7 @@ fanout export --format json > posts.json
 ## 상태 확인
 
 대시보드는 `GET /healthz`에 토큰 없이 `{"ok":true}`로 답합니다. Docker 이미지는 이 경로로 HEALTHCHECK를 합니다.
+
+작업 처리기가 일을 못 하면 `503 {"ok":false}`로 바뀝니다: 데이터베이스를 읽는 주기 작업이 세 번 연속 실패했거나(디스크가 꽉 참, I/O 오류, 잠금 시간 초과 등), 세 주기(기본 45초) 동안 한 번도 성공하지 못했을 때입니다. 토큰이 없는 경로라 이유는 담지 않고, 로그에 경고가 남으며, 다섯 번 연속 실패하면 알림(`alert`)을 한 번 보냅니다(다시 한 번 성공한 뒤에 또 멈추면 다시 보냄). 데이터베이스 자체가 문제면 알림 설정도 못 읽을 수 있으니 `/healthz`와 로그가 기준입니다.
+
+Docker는 상태가 `unhealthy`로 바뀌는 것만 보여 주고 컨테이너를 다시 시작하지는 않습니다(`restart: unless-stopped`는 프로세스가 끝났을 때만). 자동으로 다시 시작하려면 [autoheal](https://github.com/willfarrell/docker-autoheal) 같은 감시 컨테이너나 systemd·쿠버네티스의 상태 검사를 쓰세요. `fanout mcp`는 HTTP가 없어서 경고 로그(stderr)와 알림이 신호입니다.
