@@ -11,6 +11,7 @@ import type { Worker } from '../core/worker.ts';
 import { defaultAccountName } from '../core/inbox.ts';
 import { isShort } from '../providers/youtube.ts';
 import { signInExpiry } from '../core/accounts.ts';
+import { computeInsights } from '../core/insights.ts';
 import { currentLang, local, msg, translateDeep } from '../core/i18n.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
@@ -142,6 +143,15 @@ const TOOLS = [
       'Platforms that bill for reads (X) are skipped unless includePaid is true — ask the user before setting it.',
     inputSchema: { type: 'object', required: ['postId'], properties: { postId: { type: 'string' }, includePaid: { type: 'boolean' } } },
     annotations: { readOnlyHint: true, openWorldHint: true },
+  },
+  {
+    name: 'get_insights',
+    title: 'Get insights',
+    description:
+      'What performs, from the reactions fanout already recorded (no platform calls): per platform and account over the last N days, posts, total/median views, likes per 100 views, top posts, ' +
+      'and the weekday and 3-hour block whose posts had the most views a day later (only with enough posts).',
+    inputSchema: { type: 'object', properties: { days: { type: 'number', description: 'default 30' }, platform: { type: 'string' }, timeZone: { type: 'string', description: 'IANA zone for weekdays and hours, e.g. Asia/Seoul (default: FANOUT_TZ or the server\'s)' } } },
+    annotations: { readOnlyHint: true, openWorldHint: false },
   },
   {
     name: 'get_limits',
@@ -417,6 +427,10 @@ export class McpServer {
         } catch (err) {
           throw new ToolError((err as Error).message);
         }
+      }
+      case 'get_insights': {
+        const days = typeof args.days === 'number' && args.days > 0 ? args.days : 30;
+        return { ...computeInsights(store, this.#deps.ctx.now(), { days, platform: typeof args.platform === 'string' ? args.platform : undefined, locale: currentLang() === 'en' ? 'en-US' : 'ko-KR', timeZone: typeof args.timeZone === 'string' ? args.timeZone : undefined }) };
       }
       case 'get_limits':
         return { accounts: await readLimits(this.#deps.ctx, providers, typeof args.platform === 'string' ? args.platform : undefined) };

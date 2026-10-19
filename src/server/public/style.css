@@ -274,3 +274,6 @@ details.more .opts > .wide, details.more .opts > .choices { grid-column: 1 / -1;
 [data-localizations] > button { justify-self: start; width: auto; }
 .stats.totals { margin: 2px 0 6px; padding: 4px 0; border-bottom: 1px dashed var(--line, #e3e7ed); }
 .comment.hidden-comment .comment-text { opacity: 0.45; text-decoration: line-through; }
+.insight { margin: 0.75rem 0; }
+.insight h3 { font-size: 1rem; margin: 0 0 0.25rem; }
+.insight ol { margin: 0.25rem 0 0.5rem 1.25rem; padding: 0; }

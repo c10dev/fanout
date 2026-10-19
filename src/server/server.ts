@@ -38,6 +38,7 @@ import type { PostInput, Target, TargetInput, TargetState } from '../core/types.
 import { isShort } from '../providers/youtube.ts';
 import { ACCOUNT_NAME } from '../core/store.ts';
 import { disconnectAccount, signInExpiry } from '../core/accounts.ts';
+import { computeInsights } from '../core/insights.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
 import { ASSET_RULES, type AssetKind } from '../core/assets.ts';
@@ -313,6 +314,11 @@ export class Dashboard {
 
     const parts = url.pathname.split('/').filter(Boolean).slice(1);
     if (method === 'GET' && parts[0] === 'overview') return send(res, 200, this.#overview());
+    if (method === 'GET' && parts[0] === 'insights' && !parts[1]) {
+      const days = Number(url.searchParams.get('days') ?? 30);
+      const locale = url.searchParams.get('lang') === 'en' ? 'en-US' : 'ko-KR';
+      return send(res, 200, computeInsights(this.#opts.ctx.store, this.#opts.ctx.now(), { days: days > 0 ? Math.min(days, 365) : 30, locale, timeZone: url.searchParams.get('tz') ?? undefined }));
+    }
     if (method === 'GET' && parts[0] === 'limits' && !parts[1]) return send(res, 200, { accounts: await readLimits(this.#opts.ctx, this.#opts.providers, url.searchParams.get('platform') ?? undefined) });
     if (parts[0] === 'presets') return send(res, 200, await this.#presets(method, parts[1] ? decode(parts[1]) : undefined, req));
     if (method === 'POST' && parts[0] === 'media' && parts.length === 1) return send(res, 201, await this.#upload(req));
