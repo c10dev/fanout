@@ -1623,6 +1623,34 @@ function postCard({ post, targets }) {
   const commentsButton = hasPublished
     ? h('button', { class: 'small', type: 'button', onclick: () => toggleComments(post.id) }, openComments.has(post.id) ? tr('댓글 닫기') : tr('댓글'))
     : null;
+  // Two or more to retry: one button for all of them, one after another, with what happened to each.
+  const retryable = targets.filter((t) => t.state === 'failed' || t.state === 'needs_reauth');
+  const retryStatus = h('span', { class: 'msg', role: 'status' });
+  const retryAll =
+    retryable.length >= 2
+      ? h(
+          'button',
+          {
+            class: 'small',
+            type: 'button',
+            onclick: async (e) => {
+              e.target.disabled = true;
+              const failed = [];
+              for (const [i, t] of retryable.entries()) {
+                message(retryStatus, `${i + 1}/${retryable.length} ${t.platform}/${t.account}…`, true);
+                try {
+                  await api(`/targets/${t.id}/retry`, { method: 'POST' });
+                } catch (err) {
+                  failed.push(`${t.platform}/${t.account}: ${err.message}`);
+                }
+              }
+              if (failed.length) alert(failed.join('\n'));
+              refreshBoard();
+            },
+          },
+          tr('실패한 {n}곳 다시 시도', { n: retryable.length }),
+        )
+      : null;
   const addButton = post.canAddTargets ? h('button', { class: 'small', type: 'button', onclick: () => startAddMode(post.id) }, tr('플랫폼 추가')) : null;
   const editable = targets.some((t) => !['failed', 'removed', 'canceled'].includes(t.state));
   const editButton = editable
@@ -1653,7 +1681,7 @@ function postCard({ post, targets }) {
     h('div', { class: 'post-head' }, h('span', { class: 'post-title' }, post.title), h('span', { class: 'muted' }, [fmtTime(post.createdAt), post.scheduledAt && tr('예약 {time}', { time: fmtTime(post.scheduledAt) }), post.hasThumbnail && tr('썸네일'), post.captionLanguages?.length && tr('자막 {list}', { list: post.captionLanguages.join(', ') })].filter(Boolean).join(' · '))),
     postTotals(targets),
     targets.map(targetRow),
-    h('div', { class: 'post-foot' }, history, h('div', { class: 'actions-inline' }, commentsButton, editButton, addButton, refreshStats)),
+    h('div', { class: 'post-foot' }, history, h('div', { class: 'actions-inline' }, retryStatus, retryAll, commentsButton, editButton, addButton, refreshStats)),
     commentsPanel(post.id),
   );
 }
