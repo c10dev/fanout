@@ -759,8 +759,8 @@ async function cmdInbox(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   const days = num(args, 'days') ?? 7;
   if (!(days > 0 && days <= 90)) throw new UsageError(msg('--days 는 1~90'));
   const r = await commentInbox(ctx, deps.providers, { days });
-  for (const e of r.errors) sayErr('✗ ' + e);
-  say(msg('최근 {days}일 게시물 {posts}개에서 답을 기다리는 댓글 {n}개', { days, posts: r.posts, n: r.items.length }) + (r.unknown ? local(msg(' (답했는지 알 수 없는 {n}개는 빠짐)', { n: r.unknown })) : ''));
+  for (const e of r.errors) console.error('✗ ' + local(e));
+  console.log(local(msg('최근 {days}일 게시물 {posts}개에서 답을 기다리는 댓글 {n}개', { days, posts: r.posts, n: r.items.length })) + (r.unknown ? local(msg(' (답했는지 알 수 없는 {n}개는 빠짐)', { n: r.unknown })) : ''));
   for (const i of r.items) {
     const author = printable(i.comment.author) || local(msg('(이름 없음)'));
     console.log(`\n  ${i.comment.at.slice(0, 16).replace('T', ' ')}  ${i.platform}/${i.account}  "${printable(i.title).slice(0, 40)}"  ${author}  [${i.postId.slice(0, 8)} ${i.comment.id}]`);

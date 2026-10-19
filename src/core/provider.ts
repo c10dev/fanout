@@ -182,6 +182,8 @@ export interface Provider {
    * and no other target already has it.
    */
   findHandedOff?(args: { ctx: ProviderContext; account: Account; target: Target; since: Date }): Promise<{ matches: Array<{ remoteId: string; remoteUrl?: string }>; note?: string }>;
+  /** comments() says whether the account has answered each comment (the comment inbox reads only these). */
+  readonly commentsKnowAnswers?: boolean;
   /** When the connection itself ends and the user must reconnect (a refresh token's end), if known. */
   signInExpiresAt?(account: Account): number | undefined;
   /** Set when reading stats is billed (X); stats are then fetched only on explicit request. */

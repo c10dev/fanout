@@ -55,9 +55,10 @@ export interface MediaSpec {
 
 export const FITS = ['pad', 'crop'] as const;
 
-/** Vertical 9:16, give or take a little (1080x1920, 720x1280, phone videos a few pixels off). */
+/** Vertical 9:16, give or take a little (1080x1920, 720x1280, phone videos a pixel or two off). */
 export function isVertical(width: number, height: number): boolean {
-  return height > 0 && Math.abs(width / height - 9 / 16) <= 0.02;
+  // As tight as the strictest platform's own check (Facebook Reels: 9:16 within 0.01).
+  return height > 0 && Math.abs(width / height - 9 / 16) <= 0.01;
 }
 
 export interface Violation {
@@ -161,7 +162,8 @@ export function checkMedia(info: MediaInfo, spec: MediaSpec): Violation[] {
       message: msg('화면비 {width}x{height} ({ratio})가 허용 범위 {spec}–{spec2} 밖', { width: video.width, height: video.height, ratio: ratio.toFixed(3), spec: spec.aspect.min.toFixed(3), spec2: spec.aspect.max.toFixed(3) }),
     });
   }
-  if (spec.minShortEdge !== undefined && shortEdge < spec.minShortEdge) {
+  // A fit always comes out 1080 wide (or the platform's own size), so the original's size doesn't matter.
+  if (!fitting && spec.minShortEdge !== undefined && shortEdge < spec.minShortEdge) {
     out.push({ code: 'resolution_low', fixable: false, message: msg('짧은 변 {shortEdge}px < 최소 {minShortEdge}px', { shortEdge, minShortEdge: spec.minShortEdge }) });
   }
   if (spec.containers && !spec.containers.some((c) => info.container.split(',').includes(c))) {
@@ -289,7 +291,7 @@ export async function ensureVariant(
 }
 
 /**
- * One frame of a video as a JPEG thumbnail (long edge up to 1280 px, well under the 2 MB limit).
+ * One frame of a video as a JPEG thumbnail (at most 1280 px wide, well under the 2 MB limit).
  * The name comes from the video and the moment, so asking again reuses it. Returns its path.
  */
 export async function extractFrame(info: MediaInfo, atSec: number, dir: string): Promise<string> {
@@ -304,7 +306,7 @@ export async function extractFrame(info: MediaInfo, atSec: number, dir: string):
   const partial = `${output}.part.jpg`;
   // A frame right at the end may not exist; step back a little from the very last moment.
   const at = Math.max(0, Math.min(atSec, info.durationSec - 0.05));
-  await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-ss', String(at), '-i', info.path, '-frames:v', '1', '-vf', "scale='min(1280,iw)':-2", '-q:v', '3', partial]);
+  await run('ffmpeg', ['-y', '-hide_banner', '-loglevel', 'error', '-ss', at.toFixed(3), '-i', info.path, '-frames:v', '1', '-vf', "scale='min(1280,iw)':-2", '-q:v', '3', partial]);
   renameSync(partial, output);
   return output;
 }

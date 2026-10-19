@@ -310,6 +310,8 @@ export const facebook: Provider = {
     });
   },
 
+  commentsKnowAnswers: true,
+
   async comments({ ctx, account, target, limit }) {
     const c = pageCreds(account);
     type Reply = { from?: { id?: string } };

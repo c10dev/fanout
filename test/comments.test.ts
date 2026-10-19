@@ -254,3 +254,39 @@ describe('comment inbox', () => {
     assert.equal(r.posts, 1);
   });
 });
+
+describe('comment inbox, review fixes', () => {
+  const NOW = new Date('2026-10-17T03:00:00Z');
+  it('Instagram: answered by the account\'s id or name; more replies than came along is unknown', async () => {
+    const { instagram } = await import('../src/providers/instagram.ts');
+    const { fetch } = mockFetch([
+      ['GET', '/M/comments', () =>
+        json({
+          data: [
+            { id: 'A', text: 'q', username: 'fan', timestamp: '2026-10-17T00:00:00+0000', replies: { data: [{ username: 'renamed', user: { id: 'IG' } }] } },
+            { id: 'B', text: 'q', username: 'fan', timestamp: '2026-10-17T00:00:00+0000', replies: { data: [{ username: 'x' }], paging: { next: 'https://graph/next' } } },
+            { id: 'C', text: 'q', username: 'fan', timestamp: '2026-10-17T00:00:00+0000', replies: { data: [{ username: 'x' }] } },
+          ],
+        })],
+    ]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    const account = { platform: 'instagram', name: 'main', credentials: { pageToken: 'PT', igUserId: 'IG' }, profile: { username: 'old.name' } };
+    const target = { id: 't', postId: 'p', platform: 'instagram', account: 'main', options: {}, state: 'published' as const, warnings: [], attempts: 1, updatedAt: '', remoteId: 'M' };
+    const out = await instagram.comments!({ ctx, account, target, limit: 20 });
+    assert.deepEqual(out.map((c) => [c.id, c.answered]), [['A', true], ['B', undefined], ['C', false]]);
+  });
+
+  it('reads only platforms that can tell, so the others cost no calls', async () => {
+    const { commentInbox } = await import('../src/core/posting.ts');
+    const { fetch, calls } = mockFetch([]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.saveAccount({ platform: 'mastodon', name: 'main', credentials: { instance: 'https://m.example', token: 'T' }, profile: {} });
+    const input: PostInput = { mediaPath: '/v.mp4', title: 't', description: '', tags: [], captions: [], containsSyntheticMedia: false };
+    const { targets } = store.createPost(input, [{ platform: 'mastodon', account: 'main', options: {} }]);
+    store.transition(targets[0]!.id, 'uploading');
+    store.transition(targets[0]!.id, 'published', { remoteId: 'S' });
+    const r = await commentInbox(ctx, providerMap(), { days: 7 });
+    assert.deepEqual([r.posts, r.unknown, calls.length], [0, 0, 0]);
+  });
+});
