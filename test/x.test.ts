@@ -395,3 +395,12 @@ describe('x people tags', () => {
     assert.ok(codes.includes('error:tag_users') && codes.includes('warning:tag_users'));
   });
 });
+
+describe('x communities', () => {
+  it('posts into a Community by its numeric id', () => {
+    const body = xPostBody(post(), { communityId: '1601841656147345410' }, 'M1');
+    assert.equal(body.community_id, '1601841656147345410');
+    assert.equal(xPostBody(post(), {}, 'M1').community_id, undefined);
+    assert.ok(x.validate(post(), target({ communityId: 'my-community' }), fakeMedia()).some((i) => i.code === 'community'));
+  });
+});

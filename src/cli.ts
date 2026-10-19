@@ -138,12 +138,13 @@ export function targetOptions(platform: string, args: Args): Record<string, unkn
         trialReel: str(args, 'ig-trial'),
         paidPartnership: bool(args, 'paid-partnership'),
         userTags: str(args, 'ig-tag')?.split(',').map((u) => u.trim()).filter(Boolean),
+        locationId: str(args, 'ig-location'),
       });
     case 'facebook':
       if (bool(args, 'paid-partnership')) console.error('⚠ ' + local(msg('--paid-partnership은 {platform} API로 표시할 수 없습니다. 앱에서 직접 설정하세요', { platform: 'Facebook' })));
-      return drop({ caption: str(args, 'fb-caption'), title: str(args, 'fb-title'), draft: args.flags['fb-draft'] ? true : undefined, collaborators: str(args, 'fb-collab')?.split(',').map((p) => p.trim()).filter(Boolean) });
+      return drop({ caption: str(args, 'fb-caption'), title: str(args, 'fb-title'), draft: args.flags['fb-draft'] ? true : undefined, collaborators: str(args, 'fb-collab')?.split(',').map((p) => p.trim()).filter(Boolean), placeId: str(args, 'fb-place') });
     case 'x':
-      return drop({ text: str(args, 'x-text'), paidPartnership: bool(args, 'x-paid-partnership') ?? bool(args, 'paid-partnership'), replySettings: str(args, 'x-reply'), alt: str(args, 'x-alt'), tagUsers: str(args, 'x-tag')?.split(',').map((u) => u.trim()).filter(Boolean) });
+      return drop({ text: str(args, 'x-text'), paidPartnership: bool(args, 'x-paid-partnership') ?? bool(args, 'paid-partnership'), replySettings: str(args, 'x-reply'), alt: str(args, 'x-alt'), tagUsers: str(args, 'x-tag')?.split(',').map((u) => u.trim()).filter(Boolean), communityId: str(args, 'x-community') });
     case 'mastodon':
       return drop({ visibility: str(args, 'md-visibility'), text: str(args, 'md-text'), alt: str(args, 'md-alt'), language: str(args, 'md-lang'), spoilerText: str(args, 'md-cw') });
     case 'peertube':
@@ -345,10 +346,10 @@ post 공통 옵션
              --tt-music-consent yes (필수)  --tt-allow-comment/--tt-allow-duet/--tt-allow-stitch yes
              --tt-brand-organic yes  --tt-branded yes  --tt-caption 텍스트  --tt-cover-ms 1000
   Instagram  --ig-caption 텍스트  --ig-no-feed  --ig-thumb-ms 1000  --ig-collab 사용자1,사용자2 (공동 작업자, 3명까지)  --ig-audio 오디오이름
-             --ig-trial manual|auto (시험 릴스: 팔로워가 아닌 사람에게 먼저, auto면 반응이 좋을 때 자동 공유)  --ig-tag 사용자1,사용자2 (사람 태그)
-  Facebook   --fb-caption 텍스트  --fb-title 제목  --fb-draft (게시하지 않고 초안으로)  --fb-collab 페이지ID,… (공동 작업자)
+             --ig-trial manual|auto (시험 릴스: 팔로워가 아닌 사람에게 먼저, auto면 반응이 좋을 때 자동 공유)  --ig-tag 사용자1,사용자2 (사람 태그)  --ig-location 페이지ID (장소)
+  Facebook   --fb-caption 텍스트  --fb-title 제목  --fb-draft (게시하지 않고 초안으로)  --fb-collab 페이지ID,… (공동 작업자)  --fb-place 페이지ID (장소)
   X          --x-text 텍스트 (가중치 280 이하, 한글은 2로 셈)  --x-paid-partnership yes  --x-reply following|mentionedUsers|subscribers|verified
-             --x-alt 대체텍스트 (1000자 이하)  --x-tag 사용자1,사용자2 (사람 태그, 10명까지)
+             --x-alt 대체텍스트 (1000자 이하)  --x-tag 사용자1,사용자2 (사람 태그, 10명까지)  --x-community ID
   Bluesky    --bsky-text 텍스트(300자 이하)  --bsky-alt 대체텍스트  --bsky-lang ko,en
   Mastodon   --md-visibility public|unlisted|private (필수)  --md-text 텍스트  --md-alt 대체텍스트
              --md-lang ko  --md-cw 내용경고

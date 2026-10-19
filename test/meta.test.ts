@@ -159,10 +159,11 @@ describe('facebook reels', () => {
     const { ctx, store } = makeCtx(fetch);
     store.setApp('meta', { appId: 'a', appSecret: 's' });
     const scheduled = { ...post, scheduledAt: '2026-10-20T00:00:00.000Z' };
-    const out = await facebook.publish({ ctx, post: scheduled, target: target('facebook'), account: account('facebook'), mediaPath: file, media: fakeMedia(), saveResume: () => {} });
+    const out = await facebook.publish({ ctx, post: scheduled, target: { ...target('facebook'), options: { placeId: '110843418940484' } }, account: account('facebook'), mediaPath: file, media: fakeMedia(), saveResume: () => {} });
     assert.equal(out.remoteId, 'R1');
     const finish = new URLSearchParams(String(calls[2]!.body));
     assert.equal(finish.get('upload_phase'), 'finish');
+    assert.equal(finish.get('place'), '110843418940484');
     assert.equal(finish.get('video_state'), 'SCHEDULED');
     assert.equal(finish.get('scheduled_publish_time'), String(Date.parse('2026-10-20T00:00:00Z') / 1000));
   });
@@ -316,5 +317,24 @@ describe('M6: tags and collaborators', () => {
     const codes = (o: Record<string, unknown>) => instagram.validate(post, { ...target('instagram'), options: o }, fakeMedia({}, { width: 1080, height: 1920 })).map((i) => i.code);
     assert.ok(codes({ userTags: ['not ok!'] }).includes('user_tags'));
     assert.ok(codes({ userTags: Array.from({ length: 21 }, (_, i) => `u${i}`) }).includes('user_tags'));
+  });
+});
+
+describe('M7: location tags', () => {
+  it('Instagram sends location_id; Facebook sends place at finish; both want a numeric Page ID', async () => {
+    const ig = mockFetch([
+      ['GET', '/IG/content_publishing_limit', () => json({ data: [{ quota_usage: 0, config: { quota_total: 100 } }] })],
+      ['POST', '/IG/media', () => json({ id: 'CONT1', uri: 'https://rupload.facebook.com/ig-api-upload/v24.0/CONT1' })],
+      ['POST', 'rupload.facebook.com', () => json({ success: true })],
+    ]);
+    const env = makeCtx(ig.fetch);
+    env.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    await instagram.publish({ ctx: env.ctx, post, target: { ...target('instagram'), options: { locationId: '110843418940484' } }, account: account('instagram'), mediaPath: tempFile(10), media: fakeMedia(), saveResume: () => {} });
+    assert.equal(new URLSearchParams(String(ig.calls[1]!.body)).get('location_id'), '110843418940484');
+    const igCodes = (o: Record<string, unknown>) => instagram.validate(post, { ...target('instagram'), options: o }, fakeMedia({}, { width: 1080, height: 1920 })).map((i) => `${i.severity}:${i.code}`);
+    assert.ok(igCodes({ locationId: 'Seoul' }).includes('error:location'));
+    assert.ok(igCodes({ locationId: '1' }).includes('warning:location'));
+    const fbCodes = facebook.validate(post, { ...target('facebook'), options: { placeId: 'Seoul' } }, fakeMedia()).map((i) => i.code);
+    assert.ok(fbCodes.includes('place'));
   });
 });

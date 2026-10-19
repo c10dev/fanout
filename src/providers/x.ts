@@ -49,6 +49,8 @@ export interface XOptions {
   alt?: string;
   /** People tagged in the video, by username (up to 10; looked up once, a billed read). */
   tagUsers?: string[];
+  /** Post into this Community (its numeric id) instead of to the timeline alone. */
+  communityId?: string;
 }
 
 const TAG_MAX = 10;
@@ -134,6 +136,7 @@ export function xPostBody(post: Post, opts: XOptions, mediaId: string, previewMe
     ...(post.containsSyntheticMedia ? { made_with_ai: true } : {}),
     ...(opts.paidPartnership ? { paid_partnership: true } : {}),
     ...(opts.replySettings ? { reply_settings: opts.replySettings } : {}),
+    ...(opts.communityId ? { community_id: String(opts.communityId) } : {}),
   };
 }
 
@@ -392,6 +395,8 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
         issues.push({ severity: 'warning', code: 'text', message: msg('X 글이 {len}(가중치) / {TEXT_MAX}입니다. Premium이 아니면 거부됩니다 — options.text로 줄이세요', { len, TEXT_MAX }) });
       }
     }
+    const community = (target.options as XOptions).communityId;
+    if (community !== undefined && !/^\d{1,19}$/.test(String(community))) issues.push({ severity: 'error', code: 'community', message: msg('X 커뮤니티는 숫자 ID로 적으세요 (커뮤니티 주소의 마지막 숫자)') });
     const tags = tagNames(target.options as XOptions);
     if (tags.length > TAG_MAX) issues.push({ severity: 'error', code: 'tag_users', message: msg('X 사람 태그는 {max}명까지', { max: TAG_MAX }) });
     const badTags = tags.filter((u) => !X_USERNAME.test(u));
