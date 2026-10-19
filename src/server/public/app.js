@@ -1467,29 +1467,89 @@ async function refreshBoard() {
 // ── Views and banner ─────────────────────────────────────────────
 
 /** The screens behind the sidebar menu; the board, calendar and performance get a wider column. */
-const SECTIONS = ['new', 'board', 'calendar', 'inbox', 'insights', 'settings'];
+const SECTIONS = ['new', 'board', 'calendar', 'inbox', 'insights'];
 const WIDE_SECTIONS = new Set(['board', 'calendar', 'insights']);
-const sectionTitle = (section) => ({ new: tr('새 게시물'), board: tr('게시 현황'), calendar: tr('달력'), inbox: tr('답을 기다리는 댓글'), insights: tr('성과 요약'), settings: tr('설정') })[section];
+const sectionTitle = (section) => ({ new: tr('새 게시물'), board: tr('게시 현황'), calendar: tr('달력'), inbox: tr('답을 기다리는 댓글'), insights: tr('성과 요약') })[section];
+
+let lastSection = 'new';
 
 /** Show one screen (from the sidebar or the address's #hash). `post` is the old name for the new-post screen. */
 function showView(view) {
+  // Settings is a dialog over the current screen, its part in the address (#settings/general).
+  if (view === 'settings' || view?.startsWith('settings/')) {
+    openSettings(view.split('/')[1]);
+    return;
+  }
+  closeSettings(false);
   const section = SECTIONS.includes(view) ? view : view === 'post' ? 'new' : 'new';
+  lastSection = section;
   for (const item of document.querySelectorAll('.nav-item[data-section]')) {
     if (item.dataset.section === section) item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
   }
   for (const panel of document.querySelectorAll('#view-post [data-section]')) panel.hidden = panel.dataset.section !== section;
-  $('#view-post').hidden = section === 'settings';
   $('#view-post').classList.toggle('wide', WIDE_SECTIONS.has(section));
-  $('#view-settings').hidden = section !== 'settings';
   $('#view-title').textContent = sectionTitle(section);
   if (location.hash.slice(1) !== section) history.replaceState(null, '', `#${section}`);
-  if (section === 'settings') loadSettings();
   closeSidebar();
 }
 
 for (const item of document.querySelectorAll('.nav-item[data-section]')) item.addEventListener('click', () => showView(item.dataset.section));
 window.addEventListener('hashchange', () => showView(location.hash.slice(1)));
+
+// ── Settings dialog ──────────────────────────────────────────────
+let settingsPart = 'general';
+let settingsReturnFocus = null;
+
+function openSettings(part) {
+  const modal = $('#settings-modal');
+  if (modal.hidden) {
+    settingsReturnFocus = document.activeElement;
+    modal.hidden = false;
+    document.body.classList.add('modal-open');
+  }
+  settingsPart = part || settingsPart || 'general';
+  const hash = `#settings/${settingsPart}`;
+  if (location.hash !== hash) history.replaceState(null, '', hash);
+  for (const item of document.querySelectorAll('.nav-item[data-section]')) {
+    if (item.dataset.section === 'settings') item.setAttribute('aria-current', 'page');
+  }
+  closeSidebar();
+  loadSettings();
+}
+
+/** Close the dialog; `restore` puts the address back on the screen behind it. */
+function closeSettings(restore = true) {
+  const modal = $('#settings-modal');
+  if (modal.hidden) return;
+  modal.hidden = true;
+  document.body.classList.remove('modal-open');
+  for (const item of document.querySelectorAll('.nav-item[data-section="settings"]')) item.removeAttribute('aria-current');
+  if (restore) history.replaceState(null, '', `#${lastSection}`);
+  settingsReturnFocus?.focus?.();
+}
+
+$('#settings-close').addEventListener('click', () => closeSettings());
+$('#settings-modal').addEventListener('mousedown', (e) => e.target === e.currentTarget && closeSettings());
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || $('#settings-modal').hidden) return;
+  e.stopPropagation();
+  closeSettings();
+});
+// Keep Tab inside the dialog while it is open.
+$('#settings-modal').addEventListener('keydown', (e) => {
+  if (e.key !== 'Tab') return;
+  const items = [...$('#settings-modal').querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')].filter((el) => !el.disabled && el.offsetParent !== null);
+  if (!items.length) return;
+  const [first, last] = [items[0], items[items.length - 1]];
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault();
+    first.focus();
+  }
+});
 
 // On narrow windows the sidebar is a drawer over the page.
 function openSidebar() {
@@ -1840,21 +1900,62 @@ function notifyCard(n) {
   );
 }
 
+/** Settings, part by part: general (language, notifications), accounts and apps, limits, checks. */
 async function loadSettings() {
   const box = $('#settings');
+  const nav = $('#settings-nav');
   if (!overview.settingsEnabled) {
     // Limits only read, so they are shown on any dashboard.
-    box.replaceChildren(h('section', { class: 'panel' }, h('p', {}, tr('설정 화면은 127.0.0.1 전용으로 연 대시보드에서만 쓸 수 있습니다. 이 서버의 터미널에서 fanout app set / fanout connect 를 쓰세요.'))), limitsCard());
+    nav.replaceChildren();
+    box.replaceChildren(h('section', { class: 'settings-section' }, h('p', {}, tr('설정 화면은 127.0.0.1 전용으로 연 대시보드에서만 쓸 수 있습니다. 이 서버의 터미널에서 fanout app set / fanout connect 를 쓰세요.'))), limitsCard());
     return;
   }
   try {
     const [settings, notify] = await Promise.all([api('/settings'), api('/notify')]);
     accountChecks.clear();
-    const cards = settings.apps.map((app) => appCard(app, settings.platforms.filter((p) => app.platforms.includes(p.id))));
-    box.replaceChildren(limitsCard(), checkAllCard(), ...cards, notifyCard(notify));
+    // One part per app (its accounts sit under it), so a long list of apps never needs scrolling past.
+    const parts = [
+      ['general', tr('일반'), () => [languageRow(), notifyCard(notify)]],
+      ...settings.apps.map((app) => [app.key, APP_TITLE[app.key] ?? app.key, () => [appCard(app, settings.platforms.filter((p) => app.platforms.includes(p.id)))]]),
+      ['limits', tr('남은 한도'), () => [limitsCard()]],
+      ['checks', tr('계정 점검'), () => [checkAllCard()]],
+    ];
+    // A platform (back from connecting instagram/…) opens the app it belongs to.
+    const owner = settings.apps.find((app) => app.platforms.includes(settingsPart));
+    if (owner) settingsPart = owner.key;
+    if (!parts.some(([key]) => key === settingsPart)) settingsPart = 'general';
+    if (location.hash !== `#settings/${settingsPart}`) history.replaceState(null, '', `#settings/${settingsPart}`);
+    nav.replaceChildren(
+      ...parts.map(([key, label]) =>
+        h('button', { type: 'button', class: 'modal-nav-item', 'aria-current': key === settingsPart ? 'page' : null, onclick: () => openSettings(key) }, label),
+      ),
+    );
+    nav.querySelector('[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    const [, label, build] = parts.find(([key]) => key === settingsPart);
+    box.replaceChildren(h('h3', { class: 'settings-heading' }, label), ...build());
   } catch (err) {
     box.replaceChildren(h('p', { class: 'form-error' }, err.message));
   }
+}
+
+/** The language switch as a settings row (it also sits at the bottom of the sidebar). */
+function languageRow() {
+  return h(
+    'section',
+    { class: 'settings-section' },
+    h(
+      'div',
+      { class: 'setting-row' },
+      h('div', { class: 'setting-text' }, h('div', { class: 'setting-name' }, tr('언어')), h('div', { class: 'setting-desc' }, tr('대시보드에 쓰는 말'))),
+      h(
+        'div',
+        { class: 'segmented', role: 'group', 'aria-label': tr('언어') },
+        ...[['ko', '한국어'], ['en', 'English']].map(([code, name]) => // i18n-ignore: each language's own name
+          h('button', { type: 'button', 'aria-pressed': String(LANG === code), onclick: () => LANG !== code && setLanguage(code) }, name),
+        ),
+      ),
+    ),
+  );
 }
 
 /** One button to run every connected account's read-only check, one after another. */
@@ -1896,7 +1997,7 @@ async function refreshAll() {
   overview = await api('/overview');
   renderAccounts();
   renderTargets();
-  if (!$('#view-settings').hidden) await loadSettings();
+  if (!$('#settings-modal').hidden) await loadSettings();
   reloadInsights?.();
   reloadCalendar?.();
 }
@@ -2132,7 +2233,16 @@ async function init() {
   if (params.get('connected')) banner(tr('연결했습니다: {account}', { account: params.get('connected') }), 'ok');
   if (params.get('oauthError')) banner(tr('연결 실패: {error}', { error: params.get('oauthError') }), 'bad');
   if (params.has('view')) history.replaceState(null, '', '/');
-  showView(params.get('view') === 'settings' ? 'settings' : location.hash.slice(1) || 'new');
+  // Back from an OAuth redirect (?view=settings): the dialog over the new-post screen.
+  if (params.get('view') === 'settings') {
+    showView('new');
+    showView(`settings/${params.get('connected')?.split('/')[0] || 'general'}`);
+  } else {
+    const start = location.hash.slice(1) || 'new';
+    // A #settings/… address opens the dialog over the new-post screen.
+    if (start.startsWith('settings')) showView('new');
+    showView(start);
+  }
 }
 
 init();
