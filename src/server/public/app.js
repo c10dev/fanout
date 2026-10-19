@@ -1510,11 +1510,21 @@ const sectionTitle = (section) => ({ new: tr('새 게시물'), board: tr('게시
 
 let lastSection = 'new';
 
+/**
+ * Put a screen in the address. A new history entry, so the browser's Back returns to the screen
+ * before; `replace` for the first load and redirects, which shouldn't leave an entry to go back to.
+ */
+function setAddress(hash, replace, state = null) {
+  if (location.hash === hash) return;
+  if (replace) history.replaceState(state, '', hash);
+  else history.pushState(state, '', hash);
+}
+
 /** Show one screen (from the sidebar or the address's #hash). `post` is the old name for the new-post screen. */
-function showView(view) {
+function showView(view, { replace = false } = {}) {
   // Settings is a dialog over the current screen, its part in the address (#settings/general).
   if (view === 'settings' || view?.startsWith('settings/')) {
-    openSettings(view.split('/')[1]);
+    openSettings(view.split('/')[1], { replace });
     return;
   }
   closeSettings(false);
@@ -1527,20 +1537,22 @@ function showView(view) {
   for (const panel of document.querySelectorAll('#view-post [data-section]')) panel.hidden = panel.dataset.section !== section;
   $('#view-post').classList.toggle('wide', WIDE_SECTIONS.has(section));
   $('#view-title').textContent = sectionTitle(section);
-  if (location.hash.slice(1) !== section) history.replaceState(null, '', `#${section}`);
+  setAddress(`#${section}`, replace);
   closeSidebar();
 }
 
 for (const item of document.querySelectorAll('.nav-item[data-section]')) item.addEventListener('click', () => showView(item.dataset.section));
-window.addEventListener('hashchange', () => showView(location.hash.slice(1)));
+// Back, Forward, or an address typed in: the entry is already there.
+window.addEventListener('hashchange', () => showView(location.hash.slice(1), { replace: true }));
 
 // ── Settings dialog ──────────────────────────────────────────────
 let settingsPart = 'general';
 let settingsReturnFocus = null;
 
-function openSettings(part) {
+function openSettings(part, { replace = false } = {}) {
   const modal = $('#settings-modal');
-  if (modal.hidden) {
+  const opening = modal.hidden;
+  if (opening) {
     settingsReturnFocus = document.activeElement;
     modal.hidden = false;
     document.body.classList.add('modal-open');
@@ -1548,8 +1560,9 @@ function openSettings(part) {
     $('#settings-close').focus();
   }
   settingsPart = part || settingsPart || 'general';
-  const hash = `#settings/${settingsPart}`;
-  if (location.hash !== hash) history.replaceState(null, '', hash);
+  // Opening adds an entry (marked, so closing can step back over it); switching parts doesn't.
+  if (opening) setAddress(`#settings/${settingsPart}`, replace, replace ? history.state : { settings: true });
+  else setAddress(`#settings/${settingsPart}`, true, history.state);
   for (const item of document.querySelectorAll('.nav-item[data-section]')) {
     if (item.dataset.section === 'settings') item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
@@ -1568,7 +1581,11 @@ function closeSettings(restore = true) {
     if (item.dataset.section === lastSection) item.setAttribute('aria-current', 'page');
     else item.removeAttribute('aria-current');
   }
-  if (restore) history.replaceState(null, '', `#${lastSection}`);
+  if (restore) {
+    // Opened with its own entry: step back over it, so Forward opens it again.
+    if (history.state?.settings) history.back();
+    else history.replaceState(null, '', `#${lastSection}`);
+  }
   // Back where it was opened from, unless that is now off screen in the closed drawer.
   const hiddenNow = (el) => !el?.isConnected || ($('#sidebar').contains(el) && getComputedStyle($('#sidebar')).visibility === 'hidden');
   (hiddenNow(settingsReturnFocus) ? $('#sidebar-toggle') : settingsReturnFocus)?.focus?.();
@@ -1981,7 +1998,7 @@ async function loadSettings() {
     const owner = settings.apps.find((app) => app.platforms.includes(settingsPart));
     if (owner) settingsPart = owner.key;
     if (!parts.some(([key]) => key === settingsPart)) settingsPart = 'general';
-    if (location.hash !== `#settings/${settingsPart}`) history.replaceState(null, '', `#settings/${settingsPart}`);
+    if (location.hash !== `#settings/${settingsPart}`) history.replaceState(history.state, '', `#settings/${settingsPart}`);
     const navFocused = nav.contains(document.activeElement);
     nav.replaceChildren(
       ...parts.map(([key, label]) =>
@@ -2280,7 +2297,7 @@ async function init() {
   try {
     overview = await api('/overview');
   } catch (err) {
-    showView('new');
+    showView('new', { replace: true });
     banner(tr('대시보드에 연결할 수 없습니다: {error}', { error: err.message }), 'bad');
     return;
   }
@@ -2299,13 +2316,13 @@ async function init() {
   if (params.has('view')) history.replaceState(null, '', '/');
   // Back from an OAuth redirect (?view=settings): the dialog over the new-post screen.
   if (params.get('view') === 'settings') {
-    showView('new');
+    showView('new', { replace: true });
     showView(`settings/${params.get('connected')?.split('/')[0] || params.get('platform') || 'general'}`);
   } else {
     const start = location.hash.slice(1) || 'new';
     // A #settings/… address opens the dialog over the new-post screen.
-    if (start.startsWith('settings')) showView('new');
-    showView(start);
+    if (start.startsWith('settings')) showView('new', { replace: true });
+    showView(start, { replace: true });
   }
 }
 
