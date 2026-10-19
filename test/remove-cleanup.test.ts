@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, mock } from 'node:test';
 import { removeTarget } from '../src/core/posting.ts';
 import type { PostInput } from '../src/core/types.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { youtube } from '../src/providers/youtube.ts';
+import { Dashboard } from '../src/server/server.ts';
 import { json, makeCtx, mockFetch } from './helpers.ts';
 
 const realSetTimeout = globalThis.setTimeout;
@@ -39,6 +41,37 @@ describe('removing a post cleans up after itself', () => {
     await assert.rejects(removeTarget(ctx, providerMap(), id));
     assert.equal(calls.filter((c) => c.url.endsWith('/TW1')).length, 0);
     assert.equal(store.getTarget(id)!.state, 'published');
+  });
+
+  it('X: a reply already gone (404) still lets the post be deleted', async () => {
+    const { ctx, calls, id, store } = publishedX(
+      [
+        ['DELETE', '/2/tweets/TW2', () => json({ title: 'Not Found Error' }, 404)],
+        ['DELETE', '/2/tweets/TW1', () => json({ data: { deleted: true } })],
+      ],
+      { state: 'posted', at: 'x', id: 'TW2' },
+    );
+    await removeTarget(ctx, providerMap(), id);
+    assert.deepEqual(calls.map((c) => c.url.split('/').pop()), ['TW2', 'TW1']);
+    assert.equal(store.getTarget(id)!.state, 'removed');
+  });
+
+  it('the dashboard and the CLI say the reply goes too', async () => {
+    const env = publishedX([], { state: 'posted', at: 'x', id: 'TW2' });
+    const dashboard = new Dashboard({ ctx: env.ctx, providers: providerMap(), port: 0, workerIntervalMs: 3_600_000 });
+    const base = (await dashboard.start()).replace(/\/$/, '');
+    try {
+      const board = (await (await fetch(`${base}/api/posts?limit=5`, { headers: { 'x-fanout-token': dashboard.token } })).json()) as Array<{ targets: Array<{ id: string; removesReply?: boolean }> }>;
+      assert.equal(board.flatMap((p) => p.targets).find((t) => t.id === env.id)!.removesReply, true);
+    } finally {
+      await dashboard.stop();
+    }
+    const home = env.ctx.home;
+    const postId = env.store.getTarget(env.id)!.postId;
+    env.store.close();
+    // Without --yes and with nothing on stdin, the CLI asks and gets no answer: it stops before deleting.
+    const r = spawnSync(process.execPath, [join(import.meta.dirname, '..', 'src', 'cli.ts'), 'remove', postId.slice(0, 8), 'x'], { env: { ...process.env, FANOUT_HOME: home, FANOUT_LANG: 'en' }, encoding: 'utf8', input: '' });
+    assert.match(r.stdout + r.stderr, /first-comment reply is deleted first/);
   });
 
   it('X: a reply that may exist without a known id is named on the removed target', async () => {
