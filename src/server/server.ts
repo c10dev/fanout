@@ -959,6 +959,23 @@ export class Dashboard {
     return undefined;
   }
 
+  /** Per target, keyed on its latest reading and the day: the board asks every few seconds. */
+  #viewsCache = new Map<string, { key: string; value: { start: string; points: Array<[number, number]> } | undefined }>();
+
+  /** Views of the last 30 days for the board's small chart: seconds since the first point, and views. */
+  #views30d(t: Target) {
+    const now = this.#opts.ctx.now();
+    const key = `${t.stats?.fetchedAt ?? ''}|${now.toISOString().slice(0, 10)}`;
+    const hit = this.#viewsCache.get(t.id);
+    if (hit?.key === key) return hit.value;
+    const series = viewsSeries(this.#opts.ctx.store, t.id, now);
+    const start = series ? Date.parse(series[0]!.at) : 0;
+    const value = series ? { start: series[0]!.at, points: series.map((p) => [Math.round((Date.parse(p.at) - start) / 1000), p.views] as [number, number]) } : undefined;
+    if (this.#viewsCache.size > 5000) this.#viewsCache.clear();
+    this.#viewsCache.set(t.id, { key, value });
+    return value;
+  }
+
   #publicTarget(t: Target) {
     const { resume: _r, ...rest } = t;
     const provider = this.#opts.providers.get(t.platform);
@@ -970,7 +987,7 @@ export class Dashboard {
       visibilities: t.state === 'published' && provider?.setVisibility ? provider.visibilities : undefined,
       goesPublicAt: this.#goesPublicAt(t),
       trend: t.stats ? statsTrend(this.#opts.ctx.store, t.id, this.#opts.ctx.now()) : undefined,
-      viewsSeries: t.stats ? viewsSeries(this.#opts.ctx.store, t.id, this.#opts.ctx.now()) : undefined,
+      views30d: t.stats ? this.#views30d(t) : undefined,
     };
   }
 }

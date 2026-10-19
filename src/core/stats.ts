@@ -30,9 +30,7 @@ export function statsTrend(store: Store, targetId: string, now: Date, hours = 24
  */
 export function viewsSeries(store: Store, targetId: string, now: Date, days = 30, max = 24): Array<{ at: string; views: number }> | undefined {
   const points = store
-    .statsHistory(targetId, new Date(now.getTime() - days * 86_400_000).toISOString())
-    .filter((p): p is typeof p & { views: number } => typeof p.views === 'number')
-    .map((p) => ({ at: p.at, views: p.views }));
+    .viewsHistory(targetId, new Date(now.getTime() - days * 86_400_000).toISOString())
   if (points.length < 2) return undefined;
   if (points.length <= max) return points;
   const step = (points.length - 1) / (max - 1);
