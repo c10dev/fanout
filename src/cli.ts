@@ -497,7 +497,13 @@ async function cmdCheck(providers: Map<string, Provider>, args: Args): Promise<v
   for (const a of assessMedia(media, selected)) {
     console.log(`  ${a.platform.padEnd(10)} ${local(label[a.verdict])}${a.platform === 'youtube' && isShort(media) ? ` ${local(msg('(Shorts로 분류)'))}` : ''}`);
     for (const x of a.violations) console.log(`      ${x.fixable ? '⚙' : '✗'} ${local(x.message)}`);
+    if (a.fittable) console.log(`      → ${local(verticalHint())}`);
   }
+}
+
+/** What to add when only the video's shape keeps it off a platform (nothing pads unasked). */
+function verticalHint(): string {
+  return msg('--vertical pad(흐린 배경) 또는 crop(가운데)으로 세로 9:16에 맞추면 올릴 수 있습니다');
 }
 
 async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
@@ -538,7 +544,13 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
   input.mediaHash = await fileHash(mediaPath);
   const prior = priorPosts(ctx.store, input.mediaHash, targets);
   const limitNotes = targets.map((t) => ({ platform: t.platform, account: t.account, warnings: [] as string[], errors: [] as string[] }));
-  await addLiveChecks(ctx, deps.providers, limitNotes, { input, targets, media: await probe(mediaPath) });
+  const media = await probe(mediaPath);
+  await addLiveChecks(ctx, deps.providers, limitNotes, { input, targets, media });
+  // Only the shape in the way and no --vertical: the upload would stop there, so say how before confirming.
+  targets.forEach((t, i) => {
+    const [a] = assessMedia(media, [deps.providers.get(t.platform)!], { [t.platform]: t.options });
+    if (a?.fittable) limitNotes[i]!.warnings.push(...a.violations.filter((v) => !v.fixable).map((v) => v.message), verticalHint());
+  });
 
   // YouTube policy: show which channel and which visibility before uploading.
   console.log(`\n"${title}"  ${mediaPath}${input.scheduledAt ? `  ${local(msg('예약 {at}', { at: input.scheduledAt }))}` : ''}`);
@@ -590,6 +602,7 @@ async function cmdAdd(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promi
   for (const p of plan.preview) {
     console.log(`  ${accountLine(ctx, p).padEnd(40)} ${local(p.visibility)}`);
     for (const e of p.errors) console.log(`      ✗ ${local(e)}`);
+    if (p.fittable) console.log(`      → ${local(verticalHint())}`);
     for (const w of p.warnings) console.log(`      ⚠ ${local(w)}`);
   }
   if (plan.preview.some((p) => p.errors.length)) return 1;

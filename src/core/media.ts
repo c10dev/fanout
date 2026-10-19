@@ -51,6 +51,8 @@ export interface MediaSpec {
   aspect?: { min: number; max: number };
   /** Make a video that isn't vertical 9:16: 'pad' (blurred fill around it) or 'crop' (the centre). */
   fit?: 'pad' | 'crop';
+  /** The platform takes a fit (`--vertical`): a shape it refuses is then marked fittable, never fitted unasked. */
+  canFit?: boolean;
 }
 
 export const FITS = ['pad', 'crop'] as const;
@@ -66,6 +68,8 @@ export interface Violation {
   message: string;
   /** True when re-encoding to H.264/AAC MP4 resolves it without changing the content. */
   fixable: boolean;
+  /** Not fixable as is, but a vertical fit (the target's fit option) would resolve it. */
+  fittable?: true;
 }
 
 // ── Probe ──────────────────────────────────────────────────────────
@@ -167,16 +171,24 @@ export function checkMedia(info: MediaInfo, spec: MediaSpec): Violation[] {
   if (fitting) {
     out.push({ code: 'fit', fixable: true, message: spec.fit === 'crop' ? msg('세로 9:16으로 가운데를 잘라 맞춥니다') : msg('세로 9:16으로 맞추고 남는 곳은 흐린 화면으로 채웁니다') });
   }
+  // Without a fit, what one would solve is still a block (nothing pads unasked), only marked so the user can pick one.
+  const fittable = spec.canFit && spec.fit === undefined && !isVertical(video.width, video.height) ? { fittable: true as const } : {};
   if (!fitting && spec.aspect && (ratio < spec.aspect.min - 0.01 || ratio > spec.aspect.max + 0.01)) {
+    const { min, max } = spec.aspect;
     out.push({
       code: 'aspect',
       fixable: false,
-      message: msg('화면비 {width}x{height} ({ratio})가 허용 범위 {spec}–{spec2} 밖', { width: video.width, height: video.height, ratio: ratio.toFixed(3), spec: spec.aspect.min.toFixed(3), spec2: spec.aspect.max.toFixed(3) }),
+      ...fittable,
+      // One shape only (Facebook Reels): name it rather than a range from a number to itself.
+      message:
+        min === max
+          ? msg('화면비 {width}x{height} ({ratio}) — {shape}만 받습니다', { width: video.width, height: video.height, ratio: ratio.toFixed(3), shape: Math.abs(min - 9 / 16) < 0.001 ? '9:16' : min.toFixed(3) })
+          : msg('화면비 {width}x{height} ({ratio})가 허용 범위 {spec}–{spec2} 밖', { width: video.width, height: video.height, ratio: ratio.toFixed(3), spec: min.toFixed(3), spec2: max.toFixed(3) }),
     });
   }
   // A fit always comes out 1080 wide (or the platform's own size), so the original's size doesn't matter.
   if (!fitting && spec.minShortEdge !== undefined && shortEdge < spec.minShortEdge) {
-    out.push({ code: 'resolution_low', fixable: false, message: msg('짧은 변 {shortEdge}px < 최소 {minShortEdge}px', { shortEdge, minShortEdge: spec.minShortEdge }) });
+    out.push({ code: 'resolution_low', fixable: false, ...fittable, message: msg('짧은 변 {shortEdge}px < 최소 {minShortEdge}px', { shortEdge, minShortEdge: spec.minShortEdge }) });
   }
   if (spec.containers && !spec.containers.some((c) => info.container.split(',').includes(c))) {
     out.push({ code: 'container', fixable: true, message: msg('컨테이너 {container} 미지원', { container: info.container }) });

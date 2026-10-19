@@ -428,6 +428,7 @@ export const tiktok: Provider = {
     maxFps: 60,
     minShortEdge: 360,
     maxLongEdge: 4096,
+    canFit: true,
   },
 
   appFields: [
