@@ -8,6 +8,8 @@ import { postDueFirstComments } from './followup.ts';
 export const DEFAULT_STATS_EVERY_MS = 6 * 3600_000;
 const STATS_CHECK_MS = 30 * 60_000;
 const STATS_FIRST_MS = 60_000;
+/** Ticks that fail in a row (a minute at the default interval) before health() reports it. */
+const TICK_FAILURES_UNHEALTHY = 4;
 
 export interface WorkerOptions {
   intervalMs?: number;
@@ -34,6 +36,9 @@ export class Worker {
   #upkeepFirst?: NodeJS.Timeout;
   #upkeepRun?: Promise<number>;
   #followupRun?: Promise<number>;
+  #tickFailures = 0;
+  #failingSince?: string;
+  #lastError?: string;
 
   constructor(deps: RunnerDeps, opts: WorkerOptions = {}) {
     this.#deps = deps;
@@ -127,10 +132,31 @@ export class Worker {
     await this.#followupRun;
   }
 
+  /**
+   * Whether the loop is doing its job: ticks that can't read the database (full disk, I/O error,
+   * locked past the busy timeout) are logged and retried, and after a few in a row the dashboard's
+   * /healthz says so, so a container or service manager sees it instead of a quiet log.
+   */
+  health(): { ok: boolean; failingSince?: string; error?: string } {
+    return this.#tickFailures < TICK_FAILURES_UNHEALTHY ? { ok: true } : { ok: false, failingSince: this.#failingSince, error: this.#lastError };
+  }
+
   tick(): void {
     void this.followupTick();
+    let workable: ReturnType<RunnerDeps['ctx']['store']['workableTargets']>;
+    try {
+      workable = this.#deps.ctx.store.workableTargets();
+      this.#tickFailures = 0;
+      this.#failingSince = undefined;
+    } catch (err) {
+      this.#tickFailures++;
+      this.#failingSince ??= this.#deps.ctx.now().toISOString();
+      this.#lastError = err instanceof Error ? err.message : String(err);
+      this.#deps.ctx.log.warn(`worker: ${this.#lastError}`);
+      return;
+    }
     const byPlatform = new Map<string, string[]>();
-    for (const t of this.#deps.ctx.store.workableTargets()) {
+    for (const t of workable) {
       if (this.#busyPlatforms.has(t.platform)) continue;
       byPlatform.set(t.platform, [...(byPlatform.get(t.platform) ?? []), t.id]);
     }
