@@ -7,7 +7,7 @@ import { jsonOr, openBrowser, pkcePair, readChunk, redirectParams, rotationConte
 import { makeTestClip } from '../core/media.ts';
 import type { DoctorCheck, PollOutcome, Provider, ProviderContext, PublishOutcome } from '../core/provider.ts';
 import type { Account } from '../core/store.ts';
-import type { Issue, Post } from '../core/types.ts';
+import type { Issue, Post, Target } from '../core/types.ts';
 import { msg } from '../core/i18n.ts';
 
 // Docs: https://developers.tiktok.com/doc/content-posting-api-get-started
@@ -22,6 +22,11 @@ const CHUNK = 32 * MB;
 const DEFAULT_SCOPES = 'user.info.basic,video.upload,video.publish';
 const DEFAULT_REDIRECT = 'http://127.0.0.1:8723/callback';
 const CAPTION_MAX = 2200;
+const DAY_MS = 86_400_000;
+/** Unfinished drafts the inbox takes in 24 hours; then TikTok refuses more (spam_risk_too_many_pending_share). */
+const PENDING_SHARES_MAX = 5;
+/** Waits for a full inbox before the target fails instead. */
+const PENDING_SHARE_WAITS = 3;
 
 export interface TikTokApp {
   clientKey: string;
@@ -92,6 +97,7 @@ const ERROR_HINTS: Record<string, string> = {
     msg('심사(audit)를 받지 않은 앱은 비공개 계정에 SELF_ONLY로만 게시할 수 있습니다. mode=inbox를 쓰거나 계정을 비공개로 바꾸세요.'),
   reached_active_user_cap: msg('미심사 앱은 24시간에 5명까지만 게시할 수 있습니다.'),
   spam_risk_too_many_posts: msg('이 계정의 하루 게시 한도(약 15건, 모든 앱 합산)에 걸렸습니다.'),
+  spam_risk_too_many_pending_share: msg('TikTok 수신함에 마무리하지 않은 초안이 24시간 한도(5개)만큼 쌓였습니다. TikTok 앱에서 초안을 게시하거나 지우세요.'),
   spam_risk_user_banned_from_posting: msg('TikTok이 이 계정의 게시를 막았습니다.'),
   privacy_level_option_mismatch: msg('privacyLevel이 이 크리에이터가 허용하는 값이 아닙니다 (fanout doctor tiktok 참고).'),
   duration_exceeded: msg('이 크리에이터가 올릴 수 있는 최대 길이를 넘었습니다.'),
@@ -101,9 +107,54 @@ export function tiktokError(status: number, body: TikTokEnvelope<unknown> | unde
   const code = body?.error?.code ?? `http_${status}`;
   const kind = ERROR_KINDS[code] ?? (status >= 400 ? kindForStatus(status) : 'rejected');
   const hint = ERROR_HINTS[code];
-  // The account's daily cap (all apps together): try again in a few hours rather than fail.
-  const retryAt = code === 'spam_risk_too_many_posts' ? new Date(now.getTime() + 3 * 3600_000) : undefined;
+  // The account's daily cap (all apps together): try again in a few hours rather than fail. A full
+  // inbox waits too; publish works out when it has room again (pendingShareError).
+  const retryAt = code === 'spam_risk_too_many_posts' || code === 'spam_risk_too_many_pending_share' ? new Date(now.getTime() + 3 * 3600_000) : undefined;
   return new ProviderError(kind, `tiktok.${code}`, `${body?.error?.message || code}${hint ? ` — ${hint}` : ''}`, code, { retryAt });
+}
+
+/**
+ * When each of the account's drafts still in the TikTok inbox was handed off, oldest first, over the
+ * last 24 hours. fanout's own count: drafts from other apps aren't in it, and one finished as "Only
+ * me" stays handed off (TikTok never reports it posted), so it may be off either way.
+ */
+function recentHandOffs(ctx: ProviderContext, accountName: string): number[] {
+  const from = ctx.now().getTime() - DAY_MS;
+  return ctx.store
+    .targetsInState('tiktok', accountName, 'handed_off')
+    .map((t) => (ctx.store.stateSince(t.id, 'handed_off') ?? new Date(t.updatedAt)).getTime())
+    .filter((at) => at > from)
+    .sort((a, b) => a - b);
+}
+
+/**
+ * A full inbox: wait until the oldest draft fanout handed off in the last 24 hours leaves TikTok's
+ * window, or 3 hours when it knows of none. The runner gives the attempt back on every wait, so an
+ * inbox that stays full would hold the target forever: after PENDING_SHARE_WAITS waits since it was
+ * last retried by hand (counted in its events), it fails with the hint instead.
+ */
+export function pendingShareError(ctx: ProviderContext, target: Target, err: ProviderError): ProviderError {
+  const events = ctx.store.events(target.id);
+  const waits = events.slice(events.findLastIndex((e) => e.to === 'failed') + 1).filter((e) => e.to === 'queued' && e.detail === err.code).length;
+  if (waits >= PENDING_SHARE_WAITS) {
+    return new ProviderError('rejected', err.code, msg('{n}번 기다렸지만 TikTok 수신함이 계속 차 있습니다', { n: waits }) + ': ' + err.message, err.platformCode);
+  }
+  const oldest = recentHandOffs(ctx, target.account)[0];
+  const retryAt = oldest === undefined ? new Date(ctx.now().getTime() + 3 * 3600_000) : new Date(oldest + DAY_MS);
+  return new ProviderError(err.kind, err.code, err.message, err.platformCode, { retryAt });
+}
+
+/** The inbox may be full already: a warning only, since the count is fanout's own (recentHandOffs). */
+export function pendingShareIssues(ctx: ProviderContext, accountName: string): Issue[] {
+  const n = recentHandOffs(ctx, accountName).length;
+  if (n < PENDING_SHARES_MAX) return [];
+  return [
+    {
+      severity: 'warning',
+      code: 'pending_shares',
+      message: msg('지난 24시간에 TikTok 수신함으로 넘긴 초안이 {n}개라 이 업로드가 거부될 수 있습니다(마무리하지 않은 초안은 24시간에 {max}개까지). TikTok 앱에서 초안을 게시하거나 지우세요. "나만 보기"로 게시한 영상도 초안으로 세므로 실제보다 많을 수 있습니다', { n, max: PENDING_SHARES_MAX }),
+    },
+  ];
 }
 
 /**
@@ -560,7 +611,9 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
 
     const size = statSync(mediaPath).size;
     const plan = chunkPlan(size);
-    const { publish_id, upload_url } = await init(ctx, account, post, opts, plan, size);
+    const { publish_id, upload_url } = await init(ctx, account, post, opts, plan, size).catch((err: unknown) => {
+      throw err instanceof ProviderError && err.platformCode === 'spam_risk_too_many_pending_share' ? pendingShareError(ctx, target, err) : err;
+    });
     // The length is kept to recognise the video later if the creator finishes it in the app.
     const durationSec = media.durationSec;
     saveResume({ publishId: publish_id, uploaded: false, username, durationSec });
@@ -587,8 +640,24 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
 
   async previewChecks({ ctx, account, target, media }) {
     const opts = target.options as unknown as TikTokOptions;
+    // Only inbox uploads become drafts; a direct post never waits in the inbox.
+    if (opts.mode === 'inbox') return pendingShareIssues(ctx, account.name);
     if (opts.mode !== 'direct') return [];
     return creatorIssues(await creatorInfo(ctx, await tiktok.refresh(ctx, account)), opts, media.durationSec);
+  },
+
+  // fanout's count, not TikTok's. No `remaining`: the preview's "nothing left" would land on direct
+  // posts too, which the inbox cap doesn't touch; inbox targets get pendingShareIssues instead.
+  async limits({ ctx, account }) {
+    return [
+      {
+        what: msg('수신함 초안 (24시간)'),
+        unit: 'posts',
+        used: recentHandOffs(ctx, account.name).length,
+        total: PENDING_SHARES_MAX,
+        note: msg('fanout이 넘긴 초안만 센 추정치. "나만 보기"로 게시한 영상도 초안으로 세므로 실제보다 많을 수 있습니다'),
+      },
+    ];
   },
 
   signInExpiresAt(account) {

@@ -4,7 +4,8 @@ import { describe, it } from 'node:test';
 import { ProviderError } from '../src/core/errors.ts';
 import type { Account } from '../src/core/store.ts';
 import type { Post, Target } from '../src/core/types.ts';
-import { withTimeout } from '../src/core/posting.ts';
+import { retryTarget, withTimeout } from '../src/core/posting.ts';
+import { step, type RunnerDeps } from '../src/core/runner.ts';
 import { creatorIssues, captionFor, chunkPlan, parseExactJson, statusOutcome, tiktok, tiktokError } from '../src/providers/tiktok.ts';
 import { fakeMedia, json, makeCtx, mockFetch, slowFetch, tempFile } from './helpers.ts';
 
@@ -247,6 +248,82 @@ describe('tiktok sign-in', () => {
       assert.deepEqual(acct.profile, { displayName: undefined, openId: 'OPEN', scope: 'user.info.basic,video.upload' });
       assert.equal((acct.credentials as { refreshToken: string }).refreshToken, 'RT');
     }
+  });
+});
+
+describe('tiktok pending inbox drafts', () => {
+  const FULL = { error: { code: 'spam_risk_too_many_pending_share', message: 'too many pending shares' } };
+
+  /** tiktok/main with an inbox draft handed off `hoursAgo` before NOW for each entry. */
+  function handOffs(hoursAgo: number[], fetch = mockFetch([]).fetch) {
+    let clock = NOW.getTime();
+    const env = makeCtx(fetch, () => new Date(clock));
+    for (const h of hoursAgo) {
+      clock = NOW.getTime() - h * 3600_000;
+      const { targets } = env.store.createPost(post, [{ platform: 'tiktok', account: 'main', options: { mode: 'inbox' } }]);
+      env.store.transition(targets[0]!.id, 'uploading');
+      env.store.transition(targets[0]!.id, 'handed_off', { remoteId: `v_inbox~${h}` });
+    }
+    clock = NOW.getTime();
+    return env;
+  }
+
+  it('explains a full inbox and waits a few hours by default', () => {
+    const e = tiktokError(403, FULL, NOW);
+    assert.equal(e.kind, 'rejected');
+    assert.equal(e.code, 'tiktok.spam_risk_too_many_pending_share');
+    assert.match(e.message, /TikTok 앱에서 초안을 게시하거나 지우세요/);
+    assert.equal(e.retryAt, new Date(NOW.getTime() + 3 * 3600_000).toISOString());
+  });
+
+  it('waits until the oldest draft of the last 24 hours leaves the window, or 3 hours without one', async () => {
+    const init = () => json(FULL, 403);
+    const publishFull = (env: ReturnType<typeof makeCtx>) =>
+      tiktok.publish({ ctx: env.ctx, post, target: target({ mode: 'inbox' }), account, mediaPath: tempFile(10), media: fakeMedia(), saveResume: () => {} });
+    const full = handOffs([30, 20, 2], mockFetch([['POST', '/post/publish/inbox/video/init/', init]]).fetch);
+    await assert.rejects(publishFull(full), (e: ProviderError) => e.platformCode === 'spam_risk_too_many_pending_share' && e.retryAt === new Date(NOW.getTime() + 4 * 3600_000).toISOString());
+    const none = handOffs([30], mockFetch([['POST', '/post/publish/inbox/video/init/', init]]).fetch);
+    await assert.rejects(publishFull(none), (e: ProviderError) => e.retryAt === new Date(NOW.getTime() + 3 * 3600_000).toISOString());
+  });
+
+  it('waits three times through the runner, then fails with the hint instead of looping', async () => {
+    const { fetch, calls } = mockFetch([['POST', '/post/publish/inbox/video/init/', () => json(FULL, 403)]]);
+    const env = makeCtx(fetch, () => NOW);
+    env.store.saveAccount(account);
+    const deps: RunnerDeps = { ctx: env.ctx, providers: new Map([['tiktok', tiktok]]), probe: async () => fakeMedia(), ensureVariant: async (info) => ({ path: info.path, transcoded: false, reasons: [] }) };
+    const { targets } = env.store.createPost({ ...post, mediaPath: tempFile(10) }, [{ platform: 'tiktok', account: 'main', options: { mode: 'inbox' } }]);
+    const id = targets[0]!.id;
+    for (let wait = 1; wait <= 3; wait++) {
+      const t = await step(deps, id);
+      // The attempt is given back each time, so MAX_ATTEMPTS alone would never stop this.
+      assert.deepEqual([t.state, t.attempts, Boolean(t.notBefore)], ['queued', 0, true], `wait ${wait}`);
+      env.store.updateTarget(id, { notBefore: undefined });
+    }
+    const failed = await step(deps, id);
+    assert.equal(failed.state, 'failed');
+    assert.match(failed.errorMessage ?? '', /3번 기다렸지만 TikTok 수신함이 계속 차 있습니다/);
+    assert.match(failed.errorMessage ?? '', /TikTok 앱에서 초안을 게시하거나 지우세요/);
+    assert.equal(calls.length, 4);
+    // Retried by hand once the drafts are cleared up: it gets its three waits again.
+    retryTarget(env.store, id, 'test');
+    assert.equal((await step(deps, id)).state, 'queued');
+  });
+
+  it('warns an inbox upload that the inbox may be full, and counts it as an estimate in limits', async () => {
+    const issues = async (env: ReturnType<typeof makeCtx>, mode: string) =>
+      tiktok.previewChecks!({ ctx: env.ctx, account, post, target: target({ mode }), media: fakeMedia() });
+    const five = handOffs([1, 2, 3, 4, 23]);
+    const [warning, ...rest] = await issues(five, 'inbox');
+    assert.deepEqual([warning?.severity, warning?.code, rest.length], ['warning', 'pending_shares', 0]);
+    assert.match(warning!.message, /5개라 이 업로드가 거부될 수 있습니다/);
+    assert.match(warning!.message, /나만 보기/);
+    assert.deepEqual(await issues(handOffs([1, 2, 3, 4, 25]), 'inbox'), [], 'one of them left the 24 hours');
+    assert.deepEqual(await issues(handOffs([1, 2, 3, 4]), 'inbox'), []);
+
+    const [limit, ...more] = await tiktok.limits!({ ctx: five.ctx, account });
+    assert.equal(more.length, 0);
+    assert.deepEqual([limit!.used, limit!.total, limit!.remaining], [5, 5, undefined]);
+    assert.match(limit!.note ?? '', /추정치/);
   });
 });
 

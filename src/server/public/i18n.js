@@ -191,7 +191,7 @@ const MESSAGES_EN = {
   '{used} 씀, 무제한': '{used} used, unlimited',
   '남은 {remaining}': '{remaining} left',
   '{time}에 초기화': 'resets {time}',
-  '한도를 알려 주는 플랫폼(YouTube·Instagram·Bluesky·PeerTube)에 연결된 계정이 없습니다.': 'No connected account on a platform that reports limits (YouTube, Instagram, Bluesky, PeerTube).',
+  '한도를 알려 주는 플랫폼(YouTube·Instagram·TikTok·Bluesky·PeerTube)에 연결된 계정이 없습니다.': 'No connected account on a platform that reports limits (YouTube, Instagram, TikTok, Bluesky, PeerTube).',
   '하루 업로드 수나 저장 용량처럼 플랫폼이 정한 한도입니다. 여러 개를 한꺼번에 올리기 전에 확인하세요.': 'Limits the platforms set, such as uploads per day or storage. Check before posting many at once.',
   '(이름 없음)': '(no name)',
   "대시보드 토큰 (fanout serve 출력 참고)": "Dashboard token (see the fanout serve output)",

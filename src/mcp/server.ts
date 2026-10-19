@@ -197,7 +197,7 @@ const TOOLS = [
     title: 'Get posting limits',
     description:
       'Remaining posting limits of each connected account that has them: YouTube uploads today (per Google Cloud project, counted locally by fanout), ' +
-      'Instagram posts in the last 24 hours, Bluesky videos and bytes today, PeerTube storage. Check before posting many videos.',
+      'Instagram posts in the last 24 hours, TikTok inbox drafts in the last 24 hours (fanout\'s own estimate), Bluesky videos and bytes today, PeerTube storage. Check before posting many videos.',
     inputSchema: { type: 'object', properties: { platform: { type: 'string' } } },
     annotations: { readOnlyHint: true, openWorldHint: true },
   },

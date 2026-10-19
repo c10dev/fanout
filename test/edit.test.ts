@@ -62,6 +62,21 @@ describe('editing published posts', () => {
     assert.match(r!.detail!, /Validation failed/);
     await assert.rejects(editPost(ctx, providerMap(), post.id, { title: '  ' }), /제목/);
   });
+
+  it('says why YouTube would refuse the tags, counted its way, without calling it', async () => {
+    const { fetch, calls } = mockFetch([]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.saveAccount({ platform: 'youtube', name: 'main', credentials: { accessToken: 'A', refreshToken: 'R', expiresAt: NOW.getTime() + 3600_000 }, profile: {} });
+    const { post, targets } = store.createPost(POST, [{ platform: 'youtube', account: 'main', options: {} }]);
+    store.transition(targets[0]!.id, 'uploading');
+    store.transition(targets[0]!.id, 'published', { remoteId: 'V' });
+    // 479 characters joined with commas, 599 with the quotes YouTube counts around '태그 0001'.
+    const tags = Array.from({ length: 60 }, (_, i) => `태그 ${String(i + 1).padStart(4, '0')}`);
+    const [r] = await editPost(ctx, providerMap(), post.id, { tags });
+    assert.equal(r!.status, 'failed');
+    assert.match(r!.detail!, /599자/);
+    assert.equal(calls.length, 0);
+  });
 });
 
 describe('changing a published video\'s visibility', () => {

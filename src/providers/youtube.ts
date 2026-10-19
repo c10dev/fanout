@@ -66,6 +66,21 @@ export interface YouTubeOptions {
 }
 
 const RECORDING_DATE = /^\d{4}-\d{2}-\d{2}$/;
+export const TAGS_MAX = 500;
+
+/**
+ * Tags as YouTube counts them against its 500 characters (snippet.tags[]): a tag with a space in it
+ * counts as if it were quoted, so two more, and the commas between tags count too.
+ */
+export function tagsLength(tags: string[]): number {
+  return tags.reduce((n, t) => n + t.length + (/\s/.test(t) ? 2 : 0), 0) + Math.max(0, tags.length - 1);
+}
+
+function tagsProblem(tags: string[]): string | undefined {
+  const length = tagsLength(tags);
+  if (length <= TAGS_MAX) return undefined;
+  return msg('YouTube 태그는 합쳐서 {TAGS_MAX}자 이하 (지금 {length}자). 띄어쓰기가 있는 태그는 따옴표 두 자도 함께 셉니다', { TAGS_MAX, length });
+}
 
 /**
  * Problems with chapter timestamps in a description, which YouTube turns into chapters only when the
@@ -806,7 +821,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       issues.push({ severity: 'error', code: 'angle_brackets', message: msg('YouTube 제목·설명에 < > 문자를 쓸 수 없습니다') });
     }
     if (Buffer.byteLength(post.description) > 5000) issues.push({ severity: 'error', code: 'description', message: msg('YouTube 설명은 5000바이트 이하') });
-    if (post.tags.join(',').length > 500) issues.push({ severity: 'error', code: 'tags', message: msg('YouTube 태그 합계 500자 이하') });
+    const tags = tagsProblem(post.tags);
+    if (tags) issues.push({ severity: 'error', code: 'tags', message: tags });
     if (o.license !== undefined && o.license !== 'youtube' && o.license !== 'creativeCommon') {
       issues.push({ severity: 'error', code: 'license', message: msg('YouTube 라이선스는 youtube 또는 creativeCommon') });
     }
@@ -1122,6 +1138,9 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
   },
 
   async update({ ctx, account, target, post }) {
+    // YouTube would refuse it with invalidTags: say why before spending the read.
+    const tooLong = tagsProblem(post.tags);
+    if (tooLong) throw new ProviderError('rejected', 'youtube.tags', tooLong);
     const res = await api<{ items?: Array<{ snippet: Record<string, unknown> }> }>(ctx, account, `/videos?part=snippet&id=${target.remoteId}`);
     const snippet = res.items?.[0]?.snippet;
     if (!snippet) throw new ProviderError('rejected', 'youtube.not_found', msg('영상을 찾을 수 없습니다'));

@@ -4,8 +4,8 @@
 
 | 플랫폼 | 방식 | 기본 동작 | 예약 | 알아둘 제약 |
 |---|---|---|---|---|
-| YouTube | `videos.insert` 재개형 업로드 | 공개 범위·아동용 여부를 직접 지정해야 함 | 네이티브 `publishAt` | 프로젝트당 하루 100회 업로드. 3분 이하 세로 영상은 Shorts로 분류. 썸네일·자막·재생목록 지원. 제목·설명 언어, 다른 언어 제목·설명(`localizations`, `--yt-localizations 파일.json`), 크리에이티브 커먼즈 라이선스, 퍼가기·확장 통계 공개 끄기. 음성 언어는 API로 설정할 수 없어 YouTube Studio에서 정합니다. 유료 PPL 표시(`--yt-paid-placement yes`, `--paid-partnership yes`도 같음 → `paidProductPlacementDetails.hasPaidProductPlacement`): 업로드 직후 `videos.update`로 한 번 설정합니다(API 단위 50). 실패하면 게시는 그대로 두고 경고로 알리니 YouTube Studio에서 직접 켜세요. 다시 읽으면 몇 초 늦게 반영됩니다. `videos.update`로 바뀌는 것은 실제 계정에서 확인했고(2026-10-19), fanout 옵션으로 실제 영상에 올려 본 확인은 아직입니다. 설명의 타임스탬프가 챕터 조건(0:00 시작, 3개 이상, 10초 이상, 차례대로)에 안 맞으면 미리 경고. 촬영일(`--yt-recorded`, `recordingDetails.recordingDate`) |
-| TikTok | Content Posting API `FILE_UPLOAD` | **inbox**: TikTok 앱 수신함으로 보내고 앱에서 마무리 | fanout worker | 심사 전 direct는 비공개 계정 SELF_ONLY만, 24시간 5명. direct 모드는 TikTok이 요구하는 UX 필드(공개 범위 기본값 없음, 댓글·듀엣·이어찍기 기본 끔, 음악 사용 동의, 브랜디드 콘텐츠)를 요구 |
+| YouTube | `videos.insert` 재개형 업로드 | 공개 범위·아동용 여부를 직접 지정해야 함 | 네이티브 `publishAt` | 프로젝트당 하루 100회 업로드. 3분 이하 세로 영상은 Shorts로 분류. 썸네일·자막·재생목록 지원. 제목·설명 언어, 다른 언어 제목·설명(`localizations`, `--yt-localizations 파일.json`), 크리에이티브 커먼즈 라이선스, 퍼가기·확장 통계 공개 끄기. 음성 언어는 API로 설정할 수 없어 YouTube Studio에서 정합니다. 유료 PPL 표시(`--yt-paid-placement yes`, `--paid-partnership yes`도 같음 → `paidProductPlacementDetails.hasPaidProductPlacement`): 업로드 직후 `videos.update`로 한 번 설정합니다(API 단위 50). 실패하면 게시는 그대로 두고 경고로 알리니 YouTube Studio에서 직접 켜세요. 다시 읽으면 몇 초 늦게 반영됩니다. `videos.update`로 바뀌는 것은 실제 계정에서 확인했고(2026-10-19), fanout 옵션으로 실제 영상에 올려 본 확인은 아직입니다. 설명의 타임스탬프가 챕터 조건(0:00 시작, 3개 이상, 10초 이상, 차례대로)에 안 맞으면 미리 경고. 촬영일(`--yt-recorded`, `recordingDetails.recordingDate`). 태그는 합쳐서 500자: YouTube처럼 태그 사이 쉼표를 세고, 띄어쓰기가 있는 태그는 따옴표 두 자를 더해 셉니다(`태그 0001` 60개는 599자). 올리기 전과 게시 후 태그를 고칠 때 모두 확인 |
+| TikTok | Content Posting API `FILE_UPLOAD` | **inbox**: TikTok 앱 수신함으로 보내고 앱에서 마무리 | fanout worker | 수신함에는 마무리하지 않은 초안이 24시간에 5개까지만 들어감(넘으면 `spam_risk_too_many_pending_share`). 심사 전 direct는 비공개 계정 SELF_ONLY만, 24시간 5명. direct 모드는 TikTok이 요구하는 UX 필드(공개 범위 기본값 없음, 댓글·듀엣·이어찍기 기본 끔, 음악 사용 동의, 브랜디드 콘텐츠)를 요구 |
 | Instagram Reels | 컨테이너 → rupload → `media_publish` | 프로페셔널 계정 + 연결된 Facebook 페이지 | fanout worker | 3초~15분, 300MB. 24시간 한도는 매번 `content_publishing_limit`로 조회. 공동 작업자(3명까지, `--ig-collab`)·오디오 이름(`--ig-audio`)·AI 표시(`--ai` → `is_ai_generated`). 캡션 2200자·해시태그 30개·@멘션 20개 시험 릴스(`--ig-trial manual|auto` → `trial_params`, 팔로워가 아닌 사람에게 먼저 보임)는 실험적: Meta 문서에는 URL 업로드에만 나와 있습니다. 실제 계정으로 시험했을 때(2026-10-19) Meta는 fanout의 파일 업로드에서 이 값을 읽고 계정 자격을 검사했습니다. 팔로워 요구 사항에 못 미치는 계정은 `10/2207081`로 거절되고(게시물은 만들어지지 않음), fanout은 재연결이 아니라 실패로 보여 줍니다. 자격이 되는 계정에서 실제로 시험 릴스로 올라가는지는 아직 확인 못 했습니다. 이 계정이 직접 쓴 댓글은 Instagram이 숨기지 않으므로 숨기기를 거절함. 유료 파트너십 라벨(`--paid-partnership` → `is_paid_partnership`, 릴스에서 실제 확인 전). 사람 태그(`--ig-tag` → `user_tags`, 사용자 이름만, 20명까지). 장소(`--ig-location 페이지ID` → `location_id`; 위치가 없는 페이지면 게시가 거절됨). 페이지 ID 검색(Pages Search)은 앱 심사가 따로 필요해 지원하지 않으니 페이지 주소에서 ID를 찾아 넣으세요. |
 | Facebook Reels | `video_reels` start → rupload → finish | 페이지만 가능 | 네이티브 (10분~29일). 29일보다 먼 예약은 28일 전까지 fanout이 기다렸다가 올림 | 9:16, 3~90초. 릴스 제목(`--fb-title`)과 초안 저장(`--fb-draft`, 처리가 끝나면 "앱에서 마무리" 상태) 커버 이미지: 처리가 끝나면 게시물 썸네일을 `/{video}/thumbnails`(`is_preferred`)로 올림 — 릴스에서 되는지 실제 확인 전이라 안 되면 경고만 남김. 공동 작업자 페이지 초대(`--fb-collab 페이지ID,…` → 게시 뒤 `/{video}/collaborators`, 페이지당 하루 10건, 초안은 제외). 장소(`--fb-place 페이지ID` → 게시 단계의 `place`, 위치가 있는 페이지여야 함). |
 | X | v2 `initialize` → 4MB `append` → `finalize` → STATUS → `POST /2/tweets` | 내 X 앱(OAuth 2.0 PKCE), **종량제 크레딧 필요** | fanout worker | 기본 20분·8GB(Premium은 더 김). 글은 가중치 280(한글 2). URL이 들어가면 요금이 높음. 계정이 Premium이 아니면(연결·점검 때 확인) 280을 넘는 글은 올리기 전에 막음. AI 표시(`--ai` → `made_with_ai`)·유료 파트너십(`--x-paid-partnership`)·답글 허용 범위(`--x-reply`)·영상 대체 텍스트(`--x-alt`, `POST /2/media/metadata`)·자막(SRT·VTT를 `subtitles`로 올린 뒤 `POST /2/media/subtitles`, 두 글자 언어 코드). 게시 응답을 잃으면 중복을 피하려고 멈추고 확인을 요청. 썸네일: 게시물 썸네일을 이미지로 올려 `media.preview_media_id`로 붙임(실제 확인 전). 영상 카드 제목·설명: 게시물 제목·설명을 `media.title`·`media.description`으로 보냄(실제 확인 전, 비어 있으면 뺌; `--x-text`는 글만 바꿈). 썸네일이나 카드 글을 실은 게시가 400으로 거절되면 썸네일·카드 제목·설명을 모두 빼고 한 번만 더 올리고, 뺀 것을 경고로 남김. `--paid-partnership` 하나로 X·TikTok(direct)·Instagram·YouTube(유료 PPL)에 함께 표시. 사람 태그(`--x-tag` → `media.tagged_user_ids`, 10명까지; 사용자 이름을 한 번 조회하며 요금이 듦, 못 찾은 사람은 빼고 경고). 커뮤니티에 게시(`--x-community ID` → `community_id`). |
@@ -97,10 +97,11 @@ fanout은 자기 앱을 각자 만드는 BYO 방식이라, 심사는 그 앱 주
 |---|---|---|
 | YouTube | 오늘 업로드 수 / 100, 그리고 오늘 쓴 API 단위 / 10,000(자막 400, 썸네일·재생목록 추가·수정·삭제 50, 조회 1). 둘 다 Google Cloud 프로젝트 전체, 태평양 시간 자정 초기화 | fanout이 보낸 요청만 센 로컬 집계. 같은 프로젝트로 다른 곳에서 쓴 것은 빠집니다. 미리보기는 게시물 하나가 쓸 단위(자막 수 등)가 오늘 남은 단위보다 많으면 경고 |
 | Instagram | 최근 24시간 게시 수 / 한도 | `content_publishing_limit` 실측 |
+| TikTok | 최근 24시간에 수신함으로 넘겨 아직 마무리되지 않은 초안 수 / 5 | fanout이 넘긴 것만 센 추정치. 다른 앱이 넘긴 초안은 빠지고, "나만 보기"로 게시한 영상은 TikTok이 알려 주지 않아 초안으로 남아 세어지므로 실제보다 많을 수 있습니다. 그래서 남은 수는 적지 않고, 5개 이상이면 inbox 대상의 미리보기에만 "거부될 수 있다"고 경고 |
 | Bluesky | 오늘 남은 영상 수와 용량 | `app.bsky.video.getUploadLimits` |
 | PeerTube | 오늘 쓴 용량과 전체 저장 용량 (한도가 없으면 무제한) | `/users/me`, `/users/me/video-quota-used` |
 
-TikTok·Facebook·X·Mastodon은 읽을 수 있는 한도가 API에 없어 표시하지 않습니다.
+Facebook·X·Mastodon은 읽을 수 있는 한도가 API에 없어 표시하지 않습니다.
 
 업로드하다 하루 한도에 걸리면 실패로 끝내지 않고 한도가 다시 차는 때에 자동으로 다시 시도합니다. 시도 횟수는 늘지 않고, 이미 올라간 부분은 그대로 이어 갑니다.
 
@@ -109,6 +110,7 @@ TikTok·Facebook·X·Mastodon은 읽을 수 있는 한도가 API에 없어 표�
 | YouTube | 로컬 집계 100회, 또는 API의 `quotaExceeded`·`uploadLimitExceeded` | 태평양 시간 자정 5분 뒤 |
 | Instagram | 24시간 게시 한도 | 1시간 뒤(지난 게시물이 24시간 창에서 빠지는 만큼 자리가 생김) |
 | TikTok | `spam_risk_too_many_posts`(모든 앱 합산 하루 게시 한도) | 3시간 뒤 |
+| TikTok | `spam_risk_too_many_pending_share`(수신함 초안 24시간 5개) | 최근 24시간에 넘긴 가장 오래된 초안이 24시간을 채우는 때, 그런 초안을 모르면 3시간 뒤. 수신함이 계속 차 있으면 끝없이 기다리지 않도록 세 번 기다린 뒤 네 번째에는 "TikTok 앱에서 초안을 게시하거나 지우세요"라는 안내와 함께 실패로 끝냅니다(직접 다시 시도하면 다시 세 번까지) |
 
 그 사이 대상은 대기 상태로 남고, 게시 현황에 이유와 다시 시도할 시각이 보입니다.
 
