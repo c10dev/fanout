@@ -456,13 +456,16 @@ export class McpServer {
       case 'create_post': {
         const { input, targets, media } = await this.#postArgs(args);
         const giveBack = this.#takePreview(args.previewId, postDigest(input, targets, args), 'preview_post');
+        let made: ReturnType<typeof createScheduledPost>;
         try {
-          return await this.#createPost(args, input, targets, media);
+          made = await this.#createPost(args, input, targets, media);
         } catch (err) {
           // Nothing was posted: the preview still stands.
           giveBack();
           throw err;
         }
+        this.#deps.worker?.tick();
+        return { postId: made.post.id, targets: made.targets.map(publicTarget), next: msg('get_post_status 로 진행 상황을 확인하세요') };
       }
       case 'add_to_post': {
         const p = store.findPost(String(args.postId ?? ''));
@@ -481,14 +484,15 @@ export class McpServer {
           }
         }
         const giveBack = this.#takePreview(args.previewId, digest, 'add_to_post dryRun: true');
+        let created: Target[];
         try {
-          const created = addTargets(store, providers, p.id, targets, media);
-          this.#deps.worker?.tick();
-          return { postId: p.id, targets: created.map(publicTarget), next: msg('get_post_status 로 진행 상황을 확인하세요') };
+          created = addTargets(store, providers, p.id, targets, media);
         } catch (err) {
           giveBack();
           throw new ToolError((err as Error).message);
         }
+        this.#deps.worker?.tick();
+        return { postId: p.id, targets: created.map(publicTarget), next: msg('get_post_status 로 진행 상황을 확인하세요') };
       }
       case 'get_post_status': {
         const id = typeof args.postId === 'string' ? args.postId : undefined;
@@ -614,7 +618,7 @@ export class McpServer {
   }
 
   /** Queue a post whose preview the user approved; still refused if a target has errors now. */
-  async #createPost(args: Record<string, unknown>, input: PostInput, targets: TargetInput[], media: MediaInfo): Promise<Record<string, unknown>> {
+  async #createPost(args: Record<string, unknown>, input: PostInput, targets: TargetInput[], media: MediaInfo): Promise<ReturnType<typeof createScheduledPost>> {
     const { ctx, providers } = this.#deps;
     const { store } = ctx;
     const preview = previewPost(store, providers, input, targets, media);
@@ -635,9 +639,7 @@ export class McpServer {
     // A frame from thumbnailAt is fanout's own file already.
     if (input.thumbnailPath && args.thumbnailAt === undefined) input.thumbnailPath = copy('thumbnail', input.thumbnailPath, 'thumbnailPath');
     input.captions = input.captions.map((c, i) => ({ ...c, path: copy('caption', c.path, `captions[${i}].path`) }));
-    const { post, targets: created } = createScheduledPost(store, providers, input, targets);
-    this.#deps.worker?.tick();
-    return { postId: post.id, targets: created.map(publicTarget), next: msg('get_post_status 로 진행 상황을 확인하세요') };
+    return createScheduledPost(store, providers, input, targets);
   }
 
   /** A preview the user is about to see: the id the call that posts it must name. */
