@@ -496,8 +496,8 @@ export class Store {
   }
 
   /** When the target last entered `state`, from its event log. */
-  stateSince(targetId: string, state: TargetState): Date | undefined {
-    const row = this.#db.prepare('SELECT at FROM events WHERE target_id = ? AND to_state = ? ORDER BY id DESC LIMIT 1').get(targetId, state) as
+  stateSince(targetId: string, state: TargetState, which: 'last' | 'first' = 'last'): Date | undefined {
+    const row = this.#db.prepare(`SELECT at FROM events WHERE target_id = ? AND to_state = ? ORDER BY id ${which === 'first' ? 'ASC' : 'DESC'} LIMIT 1`).get(targetId, state) as
       | { at: string }
       | undefined;
     return row ? new Date(row.at) : undefined;

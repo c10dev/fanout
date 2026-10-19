@@ -82,7 +82,7 @@ node src/cli.ts serve            # http://127.0.0.1:8780/
 | `POST /api/posts/:id/edit` | `{ title?, description?, tags? }` 수정하고 편집 가능한 플랫폼에 반영, 대상별 결과 반환 |
 | `POST /api/posts/:id/stats` | `{ includePaid?, platform? }` 게시된 대상의 반응 수치를 가져와 저장 |
 | `POST /api/targets/:id/remove` | 게시된 대상을 플랫폼에서 삭제 (YouTube·Facebook·X·Bluesky·Mastodon) |
-| `POST /api/targets/:id/retry` | 실패·재연결 필요 대상 다시 시도 |
+| `POST /api/targets/:id/retry` | 실패·재연결 필요 대상 다시 시도. 이미 올라갔을 수 있으면 409 `needsConfirm`, 플랫폼에서 확인한 뒤 `{ confirmedNotPosted: true }`로 다시 요청 |
 | `GET /api/posts/:id/media` | 게시물의 영상 정보(업로드 응답과 같은 모양)와 이미 올린 플랫폼 계정 |
 | `POST /api/posts/:id/targets/preview`, `POST /api/posts/:id/targets` | 게시물에 플랫폼 추가: 미리보기, 추가. 이미 있는 플랫폼 계정이거나 원본이 없으면 409 |
 | `POST /api/targets/:id/cancel` | 대기·실패·재연결 필요 대상을 취소. 처리 중이거나 이미 게시됐으면 409. 이미 올라갔을 수 있으면 409 `needsConfirm`, 확인 뒤 `{ confirmedNotPosted: true }`로 다시 요청 |

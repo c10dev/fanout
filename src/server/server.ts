@@ -1027,6 +1027,8 @@ export class Dashboard {
       mayBeDuplicate: Boolean(mayBeDuplicate(t)),
       // Removing it also removes its first-comment reply (X): one more request, said in the confirmation.
       removesReply: t.state === 'published' && Boolean(provider?.firstCommentIsPost) && t.followup?.state === 'posted',
+      // …or may have one up that fanout can't name (its answer was lost): the user should look.
+      replyUnknown: t.state === 'published' && Boolean(provider?.firstCommentIsPost) && (t.followup?.state === 'sending' || t.followup?.maybePosted === true),
       visibilities: t.state === 'published' && provider?.setVisibility ? provider.visibilities : undefined,
       goesPublicAt: this.#goesPublicAt(t),
       trend: t.stats ? statsTrend(this.#opts.ctx.store, t.id, this.#opts.ctx.now()) : undefined,

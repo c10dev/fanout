@@ -282,7 +282,7 @@ const TOOLS = [
     title: 'Retry a failed target',
     description:
       'Queue a failed or needs_reauth target again (after fixing the cause, e.g. reconnecting the account). ' +
-      'If the target failed with *.maybe_posted or *.media_attached, the post may already be live: ask the user to check the platform, ' +
+      'If the target failed with *.maybe_posted or *.media_attached, or after a post request that got no answer (fanout refuses with a message saying so), the post may already be live: ask the user to check the platform, ' +
       'and only pass confirmedNotPosted: true once they confirm it is not there — otherwise it can be posted twice.',
     inputSchema: {
       type: 'object',
@@ -537,7 +537,7 @@ export class McpServer {
         try {
           return { target: publicTarget(cancelTarget(store, String(args.targetId ?? ''), { confirmedNotPosted: args.confirmedNotPosted === true })) };
         } catch (err) {
-          if (err instanceof MaybeLiveError) throw new ToolError(err.message + ' ' + msg('사용자에게 플랫폼에서 확인을 받은 뒤에만 confirmedNotPosted: true 로 다시 호출하세요'));
+          if (err instanceof MaybeLiveError) throw new ToolError(local(err.message) + ' ' + local(msg('사용자에게 플랫폼에서 확인을 받은 뒤에만 confirmedNotPosted: true 로 다시 호출하세요')));
           throw new ToolError((err as Error).message);
         }
       }
@@ -546,7 +546,7 @@ export class McpServer {
           return { firstComment: await retryFirstComment(this.#deps.ctx, providers, String(args.targetId ?? ''), args.confirmedNotPosted === true) };
         } catch (err) {
           const e = err as Error & { needsConfirm?: boolean };
-          throw new ToolError(e.needsConfirm ? e.message + ' ' + msg('사용자에게 플랫폼에서 확인을 받은 뒤에만 confirmedNotPosted: true 로 다시 호출하세요') : e.message);
+          throw new ToolError(e.needsConfirm ? local(e.message) + ' ' + local(msg('사용자에게 플랫폼에서 확인을 받은 뒤에만 confirmedNotPosted: true 로 다시 호출하세요')) : e.message);
         }
       }
       case 'retry_target': {
@@ -555,7 +555,7 @@ export class McpServer {
           next = retryTarget(store, String(args.targetId ?? ''), 'retry via MCP', { confirmedNotPosted: args.confirmedNotPosted === true });
         } catch (err) {
           // The user, not the model, has to vouch that a maybe-posted target didn't go out.
-          if (err instanceof MaybeDuplicateError) throw new ToolError(err.message + ' ' + msg('사용자에게 플랫폼에서 확인을 받은 뒤에만 confirmedNotPosted: true 로 다시 호출하세요'));
+          if (err instanceof MaybeDuplicateError) throw new ToolError(local(err.message) + ' ' + local(msg('사용자에게 플랫폼에서 확인을 받은 뒤에만 confirmedNotPosted: true 로 다시 호출하세요')));
           throw new ToolError((err as Error).message);
         }
         this.#deps.worker?.tick();

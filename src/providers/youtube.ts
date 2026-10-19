@@ -463,6 +463,7 @@ async function applyExtras(
   videoId: string,
   done: readonly string[],
   markDone: (key: string) => void,
+  unmarkDone: (key: string) => void = () => {},
 ): Promise<string[]> {
   const warnings: string[] = [];
   const token = creds(account).accessToken;
@@ -478,6 +479,11 @@ async function applyExtras(
         warnings.push(vars.hint ? msg('{label} 실패 ({code}): {message} — {hint}', vars) : msg('{label} 실패 ({code}): {message}', vars));
       }
     } catch (err) {
+      // A lost work lock refused the request before it went out: not done, and this step stops.
+      if (err instanceof ProviderError && err.code === 'lease_lost') {
+        unmarkDone(key);
+        throw err;
+      }
       warnings.push(msg('{label} 실패: {err} — Studio에서 직접 확인하세요', { label, err: (err as Error).message }));
     }
   };
@@ -882,10 +888,22 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     }
 
     const done = [...(resume.extras ?? [])];
-    const warnings = await applyExtras(ctx, account, post, opts, video.id, done, (key) => {
-      done.push(key);
-      saveResume({ videoId: video.id, extras: [...done] });
-    });
+    const warnings = await applyExtras(
+      ctx,
+      account,
+      post,
+      opts,
+      video.id,
+      done,
+      (key) => {
+        done.push(key);
+        saveResume({ videoId: video.id, extras: [...done] });
+      },
+      (key) => {
+        if (done.includes(key)) done.splice(done.indexOf(key), 1);
+        saveResume({ videoId: video.id, extras: [...done] });
+      },
+    );
     const outcome: PublishOutcome = video.status
       ? outcomeFor(video, post, opts, short)
       : { state: 'processing', remoteId: video.id, remoteUrl: videoUrl(video.id, short) };
@@ -975,6 +993,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     const clip = join(tmpdir(), `fanout-doctor-${Date.now()}.mp4`);
     let videoId: string | undefined;
     let removed = false;
+    let uploading = false;
     let step = msg('테스트 업로드');
     const removeVideo = async (id: string) => {
       const del = await ytFetch(ctx, `${API}/videos?id=${id}`, { method: 'DELETE', headers: { authorization: `Bearer ${creds(acct).accessToken}` } });
@@ -997,6 +1016,7 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
       const day = pacificDay(ctx.now());
       const session = await startSession(ctx, acct, post, opts, media.sizeBytes);
       ctx.store.bumpUsage('youtube', 'project', day);
+      uploading = true;
       let video = await uploadBytes(ctx, acct, session, clip, media.sizeBytes, 0);
       videoId = video.id;
       checks.push({ name: msg('테스트 업로드'), status: 'ok', detail: msg('videoId={id}, 요청 unlisted → 응답 {privacyStatus}', { id: video.id, privacyStatus: video.status?.privacyStatus }) });
@@ -1040,6 +1060,8 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
           detail: removed ? msg('삭제함') : msg('삭제 실패 HTTP {status} — Studio에서 직접 지우세요: https://youtu.be/{id}', { status: failed, id: videoId }),
         });
       }
+      // The upload may have landed with its answer lost: there is no id to delete, so say where to look.
+      if (!videoId && uploading) checks.push({ name: msg('테스트 영상 삭제'), status: 'warn', detail: msg('업로드 응답을 받지 못했습니다. YouTube Studio에 "fanout doctor test" 영상이 있으면 지우세요') });
       rmSync(clip, { force: true });
     }
     return checks;

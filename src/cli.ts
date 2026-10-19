@@ -44,10 +44,12 @@ export interface Args {
 }
 
 /**
- * Flags that never take the next word as their value: confirmations that something didn't go out.
- * `fanout retry P --confirmed-not-posted x` must confirm X only, not swallow `x` and confirm all.
+ * Confirmations that something didn't go out: they take the next word as their value only when it
+ * is a yes/no word. `fanout retry P --confirmed-not-posted x` confirms X only (x stays the platform),
+ * while `--confirmed-not-posted no` still means no.
  */
-const STANDALONE_FLAGS = new Set(['confirmed-not-posted', 'not-posted']);
+const YES_NO_FLAGS = new Set(['confirmed-not-posted', 'not-posted']);
+const YES_NO_WORD = /^(yes|no|true|false|y|n|1|0)$/i;
 
 export function parseArgs(argv: string[]): Args {
   const out: Args = { positionals: [], flags: {}, lists: {} };
@@ -61,7 +63,7 @@ export function parseArgs(argv: string[]): Args {
     const key = eq > 0 ? a.slice(2, eq) : a.slice(2);
     let value: string | boolean = true;
     if (eq > 0) value = a.slice(eq + 1);
-    else if (!STANDALONE_FLAGS.has(key) && i + 1 < argv.length && !argv[i + 1]!.startsWith('--')) value = argv[++i]!;
+    else if (i + 1 < argv.length && !argv[i + 1]!.startsWith('--') && (!YES_NO_FLAGS.has(key) || YES_NO_WORD.test(argv[i + 1]!))) value = argv[++i]!;
     out.flags[key] = value;
     if (typeof value === 'string') (out.lists[key] ??= []).push(value);
   }
@@ -320,7 +322,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
   fanout post <video> --title T --to youtube,tiktok:main,instagram,facebook [옵션]
   fanout add <postId> --to tiktok,x [플랫폼 옵션] [--yes]   이미 만든 게시물에 플랫폼 추가 (원본이 남아 있을 때)
   fanout status [postId] [--events]
-  fanout retry <postId> [platform] [--confirmed-not-posted]   실패한 대상 다시 시도 (이미 올라갔을 수 있으면 확인 뒤 플래그)
+  fanout retry <postId> [platform] [--account main] [--confirmed-not-posted]   실패한 대상 다시 시도 (이미 올라갔을 수 있으면 확인 뒤 플래그)
   fanout first-comment <postId> <platform> [--account main] [--not-posted]   실패한 첫 댓글 다시 달기
   fanout run                             밀린 작업 처리 후 종료
   fanout worker [--interval 60] [--stats-every 6]   예약·재시도 작업을 계속 처리 (+ 최근 30일 게시물 반응을 6시간마다 기록, 0이면 끔)
@@ -770,6 +772,13 @@ export function buildCommit(here: URL = new URL('./', import.meta.url)): string 
     // not a build that recorded one
   }
   const root = new URL('../', here);
+  // npm records the commit of a git dependency it installed (built from a tarball, so no .git).
+  try {
+    const gitHead = (JSON.parse(readFileSync(new URL('package.json', root), 'utf8')) as { gitHead?: unknown }).gitHead;
+    if (typeof gitHead === 'string' && /^[0-9a-f]{7,40}$/.test(gitHead)) return gitHead.slice(0, 7);
+  } catch {
+    // no package.json next to it
+  }
   if (!existsSync(new URL('.git', root))) return undefined;
   try {
     return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: fileURLToPath(root), encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim() || undefined;
@@ -960,6 +969,7 @@ async function cmdRemove(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
   const t = candidates[0]!;
   console.log(`"${post.title}" → ${t.platform}/${t.account} ${t.remoteUrl ?? t.remoteId ?? ''}`);
   if (deps.providers.get(t.platform)?.firstCommentIsPost && t.followup?.state === 'posted') say(msg('첫 댓글 답글도 먼저 지웁니다 (삭제 요청 2건)'));
+  else if (deps.providers.get(t.platform)?.firstCommentIsPost && (t.followup?.state === 'sending' || t.followup?.maybePosted)) say(msg('첫 댓글 답글이 올라갔는지 알 수 없어 지우지 못합니다. X에서 확인해 직접 지우세요'));
   if (!args.flags.yes && !(await confirm(msg('플랫폼에서 이 게시물을 삭제할까요? 되돌릴 수 없습니다')))) return 1;
   const done = await removeTarget(ctx, deps.providers, t.id).catch((err: Error) => {
     throw err instanceof ProviderError ? err : new UsageError(err.message);
@@ -1281,12 +1291,15 @@ async function cmdFirstComment(ctx: ProviderContext, deps: RunnerDeps, args: Arg
 
 async function cmdRetry(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
-  if (!post) throw new UsageError('fanout retry <postId> [platform] [--confirmed-not-posted]');
+  if (!post) throw new UsageError('fanout retry <postId> [platform] [--account main] [--confirmed-not-posted]');
   const only = args.positionals[2];
+  const account = str(args, 'account');
+  // A confirmation covers exactly what was named: an unknown platform is a mistake, not "all".
+  if (only && !deps.providers.has(only)) throw new UsageError(msg('알 수 없는 플랫폼: {platform} (가능: {providers})', { platform: only, providers: [...deps.providers.keys()].join(', ') }));
   const ids: string[] = [];
   let held = 0;
   for (const t of ctx.store.targetsForPost(post.id)) {
-    if ((t.state === 'failed' || t.state === 'needs_reauth') && (!only || t.platform === only)) {
+    if ((t.state === 'failed' || t.state === 'needs_reauth') && (!only || t.platform === only) && (!account || t.account === account)) {
       try {
         retryTarget(ctx.store, t.id, 'manual retry', { confirmedNotPosted: bool(args, 'confirmed-not-posted') === true });
         ids.push(t.id);
@@ -1306,7 +1319,8 @@ async function cmdRetry(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
   await settle(deps, ids, settleOpts(ctx));
   await firstComments(ctx, deps);
   printPost(ctx, post);
-  return 0;
+  // Something was left for the user to check: a script must not read this as all done.
+  return held ? 1 : 0;
 }
 
 export async function main(argv: string[]): Promise<number> {

@@ -30,7 +30,7 @@ fanout uploads through the user's own platform accounts. **Anything you post goe
 - `get_limits`: remaining daily limits (YouTube uploads, Instagram posts, Bluesky, PeerTube storage). Check before posting several videos.
 - `get_post_comments` then `reply_to_comment`: draft the reply, show the exact text, and send it only after the user approves that text. Replies go live at once and are not retried; if a reply's response was lost, read the comments again before trying once more.
 - `retry_target` after a failure: if fanout refuses because the post may already be live (`*.maybe_posted`, `*.media_attached`, or a post request that got no answer), ask the user to check the platform, and pass `confirmedNotPosted: true` only after they confirm it is not there; otherwise it is posted twice. `cancel_target` and `retry_first_comment` work the same way.
-- A target's `firstComment` says how its first comment went (`posted` with a link, `failed`, `sending`, `unsupported`).
+- A target's `firstComment` says how its first comment went (`posted` with a link, `failed`, `sending`, `unsupported`, or `canceled` when the post was removed first).
 - Planning: `get_calendar` (what goes out when), `suggest_post_times` (good next times for some accounts), `get_insights` (what performed), `get_comment_inbox` (comments still waiting for a reply).
 
 ## Setup

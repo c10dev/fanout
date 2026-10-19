@@ -90,6 +90,7 @@ export class Worker {
     this.#statsRun = refreshDueStats(ctx, providers, (postId, platform) => refreshStats(ctx, providers, postId, { platform }), { everyMs: this.#statsEvery() })
       .catch((err: unknown) => {
         ctx.log.warn(`stats: ${String(err)}`);
+        this.#noteStoreError(err);
         return 0;
       })
       .finally(() => {
@@ -110,6 +111,7 @@ export class Worker {
       })
       .catch((err: unknown) => {
         ctx.log.warn(`verify: ${String(err)}`);
+        this.#noteStoreError(err);
         return 0;
       })
       .finally(() => {
@@ -125,6 +127,7 @@ export class Worker {
     this.#followupRun = postDueFirstComments(ctx, providers)
       .catch((err: unknown) => {
         ctx.log.warn(`first comment: ${String(err)}`);
+        this.#noteStoreError(err);
         return 0;
       })
       .finally(() => {
@@ -154,6 +157,11 @@ export class Worker {
 
   #interval(): number {
     return this.#opts.intervalMs ?? 15_000;
+  }
+
+  /** The store failing under a run (claim, transition, stats, a first comment): counted at the next tick. */
+  #noteStoreError(err: unknown): void {
+    if (isStoreError(err)) this.#storeError = err instanceof Error ? err.message : String(err);
   }
 
   tick(): void {
@@ -196,8 +204,7 @@ export class Worker {
       const run = settle(this.#deps, ids, { pollIntervalMs: this.#opts.pollIntervalMs ?? 10_000, timeoutMs: 10 * 60_000 })
         .catch((err: unknown) => {
           this.#deps.ctx.log.warn(`worker(${platform}): ${String(err)}`);
-          // The store failing under a run (claim, transition): counted at the next tick.
-          if (isStoreError(err)) this.#storeError = err instanceof Error ? err.message : String(err);
+          this.#noteStoreError(err);
         })
         .finally(() => {
           this.#busyPlatforms.delete(platform);

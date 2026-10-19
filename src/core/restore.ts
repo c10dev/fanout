@@ -153,10 +153,23 @@ function holdUnfinished(dbPath: string, now: Date): number {
       .prepare(
         `SELECT id, state FROM targets
          WHERE state IN ('transcoding', 'uploading', 'processing')
-            OR (state = 'queued' AND (attempts > 0 OR not_before IS NULL OR not_before <= ?))`,
+            OR (state = 'queued' AND (not_before IS NULL OR not_before <= ?))`,
       )
       .all(at) as Array<{ id: string; state: string }>;
-    if (!rows.length) return 0;
+    // First comments still to go at the backup may have gone since: held the same way (a retry then
+    // needs the user's word that the comment isn't there).
+    const comments = db
+      .prepare(
+        `SELECT t.id FROM targets t JOIN posts p ON p.id = t.post_id
+         WHERE t.state = 'published' AND t.followup IS NULL AND coalesce(json_extract(p.body, '$.firstComment'), '') != ''`,
+      )
+      .all() as Array<{ id: string }>;
+    if (comments.length) {
+      const followup = JSON.stringify({ state: 'failed', at, error: msg('백업 뒤에 이미 달렸을 수 있어 멈춰 두었습니다. 플랫폼에서 확인한 뒤 다시 다세요'), maybePosted: true });
+      const hold = db.prepare('UPDATE targets SET followup = ? WHERE id = ? AND followup IS NULL');
+      for (const c of comments) hold.run(followup, c.id);
+    }
+    if (!rows.length) return comments.length;
     const message = msg('백업 뒤에 이미 게시됐을 수 있어 멈춰 두었습니다. 플랫폼에서 확인한 뒤 다시 시도하거나 취소하세요');
     db.exec('BEGIN IMMEDIATE');
     try {
@@ -171,7 +184,7 @@ function holdUnfinished(dbPath: string, now: Date): number {
       db.exec('ROLLBACK');
       throw err;
     }
-    return rows.length;
+    return rows.length + comments.length;
   } finally {
     db.close();
   }

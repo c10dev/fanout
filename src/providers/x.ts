@@ -553,7 +553,8 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
         return send();
       })
       .catch((err: unknown) => {
-        // A clear rejection means nothing was posted, so a later retry is safe.
+        // A clear rejection means nothing was posted, so a later retry is safe. (A lost work lock is
+        // left alone: another process may own the target now, and its marker is not ours to clear.)
         if (err instanceof ProviderError && err.kind !== 'retryable') ctx.store.updateTarget(target.id, { resume: { ...resume, posting: false } });
         throw err;
       });

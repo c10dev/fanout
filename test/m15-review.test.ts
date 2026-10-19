@@ -96,6 +96,107 @@ describe('M15 review: no second post', () => {
     await removeTarget(env.ctx, providerMap(), id);
     await postDueFirstComments(env.ctx, providerMap());
     assert.equal(calls.filter((c) => c.method === 'POST').length, 0, 'no reply posted');
-    assert.equal(env.store.getTarget(id)!.followup?.state, 'failed');
+    assert.equal(env.store.getTarget(id)!.followup?.state, 'canceled');
+  });
+
+  it('X: after a lost work lock, the marker is left to whoever owns the target now', async () => {
+    const { ProviderError } = await import('../src/core/errors.ts');
+    const xAccount = { platform: 'x', name: 'main', credentials: { accessToken: 'A', refreshToken: 'R', expiresAt: NOW.getTime() + 3_600_000, userId: 'U', username: 'me' }, profile: {} };
+    const env = makeCtx((async (url: string | URL) => {
+      if (String(url).includes('/2/media/upload')) return json({ data: { id: 'M1', processing_info: { state: 'succeeded' } } });
+      throw new ProviderError('retryable', 'lease_lost', 'lost the lock', undefined, { keepResume: true });
+    }) as typeof fetch, () => NOW);
+    env.store.setApp('x', { clientId: 'c' });
+    env.store.saveAccount(xAccount);
+    const { targets } = env.store.createPost(post(), [{ platform: 'x', account: 'main', options: {} }]);
+    const id = targets[0]!.id;
+    env.store.transition(id, 'uploading');
+    env.store.transition(id, 'processing', { remoteId: 'M1', resume: { mediaId: 'M1', finalized: true } });
+    await assert.rejects(x.poll({ ctx: env.ctx, post: post(), target: { ...env.store.getTarget(id)!, remoteId: 'M1' }, account: env.store.getAccount('x', 'main')! }));
+    // Not cleared by a process that may no longer own it (the safe side: the next poll asks first).
+    assert.equal((env.store.getTarget(id)!.resume as { posting?: boolean }).posting, true);
+  });
+
+  it('Instagram: finding the post later drops an earlier "id unknown" marker', async () => {
+    const { instagram } = await import('../src/providers/instagram.ts');
+    const { fetch } = mockFetch([
+      ['GET', '/C1?', () => json({ status_code: 'PUBLISHED' })],
+      ['GET', '/IG/media?', () => json({ data: [{ id: 'M9', caption: 't', timestamp: '2026-10-19T02:59:00+0000' }] })],
+    ]);
+    const env = makeCtx(fetch, () => NOW);
+    env.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    env.store.saveAccount({ platform: 'instagram', name: 'main', credentials: { pageId: 'PAGE', pageToken: 'PT', igUserId: 'IG' }, profile: {} });
+    const { targets } = env.store.createPost(post({ tags: [] }), [{ platform: 'instagram', account: 'main', options: {} }]);
+    const id = targets[0]!.id;
+    env.store.transition(id, 'uploading');
+    env.store.transition(id, 'processing', { remoteId: 'C1', resume: { containerId: 'C1', uploaded: true, mediaIdUnknown: true } });
+    const out = await instagram.poll({ ctx: env.ctx, post: post({ tags: [] }), target: { ...env.store.getTarget(id)!, remoteId: 'C1' }, account: env.store.getAccount('instagram', 'main')! });
+    assert.equal(out.remoteId, 'M9');
+    assert.equal((env.store.getTarget(id)!.resume as { mediaIdUnknown?: boolean }).mediaIdUnknown, undefined);
+  });
+
+  it('removing a post that then fails hands the first comment back', async () => {
+    const xAccount = { platform: 'x', name: 'main', credentials: { accessToken: 'A', refreshToken: 'R', expiresAt: NOW.getTime() + 3_600_000, userId: 'U', username: 'me' }, profile: {} };
+    const { fetch } = mockFetch([['DELETE', '/2/tweets/', () => json({ title: 'Service Unavailable' }, 503)]]);
+    const env = makeCtx(fetch, () => NOW);
+    env.store.setApp('x', { clientId: 'c' });
+    env.store.saveAccount(xAccount);
+    const { targets } = env.store.createPost({ ...post(), firstComment: 'link' }, [{ platform: 'x', account: 'main', options: {} }]);
+    const id = targets[0]!.id;
+    env.store.transition(id, 'uploading');
+    env.store.transition(id, 'published', { remoteId: 'TW1' });
+    await assert.rejects(removeTarget(env.ctx, providerMap(), id));
+    assert.equal(env.store.getTarget(id)!.state, 'published');
+    assert.equal(env.store.getTarget(id)!.followup, undefined, 'back to waiting: the worker posts it as planned');
+  });
+
+  it('Facebook: a status reply with nothing readable is no answer either', async () => {
+    const account: Account = { platform: 'facebook', name: 'main', credentials: { pageId: 'PAGE', pageToken: 'PT' }, profile: {} };
+    const target: Target = { id: 't', postId: 'p', platform: 'facebook', account: 'main', options: {}, state: 'uploading', warnings: [], attempts: 2, updatedAt: '', resume: { videoId: 'V1', finished: false, pageId: 'PAGE' } };
+    for (const reply of [() => new Response('<html>gateway</html>', { status: 200 }), () => json({ id: 'V1' })]) {
+      const { fetch, calls } = mockFetch([
+        ['GET', '/V1?', reply],
+        ['POST', '/PAGE/video_reels', () => json({ video_id: 'V2', upload_url: 'https://rupload.facebook.com/x' })],
+      ]);
+      const { ctx, store } = makeCtx(fetch, () => NOW);
+      store.setApp('meta', { appId: 'a', appSecret: 's' });
+      await assert.rejects(facebook.publish({ ctx, post: post(), target, account, mediaPath: '/v.mp4', media: fakeMedia(), saveResume: () => {} }), /status_unknown|읽지 못했습니다/);
+      assert.equal(calls.filter((c) => c.url.includes('/video_reels')).length, 0);
+    }
+  });
+
+  it('Facebook: a video gone from a Page the account no longer posts as is held, not posted again', async () => {
+    const account: Account = { platform: 'facebook', name: 'main', credentials: { pageId: 'NEWPAGE', pageToken: 'PT' }, profile: {} };
+    const target: Target = { id: 't', postId: 'p', platform: 'facebook', account: 'main', options: {}, state: 'uploading', warnings: [], attempts: 2, updatedAt: '', resume: { videoId: 'V1', finished: false, pageId: 'PAGE' } };
+    const { fetch, calls } = mockFetch([['GET', '/V1?', () => json({ error: { code: 100, error_subcode: 33, message: 'does not exist' } }, 400)]]);
+    const { ctx, store } = makeCtx(fetch, () => NOW);
+    store.setApp('meta', { appId: 'a', appSecret: 's' });
+    await assert.rejects(facebook.publish({ ctx, post: post(), target, account, mediaPath: '/v.mp4', media: fakeMedia(), saveResume: () => {} }), (e: Error & { code?: string }) => e.code === 'facebook.maybe_posted');
+    assert.equal(calls.filter((c) => c.url.includes('/video_reels')).length, 0);
+  });
+
+  it('Instagram: a lookup refused as "rejected" is still a retry that keeps the container', async () => {
+    const { instagram } = await import('../src/providers/instagram.ts');
+    const { fetch } = mockFetch([
+      ['GET', '/C1?', () => json({ status_code: 'PUBLISHED' })],
+      ['GET', '/IG/media?', () => json({ error: { code: 80002, message: 'too many calls to this account' } }, 400)],
+    ]);
+    const env = makeCtx(fetch, () => NOW);
+    env.store.setApp('meta', { appId: 'a', appSecret: 's' });
+    env.store.saveAccount({ platform: 'instagram', name: 'main', credentials: { pageId: 'PAGE', pageToken: 'PT', igUserId: 'IG' }, profile: {} });
+    const { targets } = env.store.createPost(post(), [{ platform: 'instagram', account: 'main', options: {} }]);
+    const id = targets[0]!.id;
+    env.store.transition(id, 'uploading');
+    env.store.transition(id, 'processing', { remoteId: 'C1', resume: { containerId: 'C1', uploaded: true } });
+    const t = await step({ ctx: env.ctx, providers: new Map([['instagram', instagram]]), probe: async () => fakeMedia() }, id);
+    assert.equal(t.state, 'processing', 'still waiting, not failed');
+    assert.equal(t.remoteId, 'C1');
+    assert.equal((t.resume as { containerId?: string }).containerId, 'C1');
+  });
+
+  it('fanout retry and cancel: "--confirmed-not-posted no" with a space means no, and the platform stays the platform', () => {
+    assert.deepEqual(parseArgs(['retry', 'P', 'x', '--confirmed-not-posted', 'no']).flags['confirmed-not-posted'], 'no');
+    assert.deepEqual(parseArgs(['cancel', 'P', 'mastodon', '--confirmed-not-posted', 'no']).positionals, ['cancel', 'P', 'mastodon']);
+    assert.deepEqual(parseArgs(['retry', 'P', '--confirmed-not-posted', 'x']).positionals, ['retry', 'P', 'x']);
   });
 });
