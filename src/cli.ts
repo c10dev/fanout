@@ -358,7 +358,7 @@ const HELP = msg(`fanout — 영상 하나를 여러 플랫폼에 올리는 셀�
 post 공통 옵션
   --description 텍스트 | --description-file 파일   --tags a,b,c
   --first-comment 텍스트 (게시 뒤 같은 계정으로 첫 댓글: YouTube·Instagram·Facebook·X)
-  --thumbnail 이미지 | --thumbnail-at 12.5 (그 장면을 썸네일로, Instagram·TikTok 커버도 같은 장면)   --caption ko:subs.srt (여러 번)   --ai (AI 생성·합성 콘텐츠 표시: YouTube·TikTok·Instagram·X)
+  --thumbnail 이미지 | --thumbnail-at 12.5 (그 장면을 썸네일로, Instagram·TikTok 커버도 같은 장면)   --caption ko:subs.srt (여러 번)   --ai (AI 생성·합성 콘텐츠 표시: YouTube·TikTok·Instagram·Facebook·X)
   --paid-partnership yes (유료 파트너십·광고 표시: X·TikTok(direct)·Instagram·YouTube(유료 PPL))
   --vertical pad|crop (가로 영상을 세로 9:16으로: TikTok·Instagram·Facebook — pad는 흐린 배경, crop은 가운데)
   --at 2026-10-20T09:00:00+09:00 (예약)   --yes (확인 생략)   --no-wait

@@ -48,6 +48,8 @@ async function finishReel(ctx: ProviderContext, pageId: string, pageToken: strin
     description: metaCaption(post, o.caption),
     title: o.title,
     place: o.placeId,
+    // Self-disclosure of AI-generated or altered content (--ai), as on Instagram.
+    is_ai_generated: post.containsSyntheticMedia ? true : undefined,
     video_state: o.draft ? 'DRAFT' : post.scheduledAt ? 'SCHEDULED' : 'PUBLISHED',
     scheduled_publish_time: post.scheduledAt && !o.draft ? Math.floor(new Date(post.scheduledAt).getTime() / 1000) : undefined,
     access_token: pageToken,
@@ -101,7 +103,7 @@ export const facebook: Provider = {
   scheduleMaxAheadMs: SCHEDULE_MAX_MS,
   displayName: 'Facebook Reels (Page)',
   appKey: 'meta',
-  capabilities: { nativeSchedule: true, thumbnail: true, captions: false, syntheticMediaFlag: false },
+  capabilities: { nativeSchedule: true, thumbnail: true, captions: false, syntheticMediaFlag: true },
   spec: {
     minDurationSec: 3,
     maxDurationSec: 90,
