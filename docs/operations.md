@@ -37,12 +37,12 @@ fanout notify test
 fanout notify off
 ```
 
-대시보드 설정 탭의 "알림" 카드에서도 같은 설정을 할 수 있습니다(127.0.0.1 전용).
+대시보드 설정 → 일반의 "알림"에서도 같은 설정을 할 수 있습니다(127.0.0.1 전용).
 
 - Slack·Discord webhook 주소는 알아보고 그 형식으로 보냅니다. 그 밖의 주소에는 상태 변경이면 `{ event: "target.state", state, platform, account, postId, targetId, title, url, error, text }`, 게시물 경고면 `{ event: "alert", platform, account, postId, targetId, title, url, alert, text }`, 로그인 만료 예정이면 `{ event: "expiring", platform, account, expiresAt, text }` JSON을 보냅니다.
 - 기본으로 알리는 것: 게시됨, 앱에서 마무리 필요(TikTok 수신함), 실패, 재연결 필요, 그리고 `alert`(게시된 뒤 생긴 문제, 예: Meta 저작권 검사로 음소거·차단)와 `expiring`(계정 로그인이 2주 안에 만료, 예: YouTube 동의 화면이 "Testing"이면 7일, TikTok은 약 1년). `removed`는 `--events`로 고를 때만. 예전에 기본값과 다른 목록을 직접 골라 저장했다면 `alert`·`expiring`은 다시 골라야 받습니다(대시보드가 예전 기본값 그대로 저장한 목록은 새 기본값으로 봅니다).
 - `digest`(주간 요약)는 고를 때만 보냅니다(`--events …,digest` 또는 대시보드 알림 카드). 한 주에 한 번, 그 주 첫 점검 때(작업 처리기가 몇 시간마다 돎) 최근 7일의 플랫폼별 게시물 수·조회·최고 게시물, 실패한 게시, 곧 만료되는 로그인을 기록만으로 모아 보냅니다(플랫폼 호출 없음). 주는 `FANOUT_TZ`(없으면 서버 시간대) 기준 ISO 주입니다.
-- `alert`와 `expiring`은 같은 일에 한 번만 보냅니다(만료는 재연결로 만료일이 바뀌면 다시). 만료 예정은 `fanout accounts`와 대시보드 설정 탭의 계정 옆에도 표시됩니다.
+- `alert`와 `expiring`은 같은 일에 한 번만 보냅니다(만료는 재연결로 만료일이 바뀌면 다시). 만료 예정은 `fanout accounts`와 대시보드 설정의 앱별 계정 옆에도 표시됩니다.
 - webhook 주소는 암호화해서 저장합니다. 환경 변수 `FANOUT_WEBHOOK_URL`이 있으면 그쪽을 쓰고, 이때 받을 이벤트는 `FANOUT_WEBHOOK_EVENTS=failed,digest`처럼 고릅니다(없으면 기본값).
 - 알림은 5초 안에 보내지 못하면 포기하고 경고만 남깁니다. 업로드를 막거나 늦추지 않습니다.
 

@@ -12,7 +12,7 @@
 - **조용히 실패하지 않음** — 플랫폼별 상태(`queued → transcoding → uploading → processing → published / handed_off / failed / needs_reauth`), 플랫폼 오류 코드, 재시도 횟수, 상태 전이 기록을 남깁니다.
 - **두 번 올리지 않음** — 업로드가 끊기면 이어 올리고, 응답을 잃어도 같은 게시물을 다시 만들지 않습니다. 여러 프로세스를 함께 켜 둬도 같은 작업을 동시에 잡지 않습니다. 같은 영상을 같은 계정에 다시 올리려 하면 미리 알려 줍니다.
 - **가벼운 운영** — 런타임 의존성이 없습니다. Node 24 내장 SQLite·fetch·crypto와 ffmpeg만 씁니다. Postgres·Redis·Temporal이 필요 없습니다.
-- **BYO(bring-your-own) 앱** — YouTube·TikTok 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사용자가 자기 개발자 앱을 등록합니다. `fanout setup <플랫폼>`과 대시보드 설정 탭이 단계별로 안내합니다.
+- **BYO(bring-your-own) 앱** — YouTube·TikTok 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사용자가 자기 개발자 앱을 등록합니다. `fanout setup <플랫폼>`과 대시보드 설정이 앱마다 단계별로 안내합니다.
 - **Apache-2.0** — 브라우저 자동화가 필요한 어댑터(네이버 클립 등)는 약관 위험이 코어로 번지지 않게 별도 저장소의 opt-in 플러그인으로 둡니다.
 
 ## 설치
@@ -33,7 +33,7 @@ npm 12부터 git 저장소에서 설치하는 것이 기본으로 막혀 있어 
 docker compose up -d
 ```
 
-http://127.0.0.1:8780/ 에서 대시보드가 열리고, 데이터는 `fanout-data` 볼륨에 저장됩니다. [`docker-compose.yml`](docker-compose.yml)은 포트를 호스트의 127.0.0.1에만 열고 `FANOUT_ASSUME_LOCAL=1`을 켭니다. 그래서 컨테이너 안에서도 설정 탭을 쓸 수 있습니다.
+http://127.0.0.1:8780/ 에서 대시보드가 열리고, 데이터는 `fanout-data` 볼륨에 저장됩니다. [`docker-compose.yml`](docker-compose.yml)은 포트를 호스트의 127.0.0.1에만 열고 `FANOUT_ASSUME_LOCAL=1`을 켭니다. 그래서 컨테이너 안에서도 설정을 쓸 수 있습니다.
 
 - 포트를 `0.0.0.0`이나 다른 기기에서 접속할 수 있는 주소에 열 때는 `FANOUT_ASSUME_LOCAL`을 켜지 마세요. 그때는 `FANOUT_DASHBOARD_TOKEN`이 필요합니다.
 - 대시보드가 Host 헤더를 검사하므로 호스트 포트와 컨테이너 포트를 같게 두세요.
@@ -69,7 +69,7 @@ node src/cli.ts status
 
 | 방법 | 문서 |
 |---|---|
-| 웹 대시보드: 업로드 폼, 게시 전 미리보기, 게시 현황과 반응 통계, 댓글 모아보기와 답글, 게시 후 수정·삭제, 남은 게시 한도, 설정(앱 등록·계정 연결·점검) | [docs/dashboard.md](docs/dashboard.md) |
+| 웹 대시보드: 업로드 폼과 초안, 게시 전 미리보기, 올리기 좋은 시간 추천, 게시 현황과 반응 통계, 달력, 답을 기다리는 댓글과 답글, 성과 요약, 게시 후 수정·삭제, 남은 게시 한도, 설정(앱 등록·계정 연결·점검) | [docs/dashboard.md](docs/dashboard.md) |
 | 감시 폴더: 폴더에 영상을 넣으면 정해 둔 대로 자동 게시 | [docs/watch-folder.md](docs/watch-folder.md) |
 | AI 에이전트(MCP): Claude 등이 영상 검사·미리보기·게시. Claude Code 플러그인(`/plugin marketplace add c10dev/fanout`) | [docs/mcp.md](docs/mcp.md) |
 | 플랫폼별 방식·제약·남은 한도(`fanout limits`)·실제 확인 결과·정책(YouTube 데이터 보관 포함) | [docs/platforms.md](docs/platforms.md) |
