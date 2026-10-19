@@ -474,7 +474,9 @@ TikTok 가이드라인은 client secret을 오픈소스에 넣는 것을 금지�
     try {
       const next: Account = {
         ...(stored ?? account),
+        // Over what is stored, so fanout's upkeep marks (e.g. an expiry already warned about) stay.
         credentials: {
+          ...(stored ?? account).credentials,
           ...(await tokenRequest(rotationContext(ctx), { client_key: a.clientKey, client_secret: a.clientSecret, grant_type: 'refresh_token', refresh_token: sc.refreshToken }, sc)),
         },
       };

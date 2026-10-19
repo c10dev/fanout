@@ -85,10 +85,23 @@ describe('alerts and expiring sign-ins', () => {
     assert.deepEqual([sent[0]!.event, sent[0]!.platform], ['expiring', 'youtube']);
     assert.ok(logs.some((l) => l.includes('youtube/main')));
     assert.equal(await warnExpiringAccounts(ctx, providers), 0, 'once');
+    // A refresh recomputes the expiry a few seconds later: the same one, not warned again.
+    const drifted = store.getAccount('youtube', 'main')!;
+    store.saveAccount({ ...drifted, credentials: { ...drifted.credentials, refreshTokenExpiresAt: now + 5 * 86_400_000 + 3_600_000 } });
+    assert.equal(await warnExpiringAccounts(ctx, providers), 0, 'drift is the same expiry');
     // A reconnect brings a new expiry: warned again when that one comes close.
     const a = store.getAccount('youtube', 'main')!;
     store.saveAccount({ ...a, credentials: { ...a.credentials, refreshToken: 'R2', refreshTokenExpiresAt: now + 6 * 86_400_000 } });
     assert.equal(await warnExpiringAccounts(ctx, providers), 1);
+  });
+
+  it('an old default list saved by the dashboard gets the new events; the default is saved as no list', async () => {
+    const { notifyConfig, eventsToSave, DEFAULT_EVENTS } = await import('../src/core/notify.ts');
+    const { ctx, store } = makeCtx();
+    store.setApp('notify', { url: 'https://hooks.example/x', events: ['failed', 'published', 'needs_reauth', 'handed_off'] });
+    assert.equal(notifyConfig(ctx)!.events, undefined);
+    assert.equal(eventsToSave([...DEFAULT_EVENTS]), undefined);
+    assert.deepEqual(eventsToSave(['failed']), ['failed']);
   });
 
   it('respects the events the user picked', async () => {

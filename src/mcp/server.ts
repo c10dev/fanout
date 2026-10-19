@@ -11,7 +11,7 @@ import type { Worker } from '../core/worker.ts';
 import { defaultAccountName } from '../core/inbox.ts';
 import { isShort } from '../providers/youtube.ts';
 import { signInExpiry } from '../core/accounts.ts';
-import { computeInsights } from '../core/insights.ts';
+import { computeInsights, validTimeZone } from '../core/insights.ts';
 import { currentLang, local, msg, translateDeep } from '../core/i18n.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
@@ -48,7 +48,7 @@ const TARGETS_SCHEMA = {
   description:
     'Where to post. options per platform — youtube: {privacy: "public"|"unlisted"|"private" (required), madeForKids: boolean (required), categoryId?, playlistId?, notifySubscribers?, defaultLanguage?, license?: "youtube"|"creativeCommon", embeddable?, publicStatsViewable? (extended stats), localizations?: {"en": {title, description?}} (needs defaultLanguage), recordingDate? (YYYY-MM-DD)}; ' +
     'tiktok: {mode: "inbox"|"direct", and for direct: privacyLevel (required; one the account allows — preview_post reports the allowed values, the max duration and interactions the account turned off), musicConsent: true (required), allowComment?, allowDuet?, allowStitch?, brandOrganic?, brandedContent?, caption?, coverTimestampMs? (frame used as the cover)}; ' +
-    'instagram: {caption?, shareToFeed?, thumbOffsetMs?, collaborators? (≤3 usernames), audioName?, trialReel?: "manual"|"auto" (experimental: shown to non-followers first), paidPartnership? (paid partnership label), userTags? (usernames), locationId? (Page ID with a location)}; facebook: {caption?, title?, draft? (save to the Page drafts instead of posting), collaborators? (Page IDs), placeId? (Page ID with a location)}; x: {text? (≤280 weighted; Korean counts double), paidPartnership?, replySettings?: "following"|"mentionedUsers"|"subscribers"|"verified", alt? (video description, ≤1000), tagUsers? (≤10 usernames; one billed lookup), communityId? (numeric)}; bluesky: {text? (≤300 chars), alt?, langs?}; mastodon: {visibility: "public"|"unlisted"|"private" (required), text?, alt?, language?, spoilerText?}; ' +
+    'instagram: {caption?, shareToFeed?, thumbOffsetMs?, collaborators? (≤3 usernames), audioName?, trialReel?: "manual"|"auto" (experimental: shown to non-followers first), paidPartnership? (paid partnership label), userTags? (usernames), locationId? (Page ID with a location)}; facebook: {caption?, title?, draft? (save to the Page drafts instead of posting), collaborators? (Page IDs), placeId? (Page ID with a location)}; x: {text? (≤280 weighted; Korean counts double), paidPartnership?, replySettings?: "following"|"mentionedUsers"|"subscribers"|"verified", alt? (video description, ≤1000), tagUsers? (≤10 usernames; one billed lookup), communityId? (numeric string, e.g. "1601841656147345410")}; bluesky: {text? (≤300 chars), alt?, langs?}; mastodon: {visibility: "public"|"unlisted"|"private" (required), text?, alt?, language?, spoilerText?}; ' +
     'peertube: {privacy: "public"|"unlisted"|"private"|"internal" (required), channel? (name or id; default first channel), commentsPolicy?: "enabled"|"disabled"|"approval", nsfw?, downloadEnabled?, language?}.',
   items: {
     type: 'object',
@@ -429,7 +429,8 @@ export class McpServer {
         }
       }
       case 'get_insights': {
-        const days = typeof args.days === 'number' && args.days > 0 ? args.days : 30;
+        const days = typeof args.days === 'number' && args.days > 0 ? Math.min(args.days, 365) : 30;
+        if (typeof args.timeZone === 'string' && args.timeZone && !validTimeZone(args.timeZone)) throw new ToolError(msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz: args.timeZone }));
         return { ...computeInsights(store, this.#deps.ctx.now(), { days, platform: typeof args.platform === 'string' ? args.platform : undefined, locale: currentLang() === 'en' ? 'en-US' : 'ko-KR', timeZone: typeof args.timeZone === 'string' ? args.timeZone : undefined }) };
       }
       case 'get_limits':

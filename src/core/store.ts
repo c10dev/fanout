@@ -55,6 +55,7 @@ CREATE TABLE IF NOT EXISTS targets (
   updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS targets_by_state ON targets(state);
+CREATE INDEX IF NOT EXISTS targets_by_post ON targets(post_id);
 CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   target_id TEXT NOT NULL,
@@ -63,6 +64,7 @@ CREATE TABLE IF NOT EXISTS events (
   to_state TEXT NOT NULL,
   detail TEXT
 );
+CREATE INDEX IF NOT EXISTS events_by_target ON events(target_id);
 CREATE TABLE IF NOT EXISTS stats_history (
   target_id TEXT NOT NULL,
   at TEXT NOT NULL,
@@ -526,6 +528,14 @@ export class Store {
     return Boolean(
       this.#db.prepare('SELECT 1 FROM targets WHERE platform = ? AND account = ? AND remote_id = ? AND id != ? LIMIT 1').get(platform, account, remoteId, exceptId),
     );
+  }
+
+  /** Every published target (optionally of one platform), e.g. for insights. */
+  publishedTargets(platform?: string): Target[] {
+    const rows = (platform
+      ? this.#db.prepare("SELECT * FROM targets WHERE state = 'published' AND platform = ?").all(platform)
+      : this.#db.prepare("SELECT * FROM targets WHERE state = 'published'").all()) as unknown as TargetRow[];
+    return rows.map(toTarget);
   }
 
   /** An account's targets in one state (e.g. its other hand-offs still waiting in the app). */

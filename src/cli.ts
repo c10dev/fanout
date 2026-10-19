@@ -5,7 +5,7 @@ import { homedir } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 import { fanoutHome, openContext, stderrLogger } from './core/context.ts';
 import { restoreBackup, RestoreError } from './core/restore.ts';
-import { DEFAULT_EVENTS, detectFormat, flushNotifications, KNOWN_EVENTS, notifyConfig, send, validWebhookUrl, type NotifyConfig, type NotifyEvent } from './core/notify.ts';
+import { DEFAULT_EVENTS, detectFormat, eventsToSave, flushNotifications, KNOWN_EVENTS, notifyConfig, send, validWebhookUrl, type NotifyConfig, type NotifyEvent } from './core/notify.ts';
 import { ProviderError } from './core/errors.ts';
 import { CONFIG_FILE, defaultAccountName, exampleConfig, ingest, loadWatchConfig, Scanner, watchAccount, WatchConfigError, type WatchConfig } from './core/inbox.ts';
 import { exportRows, toCsv } from './core/export.ts';
@@ -879,7 +879,8 @@ async function cmdNotify(ctx: ProviderContext, args: Args): Promise<number> {
     if (events?.some((e) => !known.includes(e))) throw new UsageError(msg('--events 는 {known} 중에서', { known: known.join(', ') }));
     const format = str(args, 'format') as NotifyConfig['format'];
     if (format && !['slack', 'discord', 'json'].includes(format)) throw new UsageError(msg('--format 은 slack, discord, json'));
-    ctx.store.setApp('notify', { url, ...(events ? { events } : {}), ...(format ? { format } : {}) });
+    const picked = events ? eventsToSave(events) : undefined;
+    ctx.store.setApp('notify', { url, ...(picked ? { events: picked } : {}), ...(format ? { format } : {}) });
     say(msg('알림을 켰습니다 ({format} 형식, {events}). fanout notify test 로 확인하세요', { format: format ?? detectFormat(url), events: (events ?? DEFAULT_EVENTS).join(', ') }));
     return 0;
   }
@@ -1030,7 +1031,7 @@ function cmdPrune(ctx: ProviderContext, args: Args): number {
 /** What performs, from the recorded stats: per platform and account, and the best time to post once there's enough. */
 function cmdInsights(ctx: ProviderContext, args: Args): number {
   const days = num(args, 'days') ?? 30;
-  if (!(days > 0)) throw new UsageError(msg('--days 는 1 이상'));
+  if (!(days > 0 && days <= 365)) throw new UsageError(msg('--days 는 1~365'));
   const tz = str(args, 'tz');
   if (tz && !validTimeZone(tz)) throw new UsageError(msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz }));
   const r = computeInsights(ctx.store, ctx.now(), { days, platform: args.positionals[1], locale: LOCALE(), timeZone: tz });

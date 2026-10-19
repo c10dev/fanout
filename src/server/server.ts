@@ -28,7 +28,7 @@ import {
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import { msg, translate, translateDeep, type Lang } from '../core/i18n.ts';
-import { DEFAULT_EVENTS, detectFormat, KNOWN_EVENTS, notifyConfig, send as sendWebhook, validWebhookUrl, type NotifyConfig, type NotifyEvent } from '../core/notify.ts';
+import { DEFAULT_EVENTS, detectFormat, eventsToSave, KNOWN_EVENTS, notifyConfig, send as sendWebhook, validWebhookUrl, type NotifyConfig, type NotifyEvent } from '../core/notify.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import type { RunnerDeps } from '../core/runner.ts';
 import { Worker } from '../core/worker.ts';
@@ -38,7 +38,7 @@ import type { PostInput, Target, TargetInput, TargetState } from '../core/types.
 import { isShort } from '../providers/youtube.ts';
 import { ACCOUNT_NAME } from '../core/store.ts';
 import { disconnectAccount, signInExpiry } from '../core/accounts.ts';
-import { computeInsights } from '../core/insights.ts';
+import { computeInsights, validTimeZone } from '../core/insights.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
 import { ASSET_RULES, type AssetKind } from '../core/assets.ts';
@@ -317,7 +317,9 @@ export class Dashboard {
     if (method === 'GET' && parts[0] === 'insights' && !parts[1]) {
       const days = Number(url.searchParams.get('days') ?? 30);
       const locale = url.searchParams.get('lang') === 'en' ? 'en-US' : 'ko-KR';
-      return send(res, 200, computeInsights(this.#opts.ctx.store, this.#opts.ctx.now(), { days: days > 0 ? Math.min(days, 365) : 30, locale, timeZone: url.searchParams.get('tz') ?? undefined }));
+      const tz = url.searchParams.get('tz') || undefined;
+      if (tz && !validTimeZone(tz)) throw new HttpError(400, msg('알 수 없는 시간대입니다: {tz} (예: Asia/Seoul)', { tz }));
+      return send(res, 200, computeInsights(this.#opts.ctx.store, this.#opts.ctx.now(), { days: days > 0 ? Math.min(days, 365) : 30, locale, timeZone: tz }));
     }
     if (method === 'GET' && parts[0] === 'limits' && !parts[1]) return send(res, 200, { accounts: await readLimits(this.#opts.ctx, this.#opts.providers, url.searchParams.get('platform') ?? undefined) });
     if (parts[0] === 'presets') return send(res, 200, await this.#presets(method, parts[1] ? decode(parts[1]) : undefined, req));
@@ -684,7 +686,8 @@ export class Dashboard {
       const events = (body.events ?? []).filter((e) => known.includes(e)) as NotifyEvent[];
       if (!events.length) throw new HttpError(400, msg('알릴 상태를 하나 이상 고르세요'));
       const format = body.format && ['slack', 'discord', 'json'].includes(body.format) ? (body.format as NotifyConfig['format']) : undefined;
-      ctx.store.setApp('notify', { url, events, ...(format ? { format } : {}) });
+      const picked = eventsToSave(events);
+      ctx.store.setApp('notify', { url, ...(picked ? { events: picked } : {}), ...(format ? { format } : {}) });
       return describe();
     }
     throw new HttpError(404, 'not found');

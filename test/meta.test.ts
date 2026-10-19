@@ -333,7 +333,7 @@ describe('M7: location tags', () => {
     assert.equal(new URLSearchParams(String(ig.calls[1]!.body)).get('location_id'), '110843418940484');
     const igCodes = (o: Record<string, unknown>) => instagram.validate(post, { ...target('instagram'), options: o }, fakeMedia({}, { width: 1080, height: 1920 })).map((i) => `${i.severity}:${i.code}`);
     assert.ok(igCodes({ locationId: 'Seoul' }).includes('error:location'));
-    assert.ok(igCodes({ locationId: '1' }).includes('warning:location'));
+    assert.ok(!igCodes({ locationId: '1' }).some((c) => c.endsWith(':location')), 'a valid ID adds no noise');
     const fbCodes = facebook.validate(post, { ...target('facebook'), options: { placeId: 'Seoul' } }, fakeMedia()).map((i) => i.code);
     assert.ok(fbCodes.includes('place'));
   });

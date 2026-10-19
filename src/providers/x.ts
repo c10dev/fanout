@@ -396,7 +396,9 @@ X API는 종량제입니다(게시 1건 약 $0.015, URL이 들어가면 약 $0.2
       }
     }
     const community = (target.options as XOptions).communityId;
-    if (community !== undefined && !/^\d{1,19}$/.test(String(community))) issues.push({ severity: 'error', code: 'community', message: msg('X 커뮤니티는 숫자 ID로 적으세요 (커뮤니티 주소의 마지막 숫자)') });
+    // A number past 2^53 has already lost digits (an agent sending JSON numbers): it would name another Community.
+    if (typeof community === 'number') issues.push({ severity: 'error', code: 'community', message: msg('X 커뮤니티 ID는 문자열("123…")로 보내세요 — 긴 숫자는 끝자리가 바뀝니다') });
+    else if (community !== undefined && !/^\d{1,19}$/.test(String(community))) issues.push({ severity: 'error', code: 'community', message: msg('X 커뮤니티는 숫자 ID로 적으세요 (커뮤니티 주소의 마지막 숫자)') });
     const tags = tagNames(target.options as XOptions);
     if (tags.length > TAG_MAX) issues.push({ severity: 'error', code: 'tag_users', message: msg('X 사람 태그는 {max}명까지', { max: TAG_MAX }) });
     const badTags = tags.filter((u) => !X_USERNAME.test(u));

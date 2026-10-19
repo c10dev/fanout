@@ -99,16 +99,19 @@ export function computeInsights(store: Store, now: Date, opts: { days?: number; 
   const hoursLabel = (h: number) => `${String(h).padStart(2, '0')}:00–${String(h + 3).padStart(2, '0')}:00`;
 
   const groups = new Map<string, { platform: string; account: string; items: Array<{ t: Target; title: string; postedAt: number }> }>();
-  for (const post of store.listPosts(100_000)) {
-    for (const t of store.targetsForPost(post.id)) {
-      if (t.state !== 'published' || (opts.platform && t.platform !== opts.platform)) continue;
-      const postedAt = (store.stateSince(t.id, 'published') ?? new Date(post.scheduledAt ?? post.createdAt)).getTime();
-      if (postedAt < since.getTime() || postedAt > now.getTime()) continue;
-      const key = `${t.platform}/${t.account}`;
-      const g = groups.get(key) ?? { platform: t.platform, account: t.account, items: [] };
-      g.items.push({ t, title: post.title, postedAt });
-      groups.set(key, g);
-    }
+  const posts = new Map<string, ReturnType<Store['getPost']>>();
+  for (const t of store.publishedTargets(opts.platform)) {
+    if (!posts.has(t.postId)) posts.set(t.postId, store.getPost(t.postId));
+    const post = posts.get(t.postId);
+    if (!post) continue;
+    // When it went public: a native schedule uploads early and goes public at scheduledAt.
+    const published = (store.stateSince(t.id, 'published') ?? new Date(post.createdAt)).getTime();
+    const postedAt = Math.max(published, post.scheduledAt ? Date.parse(post.scheduledAt) : 0);
+    if (postedAt < since.getTime() || postedAt > now.getTime()) continue;
+    const key = `${t.platform}/${t.account}`;
+    const g = groups.get(key) ?? { platform: t.platform, account: t.account, items: [] };
+    g.items.push({ t, title: post.title, postedAt });
+    groups.set(key, g);
   }
 
   const out: InsightGroup[] = [];

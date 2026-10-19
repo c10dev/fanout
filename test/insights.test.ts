@@ -54,6 +54,19 @@ describe('insights', () => {
     assert.equal(g.top[0]!.title.startsWith('mon'), true, 'totals still rank the top posts');
   });
 
+  it('a natively scheduled post counts from when it goes public, and not before', () => {
+    let clock = Date.parse('2026-09-07T00:00:00Z'); // uploaded Monday
+    const env = makeCtx(undefined, () => new Date(clock));
+    const goesPublic = '2026-09-11T10:00:00.000Z'; // Friday 19:00 in Seoul
+    const { targets } = env.store.createPost({ ...POST('sched'), scheduledAt: goesPublic }, [{ platform: 'youtube', account: 'main', options: {} }]);
+    env.store.transition(targets[0]!.id, 'uploading');
+    env.store.transition(targets[0]!.id, 'published', { remoteId: 'S' });
+    env.store.saveStats(targets[0]!.id, { fetchedAt: '2026-09-08T00:00:00Z', views: 0 });
+    assert.equal(computeInsights(env.store, new Date('2026-09-10T00:00:00Z'), { days: 30 }).groups.length, 0, 'not public yet');
+    clock = Date.parse('2026-09-20T00:00:00Z');
+    assert.equal(computeInsights(env.store, new Date(clock), { days: 30 }).groups[0]!.posts, 1);
+  });
+
   it('keeps to the window and the platform asked for', () => {
     const { env, publish } = setup();
     const t = Date.parse('2026-09-10T00:00:00Z');
