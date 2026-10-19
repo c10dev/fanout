@@ -30,7 +30,7 @@ import { disconnectAccount, signInExpiry, verifyDueAccounts } from './core/accou
 import { computeCalendar } from './core/calendar.ts';
 import { computeInsights, validTimeZone } from './core/insights.ts';
 import { suggestTimes } from './core/slots.ts';
-import { retryFirstComment } from './core/followup.ts';
+import { postDueFirstComments, retryFirstComment } from './core/followup.ts';
 
 // ── Arg parsing ─────────────────────────────────────────────────────
 
@@ -549,6 +549,7 @@ async function cmdPost(ctx: ProviderContext, deps: RunnerDeps, args: Args): Prom
 
   const due = ctx.store.targetsForPost(post.id).filter((t) => !t.notBefore || new Date(t.notBefore) <= ctx.now());
   await settle(deps, due.map((t) => t.id), settleOpts(ctx));
+  await firstComments(ctx, deps);
   printPost(ctx, post);
   const after = ctx.store.targetsForPost(post.id);
   if (after.some((t) => t.notBefore && t.state === 'queued')) say(msg('\n예약된 대상이 있습니다. 예약 시각에 올리려면 fanout worker 를 켜 두세요.'));
@@ -587,6 +588,7 @@ async function cmdAdd(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promi
   if (args.flags['no-wait']) return 0;
   const due = created.filter((t) => !t.notBefore || new Date(t.notBefore) <= ctx.now());
   await settle(deps, due.map((t) => t.id), settleOpts(ctx));
+  await firstComments(ctx, deps);
   printPost(ctx, post);
   return ctx.store.targetsForPost(post.id).some((t) => created.some((c) => c.id === t.id) && (t.state === 'failed' || t.state === 'needs_reauth')) ? 1 : 0;
 }
@@ -594,10 +596,13 @@ async function cmdAdd(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promi
 async function cmdRun(ctx: ProviderContext, deps: RunnerDeps): Promise<number> {
   const ids = ctx.store.workableTargets().map((t) => t.id);
   if (!ids.length) {
+    // Nothing to upload, but a published video may still be waiting for its first comment.
+    await firstComments(ctx, deps);
     say(msg('처리할 작업 없음'));
     return 0;
   }
   const done = await settle(deps, ids, settleOpts(ctx));
+  await firstComments(ctx, deps);
   const postIds = [...new Set(done.map((t) => t.postId))];
   for (const id of postIds) printPost(ctx, ctx.store.getPost(id)!);
   return done.some((t) => t.state === 'failed' || t.state === 'needs_reauth') ? 1 : 0;
@@ -632,6 +637,7 @@ async function cmdWorker(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pr
     }
     const ids = ctx.store.workableTargets().map((t) => t.id);
     if (ids.length) await settle(deps, ids, { ...settleOpts(ctx), timeoutMs: interval });
+    await firstComments(ctx, deps);
     await new Promise((r) => setTimeout(r, interval));
   }
 }
@@ -728,6 +734,7 @@ async function cmdWatch(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     const ids = ctx.store.workableTargets().map((t) => t.id);
     if (ids.length) await settle(deps, ids, { ...settleOpts(ctx), timeoutMs: interval });
     else await new Promise((r) => setTimeout(r, interval));
+    await firstComments(ctx, deps);
   }
   return 0;
 }
@@ -1211,6 +1218,14 @@ function cliFirstComment(value: string | undefined): { firstComment?: string } {
   return { firstComment: text };
 }
 
+/**
+ * First comments of targets just published. The dashboard's and MCP's worker do this on their own;
+ * the CLI's own loops (post, add, run, retry, worker, watch) do it here, after their uploads settle.
+ */
+async function firstComments(ctx: ProviderContext, deps: RunnerDeps): Promise<void> {
+  await postDueFirstComments(ctx, deps.providers).catch((err: unknown) => ctx.log.warn(`first comment: ${String(err)}`));
+}
+
 /** Post a published target's first comment again: fanout first-comment <postId> <platform> [--account] [--not-posted]. */
 async function cmdFirstComment(ctx: ProviderContext, deps: RunnerDeps, args: Args): Promise<number> {
   const post = args.positionals[1] ? ctx.store.findPost(args.positionals[1]) : undefined;
@@ -1247,6 +1262,7 @@ async function cmdRetry(ctx: ProviderContext, deps: RunnerDeps, args: Args): Pro
     return 0;
   }
   await settle(deps, ids, settleOpts(ctx));
+  await firstComments(ctx, deps);
   printPost(ctx, post);
   return 0;
 }
