@@ -878,6 +878,10 @@ YouTube API 정책상 오픈소스에 API 자격증명을 넣을 수 없어, 사
     return outcomeFor(video, post, options(target), short);
   },
 
+  signInExpiresAt(account) {
+    return creds(account).refreshTokenExpiresAt;
+  },
+
   async doctor({ ctx, account, live }): Promise<DoctorCheck[]> {
     const checks: DoctorCheck[] = [];
     try {

@@ -1557,7 +1557,7 @@ function accountRow(p, a) {
   const row = h(
     'div',
     { class: 'acct' },
-    h('span', { class: 'acct-name' }, `${a.label}`, h('span', { class: 'muted' }, `  ${p.id}/${a.name}`)),
+    h('span', { class: 'acct-name' }, `${a.label}`, h('span', { class: 'muted' }, `  ${p.id}/${a.name}`), a.expiresSoon ? h('span', { class: 'err' }, `  ⚠ ${tr('로그인 만료 {when} — 다시 연결하세요', { when: fmtTime(a.signInExpiresAt) })}`) : null),
     h('button', { class: 'small', type: 'button', onclick: () => run(false) }, tr('점검')),
     LIVE_NOTICE[p.id] ? h('button', { class: 'small', type: 'button', onclick: () => run(true) }, tr('실제 업로드로 점검')) : null,
     h(
@@ -1637,6 +1637,8 @@ const NOTIFY_EVENTS = [
   ['failed', tr('실패')],
   ['needs_reauth', tr('재연결 필요')],
   ['removed', tr('삭제됨')],
+  ['alert', tr('게시물 경고 (저작권 차단 등)')],
+  ['expiring', tr('로그인 만료 예정')],
 ];
 
 /** Links from platform responses are only followed when they are web links (never javascript:). */

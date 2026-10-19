@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { refreshStats } from '../src/core/posting.ts';
 import { refreshDueStats } from '../src/core/stats.ts';
+import { flushNotifications } from '../src/core/notify.ts';
 import type { Account } from '../src/core/store.ts';
 import type { PostInput, Target } from '../src/core/types.ts';
 import { providerMap } from '../src/providers/index.ts';
@@ -385,9 +386,11 @@ describe('Meta copyright check after publish', () => {
     const { fetch, calls } = mockFetch([
       ['GET', 'copyright_check_information', () => json(info)],
       ['GET', '/R?', () => json({ likes: { summary: { total_count: 4 } }, comments: { summary: { total_count: 1 } } })],
+      ['POST', 'hooks.example', () => json({})],
     ]);
     const { ctx, store } = makeCtx(fetch, () => NOW);
     store.setApp('meta', { appId: 'a', appSecret: 's' });
+    store.setApp('notify', { url: 'https://hooks.example/x' });
     store.saveAccount({ platform: 'facebook', name: 'main', credentials: { pageToken: 'PT', pageId: 'P' }, profile: {} });
     const { post, targets } = store.createPost(POST, [{ platform: 'facebook', account: 'main', options: {} }]);
     store.transition(targets[0]!.id, 'uploading');
@@ -402,6 +405,9 @@ describe('Meta copyright check after publish', () => {
     await read();
     assert.equal(calls.filter((c) => c.url.includes('copyright_check_information')).length, before, 'finished: not asked again');
     assert.equal(store.getTarget(targets[0]!.id)!.warnings.length, 2, 'not repeated');
+    await flushNotifications();
+    const hooks = calls.filter((c) => c.url.includes('hooks.example')).map((c) => JSON.parse(String(c.body)));
+    assert.deepEqual(hooks.map((h) => h.event), ['alert', 'alert'], 'one notification per alert, once');
   });
 
   it('a clear check and an unreadable field cost nothing', async () => {

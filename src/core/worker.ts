@@ -1,7 +1,7 @@
 import { refreshStats } from './posting.ts';
 import { settle, type RunnerDeps } from './runner.ts';
 import { refreshDueStats } from './stats.ts';
-import { verifyDueAccounts } from './accounts.ts';
+import { verifyDueAccounts, warnExpiringAccounts } from './accounts.ts';
 
 export const DEFAULT_STATS_EVERY_MS = 6 * 3600_000;
 const STATS_CHECK_MS = 30 * 60_000;
@@ -86,6 +86,10 @@ export class Worker {
     if (this.#upkeepRun) return this.#upkeepRun;
     const { ctx, providers } = this.#deps;
     this.#upkeepRun = verifyDueAccounts(ctx, providers)
+      .then(async (n) => {
+        await warnExpiringAccounts(ctx, providers);
+        return n;
+      })
       .catch((err: unknown) => {
         ctx.log.warn(`verify: ${String(err)}`);
         return 0;

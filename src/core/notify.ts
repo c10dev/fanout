@@ -7,13 +7,17 @@ import { msg } from './i18n.ts';
  * silently. Slack and Discord incoming webhooks get their own payload shape; anything else gets
  * plain JSON.
  */
+/** A target's new state, or: `alert` (something wrong with a published post, e.g. a copyright block), `expiring` (a sign-in about to end). */
+export type NotifyEvent = TargetState | 'alert' | 'expiring';
+
 export interface NotifyConfig {
   url: string;
-  events?: TargetState[];
+  events?: NotifyEvent[];
   format?: 'slack' | 'discord' | 'json';
 }
 
-export const DEFAULT_EVENTS: readonly TargetState[] = ['published', 'handed_off', 'failed', 'needs_reauth'];
+export const DEFAULT_EVENTS: readonly NotifyEvent[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'alert', 'expiring'];
+export const KNOWN_EVENTS: readonly NotifyEvent[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed', 'alert', 'expiring'];
 const TIMEOUT_MS = 5_000;
 const pending = new Set<Promise<unknown>>();
 
@@ -96,6 +100,17 @@ export function attachNotifier(ctx: ProviderContext): void {
     pending.add(job);
     void job.finally(() => pending.delete(job));
   });
+}
+
+/** One notification about something other than a state change (an alert, an expiring sign-in), if enabled. */
+export function notifyEvent(ctx: ProviderContext, event: 'alert' | 'expiring', text: string, data: Record<string, unknown>): void {
+  const config = notifyConfig(ctx);
+  if (!config || !(config.events ?? DEFAULT_EVENTS).includes(event)) return;
+  const format = config.format ?? detectFormat(config.url);
+  const body = format === 'slack' ? { text } : format === 'discord' ? { content: text.slice(0, 2000) } : { event, ...data, text };
+  const job = send(ctx, config, body).catch((err: unknown) => ctx.log.warn(msg('알림 전송 실패: {err}', { err: err instanceof Error ? err.message : String(err) })));
+  pending.add(job);
+  void job.finally(() => pending.delete(job));
 }
 
 /** Let in-flight notifications finish before a short-lived command exits. */

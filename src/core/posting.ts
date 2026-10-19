@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { ProviderError } from './errors.ts';
 import { isStaleOwner } from './lease.ts';
 import { checkMedia, type MediaInfo, type Violation } from './media.ts';
+import { notifyEvent } from './notify.ts';
 import { isTerminal } from './state.ts';
 import type { Provider, ProviderContext } from './provider.ts';
 import type { Store } from './store.ts';
@@ -317,7 +318,11 @@ export async function refreshStats(
     const fresh = (stats.alerts ?? []).filter((a) => !t.warnings.includes(a));
     if (fresh.length) {
       ctx.store.updateTarget(t.id, { warnings: [...t.warnings, ...fresh] });
-      for (const a of fresh) ctx.log.warn(`${t.platform}/${t.account}: ${a}`);
+      const title = ctx.store.getPost(t.postId)?.title ?? t.postId;
+      for (const a of fresh) {
+        ctx.log.warn(`${t.platform}/${t.account}: ${a}`);
+        notifyEvent(ctx, 'alert', `⚠️ ${t.platform}/${t.account} "${title}": ${a}${t.remoteUrl ? `\n${t.remoteUrl}` : ''}`, { platform: t.platform, account: t.account, postId: t.postId, targetId: t.id, url: t.remoteUrl, alert: a });
+      }
     }
     out.push({ ...base, stats, trend: statsTrend(ctx.store, t.id, ctx.now()) });
   }

@@ -10,6 +10,7 @@ import type { CaptionFile, PostInput, Target, TargetInput } from '../core/types.
 import type { Worker } from '../core/worker.ts';
 import { defaultAccountName } from '../core/inbox.ts';
 import { isShort } from '../providers/youtube.ts';
+import { signInExpiry } from '../core/accounts.ts';
 import { currentLang, local, msg, translateDeep } from '../core/i18n.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
@@ -318,7 +319,11 @@ export class McpServer {
             name: p.displayName,
             appConfigured: appReady(store, p),
             capabilities: p.capabilities,
-            accounts: accounts.filter((a) => a.platform === p.id).map((a) => ({ name: a.name, label: accountLabel(a.profile, a.name) })),
+            accounts: accounts.filter((a) => a.platform === p.id).map((a) => {
+          // When the sign-in itself ends (refresh token lifetime), so a reconnect can come first.
+          const expiry = signInExpiry(this.#deps.ctx, providers, a.platform, a.name);
+          return { name: a.name, label: accountLabel(a.profile, a.name), ...(expiry ? { signInExpiresAt: new Date(expiry.expiresAt).toISOString(), expiresSoon: expiry.soon } : {}) };
+        }),
           })),
         };
       }

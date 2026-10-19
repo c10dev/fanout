@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { attachNotifier, detectFormat, flushNotifications, messageFor, payloadFor } from '../src/core/notify.ts';
+import { attachNotifier, detectFormat, flushNotifications, messageFor, notifyEvent, payloadFor } from '../src/core/notify.ts';
 import type { PostInput } from '../src/core/types.ts';
 import { json, makeCtx, mockFetch } from './helpers.ts';
 
@@ -60,5 +60,43 @@ describe('notifications', () => {
     }
     assert.equal(calls.length, 1);
     assert.equal((JSON.parse(String(calls[0]!.body)) as { state: string }).state, 'failed');
+  });
+});
+
+describe('alerts and expiring sign-ins', () => {
+  it('warns once per expiry, by log and webhook, and again only after a new grant', async () => {
+    const { warnExpiringAccounts, signInExpiry } = await import('../src/core/accounts.ts');
+    const { providerMap } = await import('../src/providers/index.ts');
+    const sent: Array<Record<string, unknown>> = [];
+    const { fetch } = mockFetch([['POST', 'hooks.example', (c) => {
+      sent.push(JSON.parse(String(c.body)));
+      return json({});
+    }]]);
+    const now = Date.parse('2026-10-19T00:00:00Z');
+    const { ctx, store, logs } = makeCtx(fetch, () => new Date(now));
+    store.setApp('notify', { url: 'https://hooks.example/x' });
+    store.saveAccount({ platform: 'youtube', name: 'main', credentials: { accessToken: 'A', refreshToken: 'R1', expiresAt: now, refreshTokenExpiresAt: now + 5 * 86_400_000 }, profile: {} });
+    store.saveAccount({ platform: 'tiktok', name: 'main', credentials: { accessToken: 'A', refreshToken: 'T', expiresAt: now, refreshExpiresAt: now + 300 * 86_400_000 }, profile: {} });
+    const providers = providerMap();
+    assert.equal(signInExpiry(ctx, providers, 'tiktok', 'main')!.soon, false);
+    assert.equal(await warnExpiringAccounts(ctx, providers), 1);
+    await flushNotifications();
+    assert.equal(sent.length, 1);
+    assert.deepEqual([sent[0]!.event, sent[0]!.platform], ['expiring', 'youtube']);
+    assert.ok(logs.some((l) => l.includes('youtube/main')));
+    assert.equal(await warnExpiringAccounts(ctx, providers), 0, 'once');
+    // A reconnect brings a new expiry: warned again when that one comes close.
+    const a = store.getAccount('youtube', 'main')!;
+    store.saveAccount({ ...a, credentials: { ...a.credentials, refreshToken: 'R2', refreshTokenExpiresAt: now + 6 * 86_400_000 } });
+    assert.equal(await warnExpiringAccounts(ctx, providers), 1);
+  });
+
+  it('respects the events the user picked', async () => {
+    const { fetch, calls } = mockFetch([['POST', 'hooks.example', () => json({})]]);
+    const { ctx, store } = makeCtx(fetch);
+    store.setApp('notify', { url: 'https://hooks.example/x', events: ['failed'] });
+    notifyEvent(ctx, 'alert', 'x', {});
+    await flushNotifications();
+    assert.equal(calls.length, 0);
   });
 });

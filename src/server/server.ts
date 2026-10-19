@@ -28,7 +28,7 @@ import {
 import { applyPrune, formatBytes, planPrune } from '../core/prune.ts';
 import { ProviderError } from '../core/errors.ts';
 import { msg, translate, translateDeep, type Lang } from '../core/i18n.ts';
-import { DEFAULT_EVENTS, detectFormat, notifyConfig, send as sendWebhook, validWebhookUrl, type NotifyConfig } from '../core/notify.ts';
+import { DEFAULT_EVENTS, detectFormat, KNOWN_EVENTS, notifyConfig, send as sendWebhook, validWebhookUrl, type NotifyConfig, type NotifyEvent } from '../core/notify.ts';
 import type { Provider, ProviderContext } from '../core/provider.ts';
 import type { RunnerDeps } from '../core/runner.ts';
 import { Worker } from '../core/worker.ts';
@@ -37,7 +37,7 @@ import { statsTrend } from '../core/stats.ts';
 import type { PostInput, Target, TargetInput, TargetState } from '../core/types.ts';
 import { isShort } from '../providers/youtube.ts';
 import { ACCOUNT_NAME } from '../core/store.ts';
-import { disconnectAccount } from '../core/accounts.ts';
+import { disconnectAccount, signInExpiry } from '../core/accounts.ts';
 import { readLimits } from '../core/limits.ts';
 import { addLiveChecks } from '../core/livepreview.ts';
 import { ASSET_RULES, type AssetKind } from '../core/assets.ts';
@@ -511,7 +511,11 @@ export class Dashboard {
         connectMethod: p.connectMethod,
         connectFields: p.connectMethod === 'token' ? (p.connectFields ?? DEFAULT_CONNECT_FIELDS) : undefined,
         redirectUri: p.connectMethod === 'oauth' ? this.#redirectUri(req, p.id) : undefined,
-        accounts: accounts.filter((a) => a.platform === p.id).map((a) => ({ name: a.name, label: accountLabel(a.profile, a.name) })),
+        accounts: accounts.filter((a) => a.platform === p.id).map((a) => {
+          // When the sign-in itself ends (refresh token lifetime), so a reconnect can come first.
+          const expiry = signInExpiry(this.#opts.ctx, this.#opts.providers, a.platform, a.name);
+          return { name: a.name, label: accountLabel(a.profile, a.name), ...(expiry ? { signInExpiresAt: new Date(expiry.expiresAt).toISOString(), expiresSoon: expiry.soon } : {}) };
+        }),
       })),
     };
   }
@@ -670,8 +674,8 @@ export class Dashboard {
       const saved = ctx.store.getApp<NotifyConfig>('notify') ?? ({} as Partial<NotifyConfig>);
       const url = body.url?.trim() || saved.url;
       if (!url || !validWebhookUrl(url)) throw new HttpError(400, msg('올바른 https:// webhook 주소를 넣으세요'));
-      const known: readonly string[] = ['published', 'handed_off', 'failed', 'needs_reauth', 'removed'];
-      const events = (body.events ?? []).filter((e) => known.includes(e)) as TargetState[];
+      const known: readonly string[] = KNOWN_EVENTS;
+      const events = (body.events ?? []).filter((e) => known.includes(e)) as NotifyEvent[];
       if (!events.length) throw new HttpError(400, msg('알릴 상태를 하나 이상 고르세요'));
       const format = body.format && ['slack', 'discord', 'json'].includes(body.format) ? (body.format as NotifyConfig['format']) : undefined;
       ctx.store.setApp('notify', { url, events, ...(format ? { format } : {}) });
