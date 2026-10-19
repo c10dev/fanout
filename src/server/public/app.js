@@ -1143,7 +1143,7 @@ async function post(form) {
 
 const fmtNum = (n) => (n === undefined || n === null ? '-' : Number(n).toLocaleString(LOCALE));
 
-function statsLine(st, trend) {
+function statsLine(st, trend, series) {
   const parts = [
     [tr('조회'), st.views, trend?.views],
     [tr('좋아요'), st.likes, trend?.likes],
@@ -1161,10 +1161,44 @@ function statsLine(st, trend) {
     'div',
     { class: 'stats', title: [trend ? tr('+/- 숫자: {time} 이후 변화', { time: fmtTime(trend.since) }) : '', st.note ?? ''].filter(Boolean).join('\n') },
     parts.map(([k, v, d]) => h('span', {}, `${k} `, h('strong', {}, fmtNum(v)), delta(d))),
+    sparkline(series),
     watch ? h('span', { title: st.watchTimeSec ? tr('총 시청 {h}시간', { h: fmtNum(Math.round(st.watchTimeSec / 360) / 10) }) : '' }, watch) : null,
     h('span', { class: 'muted' }, ` · ${tr('{time} 기준', { time: fmtTime(st.fetchedAt) })}`),
     st.note && !parts.length ? h('span', { class: 'muted' }, ` · ${st.note}`) : null,
   );
+}
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** Views over the recorded readings as a small line, with the same in words for screen readers. */
+function sparkline(series) {
+  if (!series || series.length < 2) return null;
+  const W = 96;
+  const H = 24;
+  const values = series.map((p) => p.views);
+  const min = Math.min(...values);
+  const span = Math.max(...values) - min || 1;
+  const t0 = Date.parse(series[0].at);
+  const tspan = Date.parse(series.at(-1).at) - t0 || 1;
+  const points = series.map((p) => `${(((Date.parse(p.at) - t0) / tspan) * (W - 2) + 1).toFixed(1)},${(H - 2 - ((p.views - min) / span) * (H - 4)).toFixed(1)}`).join(' ');
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width', W);
+  svg.setAttribute('height', H);
+  svg.setAttribute('class', 'spark');
+  svg.setAttribute('role', 'img');
+  const label = tr('조회 추이: {from} ({start}) → {to} ({end})', { from: fmtNum(values[0]), start: fmtTime(series[0].at), to: fmtNum(values.at(-1)), end: fmtTime(series.at(-1).at) });
+  svg.setAttribute('aria-label', label);
+  const title = document.createElementNS(SVG_NS, 'title');
+  title.textContent = label;
+  const line = document.createElementNS(SVG_NS, 'polyline');
+  line.setAttribute('points', points);
+  line.setAttribute('fill', 'none');
+  line.setAttribute('stroke', 'currentColor');
+  line.setAttribute('stroke-width', '1.5');
+  line.setAttribute('stroke-linejoin', 'round');
+  svg.append(title, line);
+  return svg;
 }
 
 function targetRow(t) {
@@ -1175,7 +1209,7 @@ function targetRow(t) {
   if (t.errorCode) detail.append(h('div', { class: 'err' }, `${t.errorCode}: ${t.errorMessage ?? ''}`));
   for (const w of t.warnings) detail.append(h('div', { class: 'warnline' }, `⚠ ${w}`));
   if (t.attempts > 1) detail.append(h('div', { class: 'muted' }, tr('시도 {n}회', { n: t.attempts })));
-  if (t.stats) detail.append(statsLine(t.stats, t.trend));
+  if (t.stats) detail.append(statsLine(t.stats, t.trend, t.viewsSeries));
   if (t.state === 'published' && t.statsCost) {
     detail.append(
       h(
