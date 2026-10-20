@@ -32,7 +32,7 @@ v0.1.0 태그 뒤 `main`에 들어온 것입니다. PR마다 여기에 한 줄�
 - MCP `create_post`가 같은 서버에서 같은 인자로 만든 `preview_post`의 `previewId`를 요구함(30분 안, 한 번만, 영상·썸네일·자막은 내용으로 비교). `add_to_post`는 `dryRun: true` 결과의 `previewId`를 요구하고, 그 뒤 게시물 글이 바뀌면 거절함. `update_post`는 아직 올라가지 않은 대상이 있으면 자기 `dryRun: true`의 `previewId`를 요구함. 플러그인은 이 검사가 없는 옛 fanout이면 서버를 띄우지 않고 업데이트를 안내함. `create_post`를 바로 부르던 자동화는 미리보기를 먼저 하거나 `fanout mcp --post-without-preview`(또는 `FANOUT_MCP_POST_WITHOUT_PREVIEW=1`)로 검사를 꺼야 함. `fanout mcp`는 모르는 낱말(예: `--post-without-preview off`)을 받으면 오류로 멈춤(#273)
 - MCP 도구 표시: `preview_post`는 플랫폼에 묻는 도구(`openWorldHint`), `update_post`·`cancel_target`은 되돌릴 수 없는 도구(`destructiveHint`)로 고침(#273)
 - GitHub에서 설치한 fanout(`npm install -g --allow-git=all github:c10dev/fanout`)도 `fanout version`에 커밋을 보여 줌(#273)
-- `fanout mcp`가 표준 입력이 닫힌 뒤에도 응답을 모두 쓰고 나서 끝남. 전에는 출력을 파이프로 받을 때 파이프가 한 번에 받는 양(보통 64 KiB, 적으면 8 KiB)을 넘는 부분을 버려서, 표준 입력을 먼저 닫는 스크립트·테스트에서 `tools/list` 같은 긴 응답이 잘렸음. 표준 입력을 열어 두는 Claude Code는 영향 없음
+- `fanout mcp`가 표준 입력이 닫힌 뒤에도 응답을 모두 쓰고 나서 끝남. 전에는 출력을 파이프로 받을 때 파이프가 한 번에 받는 양(보통 64 KiB, 적으면 8 KiB)을 넘는 부분을 버려서, 표준 입력을 먼저 닫는 스크립트·테스트에서 `tools/list` 같은 긴 응답이 잘렸음. 표준 입력을 열어 두는 Claude Code는 영향 없음(#274)
 
 ## 0.1.0 (2026-10-19)
 
