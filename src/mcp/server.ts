@@ -860,28 +860,36 @@ function publicTarget(t: Target) {
   };
 }
 
-/** Serve MCP over newline-delimited JSON on stdin/stdout. Resolves when input closes. */
+/**
+ * Serve MCP over newline-delimited JSON on stdin/stdout. Resolves when input closes and every
+ * response has gone to the OS, so the caller can exit at once.
+ */
 export async function serveStdio(server: McpServer, input: Readable = process.stdin, output: Writable = process.stdout): Promise<void> {
   const rl = createInterface({ input, crlfDelay: Infinity });
   const pending = new Set<Promise<void>>();
+  const track = (job: Promise<void>) => {
+    pending.add(job);
+    void job.finally(() => pending.delete(job));
+  };
+  // A pipe takes only what fits in its buffer at once; the rest stays queued here, and
+  // process.exit drops it. The write callback comes when the line has gone (or failed, e.g. EPIPE).
+  const send = (res: unknown) => new Promise<void>((done) => output.write(`${JSON.stringify(res)}\n`, () => done()));
   for await (const line of rl) {
     if (!line.trim()) continue;
     let msg: unknown;
     try {
       msg = JSON.parse(line);
     } catch {
-      output.write(`${JSON.stringify({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } })}\n`);
+      track(send({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }));
       continue;
     }
     // Requests run concurrently (a long check_video must not block ping); responses carry their id.
-    const job = server
-      .handle(msg)
-      .then((res) => {
-        if (res) output.write(`${JSON.stringify(res)}\n`);
-      })
-      .catch((err: unknown) => console.error(`mcp: ${err instanceof Error ? err.message : String(err)}`));
-    pending.add(job);
-    void job.finally(() => pending.delete(job));
+    track(
+      server
+        .handle(msg)
+        .then((res) => (res ? send(res) : undefined))
+        .catch((err: unknown) => console.error(`mcp: ${err instanceof Error ? err.message : String(err)}`)),
+    );
   }
   await Promise.all(pending);
 }
