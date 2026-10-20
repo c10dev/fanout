@@ -3,10 +3,11 @@ import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable, Writable } from 'node:stream';
 import { describe, it } from 'node:test';
 import { mcpRoots } from '../src/cli.ts';
 import { makeTestClip } from '../src/core/media.ts';
-import { McpServer } from '../src/mcp/server.ts';
+import { McpServer, serveStdio } from '../src/mcp/server.ts';
 import { providerMap } from '../src/providers/index.ts';
 import { fakeMedia, makeCtx } from './helpers.ts';
 
@@ -317,6 +318,41 @@ describe('MCP server', () => {
     const lines = out.trim().split('\n').map((l) => JSON.parse(l) as { id: number | null; error?: { code: number } });
     assert.deepEqual(lines.map((l) => l.id).sort(), [1, 2, null].sort());
     assert.equal(lines.find((l) => l.id === null)?.error?.code, -32700);
+  });
+
+  it('resolves serveStdio only after every response has gone out', async () => {
+    const { mcp } = server();
+    let written = '';
+    // Like a full pipe: each line goes out a moment after write() returns.
+    const output = new Writable({
+      write(chunk, _encoding, done) {
+        setTimeout(() => {
+          written += chunk;
+          done();
+        }, 20);
+      },
+    });
+    await serveStdio(mcp, Readable.from(['{"jsonrpc":"2.0","id":1,"method":"tools/list"}\nnot json\n{"jsonrpc":"2.0","id":2,"method":"ping"}\n']), output);
+    assert.deepEqual(written.trim().split('\n').map((l) => (JSON.parse(l) as { id: number | null }).id).sort(), [1, 2, null].sort());
+  });
+
+  it('writes every response over 8 KiB to a pipe in full before it exits', async () => {
+    // spawn's 'pipe' is a socket with a large buffer. "| cat" gives the server a real pipe (64 KiB on
+    // Linux), and the reader waits a second, so the pipe is full and some responses wait in the queue.
+    const home = mkdtempSync(join(tmpdir(), 'fanout-mcp-home-'));
+    const child = spawn('sh', ['-c', '"$0" src/cli.ts mcp | { sleep 1; exec cat; }', process.execPath], { env: { ...process.env, FANOUT_HOME: home }, stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    child.stdout.setEncoding('utf8').on('data', (d: string) => (out += d));
+    const ids = [1, 2, 3, 4, 5, 6, 7, 8];
+    child.stdin.end(ids.map((id) => `{"jsonrpc":"2.0","id":${id},"method":"tools/list"}\n`).join(''));
+    await new Promise((r) => child.on('close', r));
+    const lines = out.trim().split('\n');
+    assert.equal(lines.length, ids.length, `${Buffer.byteLength(out)} bytes arrived`);
+    const got = lines.map((l) => JSON.parse(l) as { id: number; result: { tools: unknown[] } });
+    assert.deepEqual(got.map((r) => r.id).sort((a, b) => a - b), ids);
+    assert.ok(got.every((r) => r.result.tools.length > 0));
+    assert.ok(lines.every((l) => Buffer.byteLength(l) > 8192), 'each response is over 8 KiB');
+    assert.ok(Buffer.byteLength(out) > 65_536, 'all of them are more than a pipe takes at once');
   });
 
   it('needs a preview unless started with --post-without-preview or FANOUT_MCP_POST_WITHOUT_PREVIEW=1', async () => {
