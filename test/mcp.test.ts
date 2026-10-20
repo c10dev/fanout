@@ -336,7 +336,7 @@ describe('MCP server', () => {
     assert.deepEqual(written.trim().split('\n').map((l) => (JSON.parse(l) as { id: number | null }).id).sort(), [1, 2, null].sort());
   });
 
-  it('writes every response over 8 KiB to a pipe in full before it exits', async () => {
+  it('writes every response over 8 KiB to a pipe in full before it exits', { skip: process.platform === 'win32' && 'sh pipe' }, async () => {
     // spawn's 'pipe' is a socket with a large buffer. "| cat" gives the server a real pipe (64 KiB on
     // Linux), and the reader waits a second, so the pipe is full and some responses wait in the queue.
     const home = mkdtempSync(join(tmpdir(), 'fanout-mcp-home-'));
